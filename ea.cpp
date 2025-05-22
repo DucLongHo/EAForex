@@ -1566,9 +1566,10 @@ bool isFollowFiboFun(Fibo &fibo, const MqlRates &rates[], int index, double fibo
 
 bool isCheckH1Fibo382(Fibo &fibo, MqlRates &rates[]){
    int h1IndexEnd = iBarShift(_Symbol, PERIOD_H1, rates[fibo.endIndex].time, false);
+   if(h1IndexEnd < 10) return false;
    MqlRates ratesH1[];
    ArraySetAsSeries(ratesH1, true);
-   if(CopyRates(_Symbol, PERIOD_H1, 0, h1IndexEnd, ratesH1) <= ZERO)
+   if(CopyRates(_Symbol, PERIOD_H1, 0, h1IndexEnd + ONE, ratesH1) <= ZERO)
       return false;
    
    double priceFibo = getFiboData(fibo.startPoint, fibo.endPoint, FIBO_382);

@@ -1576,10 +1576,12 @@ bool isCheckH1Fibo382(Fibo &fibo, MqlRates &rates[]){
    for(int index = ONE; index < h1IndexEnd; index++){
       int preIndex = index + ONE;
       if(fibo.trend == SELL && ratesH1[index].close > priceFibo && ratesH1[preIndex].close  > priceFibo)
-         return ratesH1[index].open < ratesH1[index].close && ratesH1[preIndex].open < ratesH1[preIndex].close;
+         if(ratesH1[index].open < ratesH1[index].close && ratesH1[preIndex].open < ratesH1[preIndex].close)
+            return true;
 
       if((fibo.trend == BUY) && (ratesH1[index].close < priceFibo && ratesH1[preIndex].close < priceFibo))
-         return ratesH1[index].open > ratesH1[index].close && ratesH1[preIndex].open > ratesH1[preIndex].close;
+         if(ratesH1[index].open > ratesH1[index].close && ratesH1[preIndex].open > ratesH1[preIndex].close)
+            return true;
    }
    
    return false;

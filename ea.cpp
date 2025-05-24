@@ -84,6 +84,7 @@ struct Fibo {
    int priceExceeds500Index;
    bool priceExceeds236;
    bool priceExceedsEma;
+   bool priceH1Exceeds382;
    Order order;
 };
 // Input data
@@ -151,7 +152,7 @@ void checkNextCandle(Fibo &fibo);
 void checkSetup(Fibo &fibo, MqlRates &rates[], int ticketOrderIndex);
 bool isDuplicate(const Fibo &a, const Fibo &b);
 bool isCloseH1(datetime time_m15, Fibo &fibo, int markerFibo);
-bool isCheckH1Fibo382(Fibo &fibo, MqlRates &rates[]);
+bool isCheckH1Fibo382(Fibo &fibo, datetime time_m15);
 bool isTrendCandle(MqlRates &candle, MqlRates &pre_candle, Fibo &fibo, int markerFibo, int index);
 bool isEmaConditions(datetime targetTime, string typeTrend);
 bool isEmaH4PreConditions(datetime candleTime, string trend);
@@ -402,6 +403,10 @@ void handlePriceExceeds(Fibo &fibo, MqlRates &rates[], int index, bool &isFollow
             fibo.priceExceeds500 = true;
          }
       }
+      //Kiểm tra h1 382
+      if(!fibo.priceH1Exceeds382){
+         fibo.priceH1Exceeds382 = isCheckH1Fibo382(fibo, rates[index].time);
+      }
       // Kiểm tra giá quay về ema25
       if(handleM15 >= 0 && CopyBuffer(handleM15, 0, index, 1, emaM15) > 0){
          if(!fibo.priceExceedsEma)
@@ -417,6 +422,10 @@ void handlePriceExceeds(Fibo &fibo, MqlRates &rates[], int index, bool &isFollow
             fibo.priceExceeds500Index = index;
             fibo.priceExceeds500 = true;
          }
+      }
+      //Kiểm tra h1 382
+      if(!fibo.priceH1Exceeds382){
+         fibo.priceH1Exceeds382 = isCheckH1Fibo382(fibo, rates[index].time);
       }
       // Kiểm tra giá quay về ema25   
       if(handleM15 >= 0 && CopyBuffer(handleM15, 0, index, 1, emaM15) > 0){
@@ -602,6 +611,7 @@ void setDefaultFibo(Fibo &fibo){
    fibo.priceExceeds500 = false;
    fibo.priceExceeds500Index = 0;
    fibo.priceExceeds236 = false;
+   fibo.priceH1Exceeds382 = false;
    fibo.priceExceedsEma = false;
    fibo.order.stopLoss = 0;
 }
@@ -610,6 +620,7 @@ void setDefaultStatusFibo(Fibo &fibo){
    fibo.priceExceeds500 = false;
    fibo.priceExceeds500Index = 0;
    fibo.priceExceeds236 = false;
+   fibo.priceH1Exceeds382 = false;
    fibo.priceExceedsEma = false;
    fibo.order.stopLoss = 0;
    fibo.order.takeProfit = 0;
@@ -941,7 +952,6 @@ bool isConditions(StructPoint &structPointArray[], MqlRates &rates[], Fibo &fibo
       if(MathAbs(closeH1Start - closeH1End) >= 0.1 * fibo236ToEndFibo)
          return false;
    }
-   if(isCheckH1Fibo382(fibo, rates)) return false;
    //Kiểm tra hình thái nến
    if(!isTrendCandle(rates[index], rates[index + 1], fibo, markerFibo, index)) return false;
    // Kiểm tra độ dốc của pullback
@@ -1293,7 +1303,7 @@ void checkSetup(Fibo &fibo, MqlRates &rates[], int ticketOrderIndex){
    double isBeStopLoss = getStructField<double>(ISBESTOPLOSS);
    StructPoint structPointArray[];
    setStructPointArray(ONE, structPointArray, CANDLES_M15_30_DAYS, PERIOD_M15);
-   if(fibo.priceExceeds236 && !fibo.priceExceeds500 && fibo.priceExceedsEma){
+   if(fibo.priceExceeds236 && !fibo.priceExceeds500 && fibo.priceExceedsEma && !fibo.priceH1Exceeds382){
       if(isConditions(structPointArray, rates, fibo, ONE, FIBO_236)){
          fibo.order.stopLoss = getStopLossM15(fibo, ONE, FIBO_236);
          int ratio = getTakeProfitRatio(fibo.order.stopLoss, rates[ONE].close);
@@ -1564,26 +1574,21 @@ bool isFollowFiboFun(Fibo &fibo, const MqlRates &rates[], int index, double fibo
    return false;
 }
 
-bool isCheckH1Fibo382(Fibo &fibo, MqlRates &rates[]){
-   int h1IndexEnd = iBarShift(_Symbol, PERIOD_H1, rates[fibo.endIndex].time, false);
-   if(h1IndexEnd < 10) return false;
-   MqlRates ratesH1[];
-   ArraySetAsSeries(ratesH1, true);
-   if(CopyRates(_Symbol, PERIOD_H1, 0, h1IndexEnd + ONE, ratesH1) <= ZERO)
-      return false;
+bool isCheckH1Fibo382(Fibo &fibo, datetime time_m15){
+   int h1Index = iBarShift(_Symbol, PERIOD_H1, time_m15, false);
    
+   double closePrice = iClose(_Symbol, PERIOD_H1, h1Index + ONE);
+   double openPrice = iOpen(_Symbol, PERIOD_H1, h1Index + ONE);
+   double closePrePrice = iClose(_Symbol, PERIOD_H1, h1Index + TWO);
+   double openPrePrice = iOpen(_Symbol, PERIOD_H1, h1Index + TWO);
    double priceFibo = getFiboData(fibo.startPoint, fibo.endPoint, FIBO_382);
-   for(int index = ONE; index < h1IndexEnd; index++){
-      int preIndex = index + ONE;
-      if(fibo.trend == SELL && ratesH1[index].close > priceFibo && ratesH1[preIndex].close  > priceFibo)
-         if(ratesH1[index].open < ratesH1[index].close && ratesH1[preIndex].open < ratesH1[preIndex].close)
-            return true;
 
-      if((fibo.trend == BUY) && (ratesH1[index].close < priceFibo && ratesH1[preIndex].close < priceFibo))
-         if(ratesH1[index].open > ratesH1[index].close && ratesH1[preIndex].open > ratesH1[preIndex].close)
-            return true;
-   }
+   if((fibo.trend == SELL) && (closePrice > priceFibo && closePrePrice > priceFibo))
+      return openPrice < closePrice && openPrePrice < closePrePrice;
    
+   if((fibo.trend == BUY) && (closePrice < priceFibo && closePrePrice < priceFibo))
+      return openPrice > closePrice && openPrePrice > closePrePrice;
+
    return false;
 }
 

@@ -151,7 +151,8 @@ void checkFiboNextCandle(Fibo &fibo, int index, Fibo &fiboArray[], MqlRates &rat
 void checkNextCandle(Fibo &fibo);
 void checkSetup(Fibo &fibo, MqlRates &rates[], int ticketOrderIndex);
 bool isDuplicate(const Fibo &a, const Fibo &b);
-bool isCheckH1Fibo(Fibo &fibo, datetime time_m15, int markerFibo);
+bool isCloseH1Fibo618(MqlRates &rates[], Fibo &fibo, int index);
+bool isCheckH1Fibo(Fibo &fibo, datetime time_m15);
 bool isTrendCandle(MqlRates &candle, MqlRates &pre_candle, Fibo &fibo, int markerFibo, int index);
 bool isEmaConditions(datetime targetTime, string typeTrend);
 bool isEmaH4PreConditions(datetime candleTime, string trend);
@@ -362,8 +363,7 @@ bool isResetFibo(Fibo &fibo, MqlRates &rates[], int index){
    if(fibo.trend == SELL && rates[index].high > fibo.startPoint) return true;
    if(fibo.trend == BUY && rates[index].low < fibo.startPoint) return true;
    
-   if(fibo.priceExceeds500 && isCheckH1Fibo(fibo, rates[index].time, FIBO_618)) 
-      return true;
+   if(fibo.priceExceeds500 && isCloseH1Fibo618(rates, fibo, index)) return true;
    
    return false;
 }
@@ -485,6 +485,17 @@ double getFiboData(double start, double end, int markerFibo){
    if(markerFibo) multiplier = (double)markerFibo/1000;
    
    return NormalizeDouble((start - end) * multiplier + end, _Digits);
+}
+
+bool isCloseH1Fibo618(MqlRates &rates[], Fibo &fibo, int index){
+   double priceFibo = getFiboData(fibo.startPoint, fibo.endPoint, FIBO_618);
+   int count = 0;
+   for(int i = index; i < fibo.endIndex; i++){
+      if(rates[i].close > priceFibo && fibo.trend == SELL) count++;
+      if(rates[i].close < priceFibo && fibo.trend == BUY) count++;
+   }
+
+   return count > THREE;
 }
 
 void getCandleHighest(int start, int end, Fibo &fibo, MqlRates &rates[]){

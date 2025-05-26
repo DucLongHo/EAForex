@@ -151,8 +151,7 @@ void checkFiboNextCandle(Fibo &fibo, int index, Fibo &fiboArray[], MqlRates &rat
 void checkNextCandle(Fibo &fibo);
 void checkSetup(Fibo &fibo, MqlRates &rates[], int ticketOrderIndex);
 bool isDuplicate(const Fibo &a, const Fibo &b);
-bool isCloseH1(datetime time_m15, Fibo &fibo, int markerFibo);
-bool isCheckH1Fibo382(Fibo &fibo, datetime time_m15);
+bool isCheckH1Fibo(Fibo &fibo, datetime time_m15, int markerFibo);
 bool isTrendCandle(MqlRates &candle, MqlRates &pre_candle, Fibo &fibo, int markerFibo, int index);
 bool isEmaConditions(datetime targetTime, string typeTrend);
 bool isEmaH4PreConditions(datetime candleTime, string trend);
@@ -363,8 +362,8 @@ bool isResetFibo(Fibo &fibo, MqlRates &rates[], int index){
    if(fibo.trend == SELL && rates[index].high > fibo.startPoint) return true;
    if(fibo.trend == BUY && rates[index].low < fibo.startPoint) return true;
    
-   datetime timeM15 = rates[index].time; 
-   if(fibo.priceExceeds500 && isCloseH1(timeM15, fibo, FIBO_618)) return true;
+   if(fibo.priceExceeds500 && isCheckH1Fibo(fibo, rates[index].time, FIBO_618)) 
+      return true;
    
    return false;
 }
@@ -405,7 +404,7 @@ void handlePriceExceeds(Fibo &fibo, MqlRates &rates[], int index, bool &isFollow
       }
       //Kiểm tra h1 382
       if(!fibo.priceH1Exceeds382){
-         fibo.priceH1Exceeds382 = isCheckH1Fibo382(fibo, rates[index].time);
+         fibo.priceH1Exceeds382 = isCheckH1Fibo(fibo, rates[index].time, FIBO_382);
       }
       // Kiểm tra giá quay về ema25
       if(handleM15 >= 0 && CopyBuffer(handleM15, 0, index, 1, emaM15) > 0){
@@ -425,7 +424,7 @@ void handlePriceExceeds(Fibo &fibo, MqlRates &rates[], int index, bool &isFollow
       }
       //Kiểm tra h1 382
       if(!fibo.priceH1Exceeds382){
-         fibo.priceH1Exceeds382 = isCheckH1Fibo382(fibo, rates[index].time);
+         fibo.priceH1Exceeds382 = isCheckH1Fibo(fibo, rates[index].time, FIBO_382);
       }
       // Kiểm tra giá quay về ema25   
       if(handleM15 >= 0 && CopyBuffer(handleM15, 0, index, 1, emaM15) > 0){
@@ -486,19 +485,6 @@ double getFiboData(double start, double end, int markerFibo){
    if(markerFibo) multiplier = (double)markerFibo/1000;
    
    return NormalizeDouble((start - end) * multiplier + end, _Digits);
-}
-
-bool isCloseH1(datetime time_m15, Fibo &fibo, int markerFibo){
-   int h1Index = iBarShift(_Symbol, PERIOD_H1, time_m15, false);
-   double closePrice = iClose(_Symbol, PERIOD_H1, h1Index + 1);
-   double priceFibo = getFiboData(fibo.startPoint, fibo.endPoint, markerFibo);
-
-   if((fibo.trend == SELL && closePrice > priceFibo) ||
-      (fibo.trend == BUY && closePrice < priceFibo)){
-      return true;
-   }
-
-   return false;
 }
 
 void getCandleHighest(int start, int end, Fibo &fibo, MqlRates &rates[]){
@@ -1574,14 +1560,14 @@ bool isFollowFiboFun(Fibo &fibo, const MqlRates &rates[], int index, double fibo
    return false;
 }
 
-bool isCheckH1Fibo382(Fibo &fibo, datetime time_m15){
+bool isCheckH1Fibo(Fibo &fibo, datetime time_m15, int markerFibo){
    int h1Index = iBarShift(_Symbol, PERIOD_H1, time_m15, false);
    
    double closePrice = iClose(_Symbol, PERIOD_H1, h1Index + ONE);
    double openPrice = iOpen(_Symbol, PERIOD_H1, h1Index + ONE);
    double closePrePrice = iClose(_Symbol, PERIOD_H1, h1Index + TWO);
    double openPrePrice = iOpen(_Symbol, PERIOD_H1, h1Index + TWO);
-   double priceFibo = getFiboData(fibo.startPoint, fibo.endPoint, FIBO_382);
+   double priceFibo = getFiboData(fibo.startPoint, fibo.endPoint, markerFibo);
 
    if((fibo.trend == SELL) && (closePrice > priceFibo && closePrePrice > priceFibo))
       return openPrice < closePrice && openPrePrice < closePrePrice;
@@ -2035,32 +2021,6 @@ bool isEmaPreConditions(string trend, int candleCheck, ENUM_TIMEFRAMES timeFrame
    }
    // Nếu tất cả các cây nến đều ngược chiều EMA
    return false;
-}
-//TODO
-bool isBreakTrend(Fibo &fibo, MqlRates &rates[]){
-   StructPoint array[];
-   setStructPointArray(ONE, array, CANDLES_M15_30_DAYS, PERIOD_M15);
-   int firstIndex = ArraySize(array) - ONE, lowIndex = ZERO, highIndex = ZERO;
-   
-   if(array[firstIndex].type == LPH || array[firstIndex].type == SPH){
-      lowIndex = firstIndex - ONE;
-      highIndex = firstIndex;
-   } else if(array[firstIndex].type == LPL || array[firstIndex].type == SPL){
-      lowIndex = firstIndex;
-      highIndex = firstIndex - ONE;
-   }
-     
-   if(fibo.trend == BUY){
-      if(array[highIndex].point - 5 *_Point < array[highIndex - TWO].point - 200 * _Point
-         && array[highIndex -TWO].point - 5 *_Point < array[highIndex - 4].point - 200 * _Point)
-         if(rates[ONE].close < array[highIndex].point) return false;
-   } else if(fibo.trend == SELL){
-      if(array[lowIndex].point + 5 *_Point > array[lowIndex - TWO].point + 200 * _Point
-         && array[lowIndex -TWO].point + 5 *_Point > array[lowIndex - 4].point + 200 * _Point)
-         if(rates[ONE].close > array[lowIndex].point) return false;
-   }
-   
-   return true;
 }
 
 bool isMazuCandle(MqlRates &candle, string trend){

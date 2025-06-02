@@ -39,9 +39,10 @@ void managePositions(){
         double entry = PositionGetDouble(POSITION_PRICE_OPEN);
         double stopLoss = PositionGetDouble(POSITION_SL);
         double currentPrice = PositionGetDouble(POSITION_PRICE_CURRENT);
+        string symbol = PositionGetString(POSITION_SYMBOL);
         ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
 
-        if(PositionSelectByTicket(ticket)){
+        if(PositionSelectByTicket(ticket) && symbol == _Symbol){
             double stopLossDistance = MathAbs(entry - stopLoss);
             double currentProfit = MathAbs(currentPrice - entry);
 
@@ -55,7 +56,7 @@ void managePositions(){
         }
     }
 }
-
+\
 // Hàm hỗ trợ để điều chỉnh Stop Loss
 void modifyStopLoss(ulong ticket, double newStopLoss){
    newStopLoss = NormalizeDouble(newStopLoss, _Digits);

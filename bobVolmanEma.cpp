@@ -27,6 +27,10 @@ void OnTimer(){
    datetime currentTime = TimeCurrent();
    datetime currentCandleCloseTime = iTime(_Symbol, PERIOD_M5, 0) + PeriodSeconds(PERIOD_M5);
    
+   datetime closeTime = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds(PERIOD_CURRENT);
+   string timeString = TimeToString(closeTime - TimeCurrent(), TIME_SECONDS);
+   Comment("Count down time: ", timeString, "\n", "\n");
+
    bool isRunningEa = false; 
    
    if(currentCandleCloseTime != CandleCloseTime &&
@@ -70,12 +74,16 @@ void DrawAllEMAs(){
          double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
          if(!Trade.Buy(RiskTrade, _Symbol, entry)){
             Print("Error placing Buy Order: ", Trade.ResultRetcode());
+         } else {
+            Alert("Tham Gia Thị Trường");
          }
          Comment("Trend is BUY");
       } else if(trendNow == "SELL"){
          double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
          if(!Trade.Sell(RiskTrade, _Symbol, entry)){
             Print("Error placing Sell Order: ", Trade.ResultRetcode());
+         } else {
+            Alert("Tham Gia Thị Trường");
          }
          Comment("Trend is SELL");
       } else {
@@ -144,7 +152,8 @@ void closeAllPositions(){
       ulong ticket = PositionGetTicket(index);
       if(ticket <= 0) continue;
       
-      if(PositionSelectByTicket(ticket)){
+      string symbol = PositionGetString(POSITION_SYMBOL);
+      if(PositionSelectByTicket(ticket) && symbol == _Symbol){
          double currentProfit = PositionGetDouble(POSITION_PROFIT);
          // Đóng lệnh ngay mà không cần kiểm tra Magic Number
          if(Trade.PositionClose(ticket)){

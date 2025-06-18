@@ -1,7 +1,8 @@
 #include <Trade\Trade.mqh>
+#include <ChartObjects\ChartObjectsTxtControls.mqh>
 
 CTrade Trade;
-
+CChartObjectButton TradeButton;// Nút bật/tắt giao dịch
 input double RiskTrade = 0.01; // Khối lượng giao dịch
 
 // Constant data
@@ -10,26 +11,44 @@ const int PERIOD_EMA_MEDIUM = 21;
 const int PERIOD_EMA_SMALL = 15;
 
 const int ONE = 1;
+const int TWO = 2;
+
 const int CANDLES_M5 = 336;
 
 datetime CandleCloseTime;// Biến kiểm tra giá chạy 5p một lần 
+bool tradingEnabled = true; // Biến kiểm soát trạng thái giao dịch
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 int OnInit(){
    EventSetTimer(ONE);
+
+   // Tạo nút và thiết lập thuộc tính
+   if(!TradeButton.Create(0, "TradeButton", 0, 100, 200, 150, 50))
+      return(INIT_FAILED);
+
+   TradeButton.Description("TRADING: ON");
+   TradeButton.Color(clrWhite);
+   TradeButton.BackColor(clrGreen); 
+   TradeButton.FontSize(12);
+   TradeButton.Font("Arial");
+   TradeButton.Selectable(true);
+   ObjectSetInteger(0, "TradeButton", OBJPROP_ZORDER, 10);
+   ChartRedraw(0);
+   
    return (INIT_SUCCEEDED);
 }
 
 void OnTimer(){
    // Check current time and next M15 candle close time
    datetime currentTime = TimeCurrent();
-   datetime currentCandleCloseTime = iTime(_Symbol, PERIOD_M5, 0) + PeriodSeconds(PERIOD_M5);
-   
+   datetime currentCandleCloseTime = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds(PERIOD_CURRENT);
+
    datetime closeTime = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds(PERIOD_CURRENT);
    string timeString = TimeToString(closeTime - TimeCurrent(), TIME_SECONDS);
-   Comment("Count down time: ", timeString, "\n", "\n");
+   Comment("Count down time: ", timeString, "\n", "\n",
+   "Risk trade: ", DoubleToString(RiskTrade, TWO), " Lot", "\n");
 
    bool isRunningEa = false; 
    
@@ -38,7 +57,7 @@ void OnTimer(){
       CandleCloseTime = currentCandleCloseTime;
       isRunningEa = true;
    }
-   if(isRunningEa && _Period == PERIOD_M5){
+   if(isRunningEa && tradingEnabled){
       // Vẽ tất cả các EMA
       DrawAllEMAs();
       isRunningEa = false;
@@ -46,7 +65,35 @@ void OnTimer(){
 }
 
 void OnDeinit(const int reason){
+   TradeButton.Delete();
    EventKillTimer();
+}
+
+void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam){
+   // Kiểm tra sự kiện nhấp chuột trên nút
+   if(id == CHARTEVENT_OBJECT_CLICK && sparam == "TradeButton") {
+      tradingEnabled = !tradingEnabled; // Đảo ngược trạng thái giao dịch
+      if (tradingEnabled) {
+         TradeButton.Description("TRADING: ON");
+         TradeButton.Color(clrWhite);
+         TradeButton.BackColor(clrGreen); // Màu xanh lá khi bật
+      } else {
+         TradeButton.Description("TRADING: OFF");
+         TradeButton.Color(clrWhite);
+         TradeButton.BackColor(clrRed); // Màu đỏ khi tắt
+      }
+   }
+   // Kiểm tra sự kiện nhấn chuột trái
+   if(id == CHARTEVENT_OBJECT_CLICK && TradeButton.State()){
+      // Lấy tọa độ chuột
+      int x_distance = (int)lparam;
+      int y_distance = (int)dparam;
+      // Di chuyển nút đến vị trí mới
+      TradeButton.X_Distance(x_distance);
+      TradeButton.Y_Distance(y_distance);
+      // Vẽ lại biểu đồ
+      ChartRedraw(0);
+   }
 }
 
 void DrawAllEMAs(){

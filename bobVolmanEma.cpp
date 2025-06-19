@@ -6,6 +6,7 @@ CChartObjectButton TradeButton;// Nút bật/tắt giao dịch
 // Input parameters
 input double RiskTrade = 0.01; // Khối lượng giao dịch
 input ENUM_TIMEFRAMES TimeFrame = PERIOD_CURRENT;  // Khung thời gian tham chiếu
+input double TotalLossPips = 0.0;  // Tổng số pip chấp nhận thua lỗ
 
 // Constant data
 const int PERIOD_EMA_BIG = 35;
@@ -49,12 +50,19 @@ void OnTimer(){
 
    datetime closeTime = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds(PERIOD_CURRENT);
    string timeString = TimeToString(closeTime - TimeCurrent(), TIME_SECONDS);
-   Comment("Count down time: ", timeString, "\n", "\n",
-   "Risk trade: ", DoubleToString(RiskTrade, TWO), " Lot", "\n",
-   "Reference Timeframe: ", EnumToString(TimeFrame), "\n", "\n");
+   double totalPips = CalculateTotalPips();
 
-   bool isRunningEa = false; 
+   Comment("Đếm ngược thời gian đóng nến: ", timeString, "\n", "\n",
+   "Khối lượng giao dịch: ", DoubleToString(RiskTrade, TWO), " Lot", "\n",
+   "Khung thời gian tham chiếu: ", EnumToString(TimeFrame), "\n", "\n",
+   "Tổng pips chấp nhận thua lỗ: ", DoubleToString(TotalLossPips, 2), "\n",
+   "Tổng pips hiện tại: ", DoubleToString(totalPips, 2), "\n");
+
+   if(totalPips <= TotalLossPips){
+      closeAllPositions();
+   }
    
+   bool isRunningEa = false;
    if(currentCandleCloseTime != CandleCloseTime &&
       currentCandleCloseTime - currentTime <= 2 ){
       CandleCloseTime = currentCandleCloseTime;
@@ -233,4 +241,30 @@ string getReferenceTrend(){
       CopyBuffer(handleSmall, 0, 0, ONE, emaSmall) <= 0) return "NEUTRAL";
 
    return DetermineTrend(emaSmall[0], emaMedium[0], emaBig[0]);
+}
+
+double CalculateTotalPips(){
+   double totalPips = 0.0;
+   
+   // Lấy tổng số order hiện tại
+   int totalOrders = PositionsTotal();
+   
+   // Lặp qua tất cả các order
+   for(int index = 0; index < totalOrders; index++){
+      // Lấy thông tin position
+      if(PositionGetTicket(index)){
+         // Lấy thông tin cần thiết
+         string symbol = PositionGetString(POSITION_SYMBOL);
+         double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+         double currentPrice = PositionGetDouble(POSITION_PRICE_CURRENT);
+         long positionType = PositionGetInteger(POSITION_TYPE);
+         
+         if(positionType == POSITION_TYPE_BUY)
+            totalPips += (currentPrice - openPrice) / _Point;
+         else if(positionType == POSITION_TYPE_SELL)
+            totalPips += (openPrice - currentPrice) / _Point;
+      }
+   }
+   
+   return totalPips;
 }

@@ -3,7 +3,9 @@
 
 CTrade Trade;
 CChartObjectButton TradeButton;// Nút bật/tắt giao dịch
+// Input parameters
 input double RiskTrade = 0.01; // Khối lượng giao dịch
+input ENUM_TIMEFRAMES TimeFrame = PERIOD_CURRENT;  // Khung thời gian tham chiếu
 
 // Constant data
 const int PERIOD_EMA_BIG = 35;
@@ -48,7 +50,8 @@ void OnTimer(){
    datetime closeTime = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds(PERIOD_CURRENT);
    string timeString = TimeToString(closeTime - TimeCurrent(), TIME_SECONDS);
    Comment("Count down time: ", timeString, "\n", "\n",
-   "Risk trade: ", DoubleToString(RiskTrade, TWO), " Lot", "\n");
+   "Risk trade: ", DoubleToString(RiskTrade, TWO), " Lot", "\n",
+   "Reference Timeframe: ", EnumToString(TimeFrame), "\n", "\n");
 
    bool isRunningEa = false; 
    
@@ -117,7 +120,9 @@ void DrawAllEMAs(){
    string trendBefore = DetermineTrend(emaSmall[1], emaMedium[1], emaBig[1]);
    if(trendNow != trendBefore){
       closeAllPositions();
-      if(trendNow == "BUY"){
+      string referenceTrend = getReferenceTrend();
+      if(trendNow == "BUY" && 
+         (referenceTrend == "BUY" || referenceTrend == "NEUTRAL")){
          double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
          if(!Trade.Buy(RiskTrade, _Symbol, entry)){
             Print("Error placing Buy Order: ", Trade.ResultRetcode());
@@ -125,7 +130,8 @@ void DrawAllEMAs(){
             Alert("Tham Gia Thị Trường");
          }
          Comment("Trend is BUY");
-      } else if(trendNow == "SELL"){
+      } else if(trendNow == "SELL" && 
+         (referenceTrend == "SELL" || referenceTrend == "NEUTRAL")){
          double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
          if(!Trade.Sell(RiskTrade, _Symbol, entry)){
             Print("Error placing Sell Order: ", Trade.ResultRetcode());
@@ -177,6 +183,8 @@ void DrawAllEMAs(){
 }
 
 string DetermineTrend(double small, double medium, double big){
+   //if(small > medium && small > big && medium > big) return "BUY";
+   //if(small < medium && small < big && medium < big) return "SELL";
    if(small > medium && small > big) return "BUY";
    if(small < medium && small < big) return "SELL";
    if(small > medium && small < big) return "SELL";
@@ -208,4 +216,21 @@ void closeAllPositions(){
          } else Print("Close failed #", ticket, " - Error: ", Trade.ResultComment());
       }
    }
+}
+
+string getReferenceTrend(){
+   double emaSmall[], emaMedium[], emaBig[];
+   int handleSmall = iMA(_Symbol, TimeFrame, PERIOD_EMA_SMALL, 0, MODE_EMA, PRICE_CLOSE);
+   int handleMedium = iMA(_Symbol, TimeFrame, PERIOD_EMA_MEDIUM, 0, MODE_EMA, PRICE_CLOSE);
+   int handleBig = iMA(_Symbol, TimeFrame, PERIOD_EMA_BIG, 0, MODE_EMA, PRICE_CLOSE);
+
+   if (handleSmall < 0 || handleMedium < 0 || handleBig < 0) return "NEUTRAL";
+   ArraySetAsSeries(emaSmall, true);
+   ArraySetAsSeries(emaMedium, true);
+   ArraySetAsSeries(emaBig, true);
+   if(CopyBuffer(handleBig, 0, 0, ONE, emaBig) <= 0 ||
+      CopyBuffer(handleMedium, 0, 0, ONE, emaMedium) <= 0 || 
+      CopyBuffer(handleSmall, 0, 0, ONE, emaSmall) <= 0) return "NEUTRAL";
+
+   return DetermineTrend(emaSmall[0], emaMedium[0], emaBig[0]);
 }

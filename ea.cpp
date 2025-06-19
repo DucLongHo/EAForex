@@ -912,6 +912,8 @@ bool isEmaConditions(datetime targetTime, string typeTrend){
       }
    }
 
+   if((typeTrend == BUY && emaH1[0] > emaM15[0]) ||
+      (typeTrend == SELL && emaH1[0] < emaM15[0])) return false;
    return true;
 }
 

@@ -1,3 +1,8 @@
+//+------------------------------------------------------------------+
+//|                   BobVolmanEma Expert Advisors                   |
+//|                   Copyright 2025, DucLong                        |
+//|                   Version 1.03 - Thêm điều kiện chốt lãi         |
+//+------------------------------------------------------------------+
 #include <Trade\Trade.mqh>
 #include <ChartObjects\ChartObjectsTxtControls.mqh>
 
@@ -6,8 +11,12 @@ CChartObjectButton TradeButton;// Nút bật/tắt giao dịch
 // Input parameters
 input double RiskTrade = 0.01; // Khối lượng giao dịch
 input ENUM_TIMEFRAMES TimeFrame = PERIOD_CURRENT;  // Khung thời gian tham chiếu
-input double TotalLossPips = 0.0;  // Tổng số pip chấp nhận thua lỗ
-
+input double TotalLossPipsLoss = 0.0;  // Tổng số pip chấp nhận thua lỗ
+input double TotalLossPipsWin = 0.0;  // Tổng số pip chấp nhận chốt lãi
+input string TradingTimeStartAM = "09:00";  // Thời gian VN bắt đầu buổi sáng (HH:MM)
+input string TradingTimeEndAM = "16:30";    // Thời gian VN kết thúc buổi sáng (HH:MM)
+input string TradingTimeStartPM = "16:30";  // Thời gian VN bắt đầu buổi chiều (HH:MM)
+input string TradingTimeEndPM = "23:59";    // Thời gian VN kết thúc buổi chiều (HH:MM)
 // Constant data
 const int PERIOD_EMA_BIG = 35;
 const int PERIOD_EMA_MEDIUM = 21;
@@ -30,7 +39,7 @@ int OnInit(){
    // Tạo nút và thiết lập thuộc tính
    if(!TradeButton.Create(0, "TradeButton", 0, 100, 200, 150, 50))
       return(INIT_FAILED);
-
+   
    TradeButton.Description("TRADING: ON");
    TradeButton.Color(clrWhite);
    TradeButton.BackColor(clrGreen); 
@@ -55,10 +64,12 @@ void OnTimer(){
    Comment("Đếm ngược thời gian đóng nến: ", timeString, "\n", "\n",
    "Khối lượng giao dịch: ", DoubleToString(RiskTrade, TWO), " Lot", "\n",
    "Khung thời gian tham chiếu: ", EnumToString(TimeFrame), "\n", "\n",
-   "Tổng pips chấp nhận thua lỗ: ", DoubleToString(TotalLossPips, 2), "\n",
+   "Tổng pips chấp nhận thua lỗ: ", DoubleToString(TotalLossPipsLoss, 2), "\n",
+   "Tổng pips chấp nhận chốt lãi: ", DoubleToString(TotalLossPipsWin, 2), "\n",
    "Tổng pips hiện tại: ", DoubleToString(totalPips, 2), "\n");
 
-   if(totalPips <= TotalLossPips){
+   if((totalPips <= TotalLossPipsLoss && TotalLossPipsLoss < 0) || 
+      (totalPips >= TotalLossPipsWin && TotalLossPipsWin > 0)){
       closeAllPositions();
    }
    
@@ -68,7 +79,9 @@ void OnTimer(){
       CandleCloseTime = currentCandleCloseTime;
       isRunningEa = true;
    }
-   if(isRunningEa && tradingEnabled){
+   if(isRunningEa && tradingEnabled && 
+      (IsTradingTime(TradingTimeStartAM, TradingTimeEndAM) || 
+      IsTradingTime(TradingTimeStartPM, TradingTimeEndPM))){
       // Vẽ tất cả các EMA
       DrawAllEMAs();
       isRunningEa = false;
@@ -267,4 +280,49 @@ double CalculateTotalPips(){
    }
    
    return totalPips;
+}
+
+bool IsTradingTime(string TradingTimeStart, string TradingTimeEnd){
+   datetime brokerTime = TimeCurrent(); // Thời gian hiện tại theo broker
+   // Chuyển sang giờ Việt Nam
+   datetime vietnamTime = brokerTime + GetBrokerTimezoneOffset() * 3600;
+
+   MqlDateTime timeStruct;
+   TimeToStruct(vietnamTime, timeStruct);
+   int vnHour = timeStruct.hour;
+   int vnMinute = timeStruct.min;
+   
+   // Phân tích thời gian nhập vào
+   string startParts[];
+   if(StringSplit(TradingTimeStart, ':', startParts) != 2) return false;
+   int startHour = (int)StringToInteger(startParts[0]);
+   int startMinute = (int)StringToInteger(startParts[1]);
+   
+   string endParts[];
+   if(StringSplit(TradingTimeEnd, ':', endParts) != 2) return false;
+   int endHour = (int)StringToInteger(endParts[0]);
+   int endMinute = (int)StringToInteger(endParts[1]);
+   
+   // So sánh thời gian
+   int currentTotal = vnHour * 60 + vnMinute;
+   int startTotal = startHour * 60 + startMinute;
+   int endTotal = endHour * 60 + endMinute;
+   
+   // Xử lý trường hợp qua đêm (ví dụ: 22:00 tối đến 05:00 sáng)
+   if (startTotal > endTotal) {
+      // Khoảng thời gian qua đêm
+      return (currentTotal >= startTotal || currentTotal <= endTotal);
+   } else {
+      // Khoảng thời gian trong cùng một ngày
+      return (currentTotal >= startTotal && currentTotal <= endTotal);
+   }
+}
+
+int GetBrokerTimezoneOffset(){
+   // Lấy thời gian local và server, tính chênh lệch
+   datetime serverTime = TimeCurrent();
+   datetime localTime = TimeLocal();
+   
+   int diff = int((localTime - serverTime) / 3600);
+   return diff;
 }

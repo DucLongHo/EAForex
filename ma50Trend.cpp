@@ -5,6 +5,7 @@
 //+------------------------------------------------------------------+
 #include <Trade\Trade.mqh>
 #include <ChartObjects\ChartObjectsTxtControls.mqh>
+#include <Trade\DealInfo.mqh>  
 
 CTrade Trade;
 CChartObjectButton TradeButton;// Nút bật/tắt giao dịch
@@ -14,41 +15,45 @@ input double DrawDownBalance = 0.5;  // Tỷ lệ drawdown chấp nhận (%)
 input double DrawDownBalanceMax = 5;  // Tỷ lệ drawdown tối đa chấp nhận (%)
 input bool BEManage = true;  // Kích hoạt quản lý điểm hòa vốn
 input bool SendEmail = true; // Kích hoạt gửi email thông báo
+input int PeriodEmaSmall = 50; // Chu kỳ EMA nhỏ
+input int PeriodEmaBig = 100; // Chu kỳ EMA lớn
+input int MaxConsecutiveSL = 2; // Số lệnh SL liên tiếp tối đa
+input double MinSLPoints = 10.0; // SL tối thiểu (points) để tính
 // Constant data
-const int PERIOD_EMA50 = 50;
-const int PERIOD_EMA100 = 100;
 const int ZERO = 0;
 const int ONE = 1;
 const int TWO = 2;
 
 const int CANDLES_M30 = 336;
 
-datetime CandleCloseTime;// Biến kiểm tra giá chạy 30p một lần 
+datetime CandleCloseTime; // Biến kiểm tra giá chạy 30p một lần 
 bool tradingEnabled = true; // Biến kiểm soát trạng thái giao dịch
 double initialBalance = 0; // Biến toàn cục lưu balance ban đầu
 bool IsRunning = true; // Biến kiểm soát trạng thái EA đang chạy
+int consecutiveSLCount = 0; // Đếm số SL liên tiếp
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 
 int OnInit(){
-   EventSetTimer(ONE);
-   initialBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+    EventSetTimer(ONE);
+    initialBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+    consecutiveSLCount = 0;
 
-   // Tạo nút và thiết lập thuộc tính
-   if(!TradeButton.Create(0, "TradeButton", 0, 100, 200, 150, 50))
-      return(INIT_FAILED);
-   
-   TradeButton.Description("TRADING: ON");
-   TradeButton.Color(clrWhite);
-   TradeButton.BackColor(clrGreen); 
-   TradeButton.FontSize(12);
-   TradeButton.Font("Arial");
-   TradeButton.Selectable(true);
-   ObjectSetInteger(0, "TradeButton", OBJPROP_ZORDER, 10);
-   ChartRedraw(0);
-   
-   return (INIT_SUCCEEDED);
+    // Tạo nút và thiết lập thuộc tính
+    if(!TradeButton.Create(0, "TradeButton", 0, 100, 200, 150, 50))
+        return(INIT_FAILED);
+    
+    TradeButton.Description("TRADING: ON");
+    TradeButton.Color(clrWhite);
+    TradeButton.BackColor(clrGreen); 
+    TradeButton.FontSize(12);
+    TradeButton.Font("Arial");
+    TradeButton.Selectable(true);
+    ObjectSetInteger(0, "TradeButton", OBJPROP_ZORDER, 10);
+    ChartRedraw(0);
+    
+    return (INIT_SUCCEEDED);
 }
 
 void OnTimer(){
@@ -66,6 +71,12 @@ void OnTimer(){
         currentCandleCloseTime - currentTime <= 2 ){
         CandleCloseTime = currentCandleCloseTime;
         isRunningEa = true;
+
+        if(IsAccountOverInitialDrawdown(DrawDownBalanceMax)){
+            // Đóng toàn bộ lệnh nếu vượt drawdown
+            CloseAllPositions();
+            IsRunning = false; // Dừng EA
+        }
     }
 
     if(isRunningEa && tradingEnabled && IsRunning){
@@ -75,13 +86,8 @@ void OnTimer(){
 }
 
 void OnTick(){
-    if(IsAccountOverInitialDrawdown(DrawDownBalanceMax)){
-        // Đóng toàn bộ lệnh nếu vượt drawdown
-        CloseAllPositions();
-        IsRunning = false; // Dừng EA
-    }
     // Kiểm tra xem có bật giao dịch không
-   if(BEManage) ManagePositions();
+    if(BEManage) ManagePositions();
 }
 
 void OnDeinit(const int reason){
@@ -117,41 +123,45 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
 }
 
 void TradeEMAs(){
-    double ema50[], ema100[];
-    int handle50 = iMA(_Symbol, _Period, PERIOD_EMA50, 0, MODE_EMA, PRICE_CLOSE);
-    int handle100 = iMA(_Symbol, _Period, PERIOD_EMA100, 0, MODE_EMA, PRICE_CLOSE);
+    double emaSmall[], emaBig[];
+    int handle50 = iMA(_Symbol, _Period, PeriodEmaSmall, 0, MODE_EMA, PRICE_CLOSE);
+    int handle100 = iMA(_Symbol, _Period, PeriodEmaBig, 0, MODE_EMA, PRICE_CLOSE);
 
     if (handle50 < 0 || handle100 < 0) return;
-    ArraySetAsSeries(ema50, true);
-    ArraySetAsSeries(ema100, true);
-    if(CopyBuffer(handle50, 0, 0, CANDLES_M30, ema50) <= 0 || 
-        CopyBuffer(handle100, 0, 0, CANDLES_M30, ema100) <= 0) return;
+    ArraySetAsSeries(emaSmall, true);
+    ArraySetAsSeries(emaBig, true);
+    if(CopyBuffer(handle50, 0, 0, CANDLES_M30, emaSmall) <= 0 || 
+        CopyBuffer(handle100, 0, 0, CANDLES_M30, emaBig) <= 0) return;
 
-    string trendNow = DetermineTrend(ema50[0], ema100[0]);
-    string trendBefore = DetermineTrend(ema50[1], ema100[1]);
+    string trendNow = DetermineTrend(emaSmall[0], emaBig[0]);
+    string trendBefore = DetermineTrend(emaSmall[1], emaBig[1]);
     //Trade
     if(trendNow != trendBefore){
         CloseAllPositions();
+        if(CheckLastClosedTrade()){
+            IsRunning = false; // Dừng EA
+            return;
+        }
         if(trendNow == "BUY"){
             // Mở lệnh BUY
             double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-            double stopLoss = GetStopLossM15("BUY", ema50[0], ema100[0]);
+            double stopLoss = GetStopLoss("BUY", emaSmall[0], emaBig[0]);
             double lotSize = GetLotSize(entry - stopLoss);
             if(!Trade.Buy(lotSize, _Symbol, entry, stopLoss)){
                 Print("Error placing Buy Order: ", Trade.ResultRetcode());
             } else {
-                if(SendEmail) CheckNewOrdersAndSendEmail("Mở lệnh BUY, ema50 cắt lên ema100");
+                if(SendEmail) CheckNewOrdersAndSendEmail("Mở lệnh BUY, emaSmall cắt lên emaBig");
                 Alert("Tham Gia Thị Trường");
             }
         } else if(trendNow == "SELL"){
             // Mở lệnh SELL
             double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-            double stopLoss = GetStopLossM15("SELL", ema50[0], ema100[0]);
+            double stopLoss = GetStopLoss("SELL", emaSmall[0], emaBig[0]);
             double lotSize = GetLotSize(stopLoss - entry);
             if(!Trade.Sell(lotSize, _Symbol, entry, stopLoss)){
                 Print("Error placing Sell Order: ", Trade.ResultRetcode());
             } else {
-                if(SendEmail) CheckNewOrdersAndSendEmail("Mở lệnh SELL, ema50 cắt xuống ema100");
+                if(SendEmail) CheckNewOrdersAndSendEmail("Mở lệnh SELL, emaSmall cắt xuống emaBig");
                 Alert("Tham Gia Thị Trường");
             }
         }
@@ -163,11 +173,11 @@ void TradeEMAs(){
         datetime startTime = iTime(_Symbol, _Period, index);
         datetime endTime = iTime(_Symbol, _Period, index + 1);
 
-        double priceStartEma50 = ema50[index];
-        double priceEndEma50 = ema50[index + 1];
+        double priceStartEma50 = emaSmall[index];
+        double priceEndEma50 = emaSmall[index + 1];
 
-        double priceStartEma100 = ema100[index];
-        double priceEndEma100 = ema100[index + 1];
+        double priceStartEma100 = emaBig[index];
+        double priceEndEma100 = emaBig[index + 1];
 
         if(priceStartEma50 == 0 || priceEndEma50 == 0 ) return;
 
@@ -220,20 +230,24 @@ double GetLotSize(double stopLossDistance){
     return lotSize;
 }
 
-double GetStopLossM15(string trend, double ema50, double ema100){
+double GetStopLoss(string trend, double emaSmall, double emaBig){
     double stopLoss = 0.0;
     if(trend == "BUY") {
-        // Lấy giá thấp nhất trong ba nến gần nhất
-        stopLoss = MathMin(iLow(_Symbol, PERIOD_M30, 0), MathMin(iLow(_Symbol, PERIOD_M30, 1), iLow(_Symbol, PERIOD_M30, 2)));
+        // Lấy giá thấp nhất trong 10 nến gần nhất
+        for(int index = 0; index < 9; index++){
+            stopLoss = MathMin(iLow(_Symbol, PERIOD_CURRENT, index), iLow(_Symbol, PERIOD_CURRENT, index + 1));
+        }
         // So sánh với giá trị EMA
-        if(ema50 > 0) stopLoss = MathMin(stopLoss, ema50);
-        if(ema100 > 0) stopLoss = MathMin(stopLoss, ema100);
+        if(emaSmall > 0) stopLoss = MathMin(stopLoss, emaSmall);
+        if(emaBig > 0) stopLoss = MathMin(stopLoss, emaBig);
     } else if (trend == "SELL") {
-        // Lấy giá cao nhất trong ba nến gần nhất
-        stopLoss = MathMax(iHigh(_Symbol, PERIOD_M30, 0), MathMax(iHigh(_Symbol, PERIOD_M30, 1), iHigh(_Symbol, PERIOD_M30, 2)));
+        // Lấy giá cao nhất trong 10 nến gần nhất
+        for(int index = 0; index < 9; index++){
+            stopLoss = MathMax(iHigh(_Symbol, PERIOD_CURRENT, index), iHigh(_Symbol, PERIOD_CURRENT, index + 1));
+        }
         // So sánh với giá trị EMA
-        if(ema50 > 0) stopLoss = MathMax(stopLoss, ema50);
-        if(ema100 > 0) stopLoss = MathMax(stopLoss, ema100);
+        if(emaSmall > 0) stopLoss = MathMax(stopLoss, emaSmall);
+        if(emaBig > 0) stopLoss = MathMax(stopLoss, emaBig);
     }
 
     return stopLoss;
@@ -296,14 +310,14 @@ void CloseAllPositions(){
     }
 }
 
-string DetermineTrend(double ema50, double ema100){
-    if(ema50 > ema100) return "BUY";
-    if(ema50 < ema100) return "SELL";
+string DetermineTrend(double emaSmall, double emaBig){
+    if(emaSmall > emaBig) return "BUY";
+    if(emaSmall < emaBig) return "SELL";
     return "NEUTRAL";
 }
 
-color DetermineTrendColor(double ema50, double ema100){
-    string trend = DetermineTrend(ema50, ema100);
+color DetermineTrendColor(double emaSmall, double emaBig){
+    string trend = DetermineTrend(emaSmall, emaBig);
     if(trend == "BUY") return clrGreen;
     if(trend == "SELL") return clrRed;
     return clrGray;
@@ -378,32 +392,71 @@ void CheckNewOrdersAndSendEmail(string comment){
 }
 
 bool IsAccountOverInitialDrawdown(double maxAllowedDrawdownPercent){
-   // Kiểm tra tham số hợp lệ
-   if(DrawDownBalanceMax <= 0 || DrawDownBalanceMax >= 100){
-      Alert("Giới hạn thâm hụt phải >0% và <100%");
-      return false;
-   }
+    // Kiểm tra tham số hợp lệ
+    if(DrawDownBalanceMax <= 0 || DrawDownBalanceMax >= 100){
+        Alert("Giới hạn thâm hụt phải >0% và <100%");
+        return false;
+    }
 
-   // Lấy equity hiện tại
-   double currentEquity = AccountInfoDouble(ACCOUNT_EQUITY);
-   
-   // Tính % thâm hụt so với balance ban đầu
-   double drawdownPercent = 0;
-   if(initialBalance > 0){
-      drawdownPercent = ((initialBalance - currentEquity) / initialBalance) * 100;
-      drawdownPercent = NormalizeDouble(drawdownPercent, 2);
-   }
+    // Lấy equity hiện tại
+    double currentEquity = AccountInfoDouble(ACCOUNT_EQUITY);
+    
+    // Tính % thâm hụt so với balance ban đầu
+    double drawdownPercent = 0;
+    if(initialBalance > 0){
+        drawdownPercent = ((initialBalance - currentEquity) / initialBalance) * 100;
+        drawdownPercent = NormalizeDouble(drawdownPercent, 2);
+    }
 
-   // Debug thông tin
-   Print("Balance ban đầu: ", initialBalance, 
-         " | Equity hiện tại: ", currentEquity,
-         " | Thâm hụt: ", drawdownPercent, "%");
-
-   // Kiểm tra ngưỡng
-   if(drawdownPercent >= DrawDownBalanceMax){
-      Alert("VƯỢT NGƯỠNG THÂM HỤT: ", drawdownPercent, "% (Giới hạn: ", DrawDownBalanceMax, "%)");
-      return true;
-   }
-   
-   return false;
+    // Kiểm tra ngưỡng
+    if(drawdownPercent >= DrawDownBalanceMax){
+        return true;
+    }
+    
+    return false;
 }
+
+bool CheckLastClosedTrade() {
+    if(!HistorySelect(TimeCurrent() - 86400*7, TimeCurrent())) return false;
+
+    CDealInfo dealInfo;
+    int totalDeals = HistoryDealsTotal();
+    int lastClosedTradeIndex = -1;
+    int prevClosedTradeIndex = -1;
+    // Tìm 2 deals thoát lệnh (SL/TP) gần nhất
+    for(int i = totalDeals - 1; i >= 0; i--){
+        if (dealInfo.SelectByIndex(i)) {
+            // Chỉ kiểm tra deal THOÁT LỆNH (DEAL_ENTRY_OUT)
+            if (dealInfo.Entry() == DEAL_ENTRY_OUT) {
+                if(lastClosedTradeIndex == -1){
+                    lastClosedTradeIndex = i;
+                } else if (prevClosedTradeIndex == -1){
+                    prevClosedTradeIndex = i;
+                    break; // Đã tìm đủ 2 deals
+                }
+            }
+        }
+    }
+    // Kiểm tra nếu có đủ 2 deals thoát lệnh
+    if (lastClosedTradeIndex == -1 || prevClosedTradeIndex == -1) 
+        return false;
+
+    // Lấy thông tin 2 deals
+    dealInfo.SelectByIndex(lastClosedTradeIndex);
+    double lastProfit = dealInfo.Profit();
+
+    dealInfo.SelectByIndex(prevClosedTradeIndex);
+    double prevProfit = dealInfo.Profit();
+    // Kiểm tra 2 lệnh cùng Symbol và đều là SL (Profit < 0)
+    if (dealInfo.Symbol() == _Symbol && lastProfit < 0 && prevProfit < 0){
+        consecutiveSLCount++;
+        Print("SL liên tiếp: ", consecutiveSLCount + 1, "/", MaxConsecutiveSL);
+        if (consecutiveSLCount + 1>= MaxConsecutiveSL) 
+            return true;
+    } else {
+        consecutiveSLCount = 0; // Reset nếu không phải SL liên tiếp
+    }
+
+    return false;
+}
+

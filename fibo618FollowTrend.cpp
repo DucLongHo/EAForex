@@ -28,7 +28,7 @@ const int TWO = 2;
 const int THREE = 3;
 const string BUY = "BUY";
 const string SELL = "SELL";
-const int FIBO_618 = 618;
+const double FIBO_618 = 0.618;
 
 const int CANDLES_H1_15_DAYS = 360; // Số lượng nến H1 trong 15 ngày
 
@@ -40,7 +40,11 @@ datetime CandleCloseTime;// Biến kiểm tra giá chạy 15p một lần
 input double RiskTrade = 50; // Rủi ro short trade (USD)
 input bool DrawStruct = true; // Vẽ cấu trúc thị trường
 input bool DrawFibo = true; // Vẽ Fibo
-input int PeriodADX = 14; // Period for ADX calculation
+input int PeriodADX = 14; // Chu kỳ tính toán ADX
+// Input trading time
+input string TradingTimeStart = "00:00";  // Thời gian VN bắt đầu buổi sáng (HH:MM)
+input string TradingTimeEnd = "18:00";    // Thời gian VN kết thúc buổi sáng (HH:MM)
+input int MaxOrdersPerDay = 3; // Số lượng lệnh tối đa mỗi ngày
 int OnInit(){
    EventSetTimer(ONE);
    return (INIT_SUCCEEDED);
@@ -63,10 +67,13 @@ void OnTimer(){
         isRunningEa = true;
     }
 
-    if (isRunningEa){
-        if(DrawStruct) DrawStruct();
-        ChartRedraw(0);
-        Print("Current ADX: ", GetCurrentADX());
+    if(isRunningEa && IsTradingTime()){
+        if(DrawStruct){
+            DrawStruct();
+            ChartRedraw(0);
+        }
+
+        //Print("Current ADX: ", GetCurrentADX());
     }
 }
 
@@ -325,23 +332,183 @@ void SetStructPointArray(StructPoint &myArray[]){
 
 double GetCurrentADX(){
     // Lấy handle của chỉ báo ADX
-    int adx_handle = iADX(_Symbol, PERIOD_M15, PeriodADX);
-    
-    if(adx_handle == INVALID_HANDLE){
+    int adxHandle = iADX(_Symbol, PERIOD_M15, PeriodADX);
+
+    if(adxHandle == INVALID_HANDLE){
         Print("Không thể tạo handle cho ADX. Lỗi: ", GetLastError());
         return -1;
     }
     
     // Sao chép dữ liệu ADX
-    double adx_values[];
-    if(CopyBuffer(adx_handle, 0, 0, ONE, adx_values) <= 0){
+    double adxValues[];
+    if(CopyBuffer(adxHandle, 0, 0, ONE, adxValues) <= 0){
         Print("Không thể sao chép dữ liệu ADX. Lỗi: ", GetLastError());
-        IndicatorRelease(adx_handle);
+        IndicatorRelease(adxHandle);
         return -1;
     }
     
     // Giải phóng handle
-    IndicatorRelease(adx_handle);
+    IndicatorRelease(adxHandle);
+
+    return adxValues[0];
+}
+
+double GetLotSize(double stopLossDistance){
+    // Lấy thông tin về công cụ giao dịch
+    double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+    double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
     
-    return adx_values[0];
+    // Kiểm tra giá trị hợp lệ
+    if (tickValue <= 0 || tickSize <= 0) return 0.0;
+   
+    // Tính số pips tương ứng với stopLossDistance
+    double stopLossPips = stopLossDistance / _Point;
+    
+    // Tính giá trị pip
+    double pipValue = tickValue / (tickSize / _Point);
+    
+    // Tính toán kích thước lô
+    double lotSize = RiskTrade / (stopLossPips * pipValue);
+    
+    // Đảm bảo rằng kích thước lô nằm trong phạm vi cho phép của sàn giao dịch
+    double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+    double maxLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+    lotSize = MathMin(MathMax(lotSize, minLot), maxLot);
+   
+    // Làm tròn kích thước lô đến số thập phân phù hợp
+    double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+    lotSize = MathFloor(lotSize / lotStep) * lotStep;
+
+    return lotSize;
+}
+
+double GetFibo618Data(double start, double end){   
+   if(start == 0 && end == 0) return 0;
+      
+   return NormalizeDouble((start - end) * FIBO_618 + end, _Digits);
+}
+
+bool IsTradingTime(){
+    datetime brokerTime = TimeCurrent(); // Thời gian hiện tại theo broker
+    // Chuyển sang giờ Việt Nam
+    datetime vietnamTime = brokerTime + GetBrokerTimezoneOffset() * 3600;
+
+    MqlDateTime timeStruct;
+    TimeToStruct(vietnamTime, timeStruct);
+    int vnHour = timeStruct.hour;
+    int vnMinute = timeStruct.min;
+    
+    // Phân tích thời gian nhập vào
+    string startParts[];
+    if(StringSplit(TradingTimeStart, ':', startParts) != 2) return false;
+    int startHour = (int)StringToInteger(startParts[0]);
+    int startMinute = (int)StringToInteger(startParts[1]);
+    
+    string endParts[];
+    if(StringSplit(TradingTimeEnd, ':', endParts) != 2) return false;
+    int endHour = (int)StringToInteger(endParts[0]);
+    int endMinute = (int)StringToInteger(endParts[1]);
+    
+    // So sánh thời gian
+    int currentTotal = vnHour * 60 + vnMinute;
+    int startTotal = startHour * 60 + startMinute;
+    int endTotal = endHour * 60 + endMinute;
+    
+    // Xử lý trường hợp qua đêm (ví dụ: 22:00 tối đến 05:00 sáng)
+    if (startTotal > endTotal) {
+        // Khoảng thời gian qua đêm
+        return (currentTotal >= startTotal || currentTotal <= endTotal);
+    } else {
+        // Khoảng thời gian trong cùng một ngày
+        return (currentTotal >= startTotal && currentTotal <= endTotal);
+    }
+}
+
+int GetBrokerTimezoneOffset(){
+   // Lấy thời gian local và server, tính chênh lệch
+   datetime serverTime = TimeCurrent();
+   datetime localTime = TimeLocal();
+   
+   int diff = int((localTime - serverTime) / 3600);
+   return diff;
+}
+
+void managePositions(){
+    // Lặp qua tất cả các vị thế đang mở
+    for(int index = 0; index < PositionsTotal(); index++){
+        // Lấy thông tin vị thế
+        ulong ticket = PositionGetTicket(index);
+        if(ticket <= 0) continue;
+        // Lấy thông tin chi tiết của vị thế
+        double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+        double stopLoss = PositionGetDouble(POSITION_SL);
+        double takeProfit = PositionGetDouble(POSITION_TP);
+        double currentPrice = PositionGetDouble(POSITION_PRICE_CURRENT);
+        string symbol = PositionGetString(POSITION_SYMBOL);
+        ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+
+        if(PositionSelectByTicket(ticket) && symbol == _Symbol){
+            double stopLossDistance = MathAbs(entry - stopLoss);
+            double takeProfitDistance = MathAbs(entry - takeProfit);
+
+            if(type == POSITION_TYPE_BUY && currentPrice > entry){
+                if(currentPrice - entry >= stopLossDistance && entry > stopLoss) 
+                    ModifyStopLoss(ticket, entry, takeProfit);
+            }else if(type == POSITION_TYPE_SELL && currentPrice < entry){
+                if(entry - currentPrice >= stopLossDistance && entry < stopLoss)
+                    ModifyStopLoss(ticket, entry, takeProfit);
+            }
+        }
+    }
+}
+
+// Hàm hỗ trợ để điều chỉnh Stop Loss
+void ModifyStopLoss(ulong ticket, double newStopLoss, double takeProfit){
+    newStopLoss = NormalizeDouble(newStopLoss, _Digits);
+    if(!Trade.PositionModify(ticket, newStopLoss, takeProfit)){
+        Print("Failed to modify position #", ticket, ". Error: ", GetLastError());
+    }
+}
+
+bool CheckDailyOrderLimit(){
+    int dailyOrders = 0;
+    datetime currentDay = iTime(_Symbol, PERIOD_D1, 0); // Thời gian bắt đầu của ngày hiện tại
+   
+    // Kiểm tra lệnh đang hoạt động (pending và positions)
+    if(OrdersTotal() > 0 || PositionsTotal() > 0){
+        for(int index = 0; index < OrdersTotal(); index++){
+            if(OrderGetTicket(index) > 0){
+                if(OrderGetString(ORDER_SYMBOL) == _Symbol && 
+                OrderGetInteger(ORDER_TIME_SETUP) >= currentDay)
+                    dailyOrders++;
+            }
+        }
+      
+        for(int index = 0; index < PositionsTotal(); index++){
+            if(PositionSelectByTicket(PositionGetTicket(index))){
+                if(PositionGetString(POSITION_SYMBOL) == _Symbol && 
+                    PositionGetInteger(POSITION_TIME) >= currentDay)
+                    dailyOrders++;
+            }
+        }
+    }    
+   
+    // Kiểm tra lịch sử lệnh trong ngày
+    if(HistorySelect(currentDay, TimeCurrent())){
+        int totalHistoryOrders = HistoryOrdersTotal();
+        for(int index = 0; index < totalHistoryOrders; index++){
+            ulong ticket = HistoryOrderGetTicket(index);
+            if(HistoryOrderGetString(ticket, ORDER_SYMBOL) == _Symbol && 
+                HistoryOrderGetInteger(ticket, ORDER_TIME_DONE) >= currentDay){
+                dailyOrders++;
+            }
+        }
+    }
+   
+    if(dailyOrders >= MaxOrdersPerDay){
+        Print("Đã đạt giới hạn ", MaxOrdersPerDay, " lệnh trong ngày. Không thể mở thêm lệnh.");
+        return false;
+    }
+   
+    return true;
 }

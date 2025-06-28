@@ -30,8 +30,7 @@ const string BUY = "BUY";
 const string SELL = "SELL";
 const int FIBO_618 = 618;
 
-const int CANDLES_H1_30_DAYS = 720; // Số lượng nến H1 trong 30 ngày
-const int CANDLES_M15_30_DAYS = 2880; // Số lượng nến M15 trong 30 ngày
+const int CANDLES_H1_15_DAYS = 360; // Số lượng nến H1 trong 15 ngày
 
 // Biến toàn cục
 CTrade Trade;
@@ -41,7 +40,7 @@ datetime CandleCloseTime;// Biến kiểm tra giá chạy 15p một lần
 input double RiskTrade = 50; // Rủi ro short trade (USD)
 input bool DrawStruct = true; // Vẽ cấu trúc thị trường
 input bool DrawFibo = true; // Vẽ Fibo
-
+input int PeriodADX = 14; // Period for ADX calculation
 int OnInit(){
    EventSetTimer(ONE);
    return (INIT_SUCCEEDED);
@@ -65,16 +64,17 @@ void OnTimer(){
     }
 
     if (isRunningEa){
-        if(DrawStruct) drawStruct();
+        if(DrawStruct) DrawStruct();
         ChartRedraw(0);
+        Print("Current ADX: ", GetCurrentADX());
     }
 }
 
-void drawStruct(){
+void DrawStruct(){
     ObjectsDeleteAll(0, -1, OBJ_TEXT);
     
     StructPoint pointArray[];
-    setStructPointArray(pointArray);
+    SetStructPointArray(pointArray);
 
     for(int index = 0; index < ArraySize(pointArray); index++){
         string name = DoubleToString(pointArray[index].point);
@@ -103,28 +103,29 @@ void drawStruct(){
     }
 }
 
-string getTypeTrend(){
+string GetTypeTrend(){
     int pointBullishIndex = 0, pointBearishIndex = 0;
-    double lowestPoint = iLow(_Symbol, PERIOD_M15, 0), highestPoint = iHigh(_Symbol, PERIOD_M15, 0);
+    double lowestPoint = iLow(_Symbol, PERIOD_H1, 0), highestPoint = iHigh(_Symbol, PERIOD_H1, 0);
 
-    for(int index = ONE; index < CANDLES_M15_30_DAYS; index++){
+    for(int index = ONE; index < CANDLES_H1_15_DAYS; index++){
         // Kiểm tra nếu cây nến tăng giá (giá đóng cửa > giá mở cửa)
-        if(lowestPoint >= iLow(_Symbol, PERIOD_M15, index)){
-            lowestPoint = iLow(_Symbol, PERIOD_M15, index);
+        if(lowestPoint >= iLow(_Symbol, PERIOD_H1, index)){
+            lowestPoint = iLow(_Symbol, PERIOD_H1, index);
             pointBullishIndex = index;
         } 
-        if(highestPoint <= iHigh(_Symbol, PERIOD_M15, index)){
-            highestPoint = iHigh(_Symbol, PERIOD_M15, index);
+        if(highestPoint <= iHigh(_Symbol, PERIOD_H1, index)){
+            highestPoint = iHigh(_Symbol, PERIOD_H1, index);
             pointBearishIndex = index;
         } 
     }
+
     // So sánh chỉ số của điểm tăng và giảm
     if(pointBearishIndex > pointBullishIndex){
         return SELL;
     } else return BUY;
 }
 
-double getPriceHighest(int start, int end, PriceType priceType, bool isGetIndex){
+double GetPriceHighest(int start, int end, PriceType priceType, bool isGetIndex){
     MqlRates rates[];
     ArraySetAsSeries(rates, true);
     int copied = CopyRates(Symbol(), PERIOD_M15, 0, start + 1, rates);
@@ -143,10 +144,10 @@ double getPriceHighest(int start, int end, PriceType priceType, bool isGetIndex)
     return isGetIndex ? indexResult : priceHighest;
 }
 
-double getPriceLowest(int start, int end, PriceType priceType, bool isGetIndex){
+double GetPriceLowest(int start, int end, PriceType priceType, bool isGetIndex){
    MqlRates rates[];
    ArraySetAsSeries(rates, true);
-   int copied = CopyRates(Symbol(), PERIOD_M15, 0, start + 1, rates);
+   int copied = CopyRates(Symbol(), PERIOD_H1, 0, start + 1, rates);
    
    double priceLowest = (priceType == LOW) ? rates[start].low : rates[start].close;
    int indexResult = start;
@@ -162,7 +163,7 @@ double getPriceLowest(int start, int end, PriceType priceType, bool isGetIndex){
    return isGetIndex ? indexResult : priceLowest;
 }
 
-int getIndexPointHigh(StructPoint &structPointArray[], int start, int end){
+int GetIndexPointHigh(StructPoint &structPointArray[], int start, int end){
    double high = 0.0;
    int result = 0;
    for(int index = start + 1; index < end; index++){
@@ -175,7 +176,7 @@ int getIndexPointHigh(StructPoint &structPointArray[], int start, int end){
    return result;
 }
 
-int getIndexPointLow(StructPoint &structPointArray[], int start, int end){
+int GetIndexPointLow(StructPoint &structPointArray[], int start, int end){
    double low = structPointArray[start].point;
    int result = 0;
    for(int index = start + 1; index < end; index++){
@@ -188,10 +189,10 @@ int getIndexPointLow(StructPoint &structPointArray[], int start, int end){
    return result;
 }
 
-void setStructPointArray(StructPoint &myArray[]){
+void SetStructPointArray(StructPoint &myArray[]){
     MqlRates ratesH1[];
     ArraySetAsSeries(ratesH1, true);
-    int copied = CopyRates(_Symbol, PERIOD_H1, 0, CANDLES_H1_30_DAYS, ratesH1);
+    int copied = CopyRates(_Symbol, PERIOD_H1, 0, CANDLES_H1_15_DAYS, ratesH1);
     if(copied < 0) return;
     
     StructPoint structPointArray[];
@@ -205,16 +206,16 @@ void setStructPointArray(StructPoint &myArray[]){
     double temp = 0.0;
 
     int startIndexPoint = 0;
-    if(getTypeTrend() == BUY){
-        tempSpl.index = (int)getPriceLowest(copied - 1, 0, LOW, true);
-        tempSpl.point = getPriceLowest(copied - 1, 0, LOW, false);
+    if(GetTypeTrend() == BUY){
+        tempSpl.index = (int)GetPriceLowest(copied - 1, 0, LOW, true);
+        tempSpl.point = GetPriceLowest(copied - 1, 0, LOW, false);
         tempSpl.type = SPL;
         tempSph.type = NONE;
         startIndexPoint = tempSpl.index;
         checkLPL = true;
-    } else if (getTypeTrend()== SELL){
-        tempSph.index = (int)getPriceHighest(copied - 1, 0, HIGH, true);
-        tempSph.point = getPriceHighest(copied - 1, 0, HIGH, false);
+    } else if (GetTypeTrend()== SELL){
+        tempSph.index = (int)GetPriceHighest(copied - 1, 0, HIGH, true);
+        tempSph.point = GetPriceHighest(copied - 1, 0, HIGH, false);
         tempSph.type = SPH;
         tempSpl.type = NONE;
         startIndexPoint = tempSph.index;
@@ -283,41 +284,64 @@ void setStructPointArray(StructPoint &myArray[]){
         if(checkLPH && myArray[i].type == SPL){
             if(temp != 0.0){
                 if(temp <= myArray[i].point){
-                temp = myArray[i].point;
+                    temp = myArray[i].point;
                 } else {
-                int result = getIndexPointHigh(myArray, start, i);
-                myArray[result].type = LPH;
-                temp = myArray[result].point;
-                checkLPL = true;
-                checkLPH = false;
-                start = result;
-                
-                if(i < indexStructPointArray){
-                    i = result;
-                    continue;
-                }
+                    int result = GetIndexPointHigh(myArray, start, i);
+                    myArray[result].type = LPH;
+                    temp = myArray[result].point;
+                    checkLPL = true;
+                    checkLPH = false;
+                    start = result;
+                    
+                    if(i < indexStructPointArray){
+                        i = result;
+                        continue;
+                    }
                 }
             } else temp = myArray[i].point;
         } else if(checkLPL && myArray[i].type == SPH){
             if(temp != 0.0){
                 if(temp >= myArray[i].point){
-                temp = myArray[i].point;
+                    temp = myArray[i].point;
                 } else {
-                int result = getIndexPointLow(myArray, start, i);
-                myArray[result].type = LPL;
-                
-                temp = myArray[result].point;
-                checkLPL = false;
-                checkLPH = true;
-                start = result;
-                
-                if(i < indexStructPointArray){
-                    i = result;
-                    continue;
-                }
+                    int result = GetIndexPointLow(myArray, start, i);
+                    myArray[result].type = LPL;
+
+                    temp = myArray[result].point;
+                    checkLPL = false;
+                    checkLPH = true;
+                    start = result;
+                    
+                    if(i < indexStructPointArray){
+                        i = result;
+                        continue;
+                    }
                 }
             } else temp = myArray[i].point;
         }
         i++;
     }
+}
+
+double GetCurrentADX(){
+    // Lấy handle của chỉ báo ADX
+    int adx_handle = iADX(_Symbol, PERIOD_M15, PeriodADX);
+    
+    if(adx_handle == INVALID_HANDLE){
+        Print("Không thể tạo handle cho ADX. Lỗi: ", GetLastError());
+        return -1;
+    }
+    
+    // Sao chép dữ liệu ADX
+    double adx_values[];
+    if(CopyBuffer(adx_handle, 0, 0, ONE, adx_values) <= 0){
+        Print("Không thể sao chép dữ liệu ADX. Lỗi: ", GetLastError());
+        IndicatorRelease(adx_handle);
+        return -1;
+    }
+    
+    // Giải phóng handle
+    IndicatorRelease(adx_handle);
+    
+    return adx_values[0];
 }

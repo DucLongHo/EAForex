@@ -286,32 +286,32 @@ void SetStructPointArray(StructPoint &myArray[]){
         myArray[index] = structPointArray[index];
     }
     
-    int i = 0;
-    while(i < indexStructPointArray){
-        if(checkLPH && myArray[i].type == SPL){
+    int index = 0;
+    while(index < indexStructPointArray){
+        if(checkLPH && myArray[index].type == SPL){
             if(temp != 0.0){
-                if(temp <= myArray[i].point){
-                    temp = myArray[i].point;
+                if(temp <= myArray[index].point){
+                    temp = myArray[index].point;
                 } else {
-                    int result = GetIndexPointHigh(myArray, start, i);
+                    int result = GetIndexPointHigh(myArray, start, index);
                     myArray[result].type = LPH;
                     temp = myArray[result].point;
                     checkLPL = true;
                     checkLPH = false;
                     start = result;
                     
-                    if(i < indexStructPointArray){
-                        i = result;
+                    if(index < indexStructPointArray){
+                        index = result;
                         continue;
                     }
                 }
-            } else temp = myArray[i].point;
-        } else if(checkLPL && myArray[i].type == SPH){
+            } else temp = myArray[index].point;
+        } else if(checkLPL && myArray[index].type == SPH){
             if(temp != 0.0){
-                if(temp >= myArray[i].point){
-                    temp = myArray[i].point;
+                if(temp >= myArray[index].point){
+                    temp = myArray[index].point;
                 } else {
-                    int result = GetIndexPointLow(myArray, start, i);
+                    int result = GetIndexPointLow(myArray, start, index);
                     myArray[result].type = LPL;
 
                     temp = myArray[result].point;
@@ -319,14 +319,14 @@ void SetStructPointArray(StructPoint &myArray[]){
                     checkLPH = true;
                     start = result;
                     
-                    if(i < indexStructPointArray){
-                        i = result;
+                    if(index < indexStructPointArray){
+                      index = result;
                         continue;
                     }
                 }
-            } else temp = myArray[i].point;
+            } else temp = myArray[index].point;
         }
-        i++;
+        index++;
     }
 }
 
@@ -452,11 +452,33 @@ void managePositions(){
             double takeProfitDistance = MathAbs(entry - takeProfit);
 
             if(type == POSITION_TYPE_BUY && currentPrice > entry){
+                // Dời BE khi được 1R
                 if(currentPrice - entry >= stopLossDistance && entry > stopLoss) 
                     ModifyStopLoss(ticket, entry, takeProfit);
+                // Dời Stop Loss khi đạt 1.3R
+                if(currentPrice > entry + stopLossDistance * 1.3 && !stopLossDistance){
+                    double newStopLoss = entry + stopLossDistance * 0.5; // Dời Stop Loss về 0.5R
+                    ModifyStopLoss(ticket, newStopLoss, takeProfit);
+                }
+                // Dời Stop Loss khi đạt 1.6R
+                if(currentPrice > entry + stopLossDistance * 1.6 && entry < stopLoss){
+                    double newStopLoss = entry + stopLossDistance; // Dời Stop Loss về 1R
+                    ModifyStopLoss(ticket, newStopLoss, takeProfit);
+                }
             }else if(type == POSITION_TYPE_SELL && currentPrice < entry){
+                // Dời BE khi được 1R
                 if(entry - currentPrice >= stopLossDistance && entry < stopLoss)
                     ModifyStopLoss(ticket, entry, takeProfit);
+                // Dời Stop Loss khi đạt 1.3R
+                if(currentPrice < entry - stopLossDistance * 1.3 && !stopLossDistance){
+                    double newStopLoss = entry - stopLossDistance * 0.5; // Dời Stop Loss về 0.5R
+                    ModifyStopLoss(ticket, newStopLoss, takeProfit);
+                }
+                // Dời Stop Loss khi đạt 1.6R
+                if(currentPrice < entry - stopLossDistance * 1.6 && entry > stopLoss){
+                    double newStopLoss = entry - stopLossDistance; // Dời Stop Loss về 1R
+                    ModifyStopLoss(ticket, newStopLoss, takeProfit);
+                }
             }
         }
     }

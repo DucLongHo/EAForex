@@ -99,12 +99,25 @@ void Trading(){
         ftHighIndex = firstIndex;
         scHighIndex = firstIndex - TWO;
 
-        // Kiểm tra cấu trúc thị trường
         if(structArray[ftLowIndex].point > structArray[scLowIndex].point &&
             structArray[ftHighIndex].point > structArray[scHighIndex].point){
             // Thị trường đang trong xu hướng tăng
             if(IsFiboCondition(structArray[ftLowIndex].point, structArray[scLowIndex].point)){   
-                         
+                double entryPrice = GetFibo618Data(structArray[ftLowIndex].point, structArray[ftHighIndex].point);
+                double stopLoss = structArray[ftLowIndex].point;
+                double takeProfit = entryPrice + (entryPrice - stopLoss) * TWO;
+
+                if(IsOrderExisted(stopLoss, entryPrice)){
+                    Print("Order with same stop loss already exists.");
+                    return;
+                } else {
+                     // Tính toán kích thước lô
+                    double lotSize = GetLotSize(entryPrice - stopLoss);
+                    // Mở lệnh BUYLIMIT
+                    if(!Trade.BuyLimit(lotSize, entryPrice, _Symbol, stopLoss, takeProfit)){
+                        Print("Error placing Buy Order: ", Trade.ResultRetcode());
+                    }
+                }
                 // Vẽ Fibo
                 DrawFiboInChart(structArray[ftLowIndex].point, structArray[ftHighIndex].point);
                 
@@ -121,6 +134,22 @@ void Trading(){
             structArray[ftHighIndex].point < structArray[scHighIndex].point){
             // Thị trường đang trong xu hướng giảm
             if(IsFiboCondition(structArray[scLowIndex].point, structArray[ftLowIndex].point)){
+                double entryPrice = GetFibo618Data(structArray[ftHighIndex].point, structArray[ftLowIndex].point);
+                double stopLoss = structArray[ftHighIndex].point;
+                double takeProfit = entryPrice - (stopLoss - entryPrice) * TWO;
+
+                if(IsOrderExisted(stopLoss, entryPrice)){
+                    Print("Order with same stop loss already exists.");
+                    return;
+                } else {    
+                    // Tính toán kích thước lô
+                    double lotSize = GetLotSize(stopLoss - entryPrice);
+                    // Mở lệnh SELLLIMIT
+                    if(!Trade.SellLimit(lotSize, entryPrice, _Symbol, stopLoss, takeProfit)){
+                        Print("Error placing Sell Order: ", Trade.ResultRetcode());
+                    }
+                }
+
                 // Vẽ Fibo
                 DrawFiboInChart(structArray[ftHighIndex].point, structArray[ftLowIndex].point);
             } else ObjectsDeleteAll(0, -1, OBJ_TREND);
@@ -285,7 +314,7 @@ void SetStructPointArray(StructPoint &myArray[]){
         checkLPH = true;
     }
 
-    while(startIndexPoint >= 0){
+    while(startIndexPoint > 0){
         // Kiểm tra khi có đáy tạm
         if(tempSpl.type == SPL){
             if(ratesH1[startIndexPoint].low < tempSpl.point){
@@ -570,7 +599,7 @@ bool IsDailyOrderLimit(){
             }
         }
     }    
-   
+    
     // Kiểm tra lịch sử lệnh trong ngày
     if(HistorySelect(currentDay, TimeCurrent())){
         int totalHistoryOrders = HistoryOrdersTotal();
@@ -640,4 +669,35 @@ void DrawFiboInChart(double startPoint, double endPoint){
     ObjectCreate(0, name618, OBJ_TREND, 0, startTime, price618, endTime, price618);
     ObjectSetInteger(0, name618, OBJPROP_COLOR, clrBlue);
     ObjectSetInteger(0, name618, OBJPROP_WIDTH, 1);
+}
+
+bool IsOrderExisted(double stopLossOrder, double entry){
+    // Duyệt qua tất cả các vị thế đang mở
+    for(int index = 0; index < PositionsTotal(); index++){
+        ulong ticket = PositionGetTicket(index);
+        if(ticket > 0){
+            // Lấy thông tin vị thế
+            string symbol = PositionGetString(POSITION_SYMBOL);
+            double posotionEntry = PositionGetDouble(POSITION_PRICE_OPEN);
+            double orderSL = PositionGetDouble(POSITION_SL);
+
+            if (symbol == _Symbol && orderSL == stopLossOrder && posotionEntry == entry)
+                // Kiểm tra SL có trùng với vị thế hiện tại không
+                return true; // Đã tồn tại vị thế có SL trùng
+        }
+    }
+
+    for(int index = 0; index < OrdersTotal(); index++){
+        ulong ticket = OrderGetTicket(index);
+        if(ticket > 0){
+            // Lấy thông tin vị thế
+            string symbol = OrderGetString(ORDER_SYMBOL);
+            double orderSL = OrderGetDouble(ORDER_SL);
+            double orderEntry = OrderGetDouble(ORDER_PRICE_OPEN);
+            if (symbol == _Symbol && orderSL == stopLossOrder && orderEntry == entry)
+                // Kiểm tra SL có trùng với vị thế limit không
+                return true; // Đã tồn tại vị thế có SL trùng
+        }
+    }
+    return false; // Không có vị thế nào trùng SL
 }

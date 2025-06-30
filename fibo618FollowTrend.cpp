@@ -112,18 +112,28 @@ void Trading(){
                     Print("Order with same setup already exists.");
                     return;
                 } else {
-                     // Tính toán kích thước lô
-                    double lotSize = GetLotSize(entryPrice - stopLoss);
-                    // Mở lệnh BUYLIMIT
-                    if(!Trade.BuyLimit(lotSize, entryPrice, _Symbol, stopLoss, takeProfit, 0, 0, comment)){
-                        Print("Error placing Buy Order: ", Trade.ResultRetcode());
+                    double currentAsk = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+                    if(currentAsk < entryPrice){
+                        double lotSize = GetLotSize(currentAsk - stopLoss);
+                        // Mở lệnh BUY
+                        if(!Trade.Buy(lotSize, _Symbol, currentAsk, stopLoss, takeProfit, comment)){
+                            Print("Error placing Buy Order: ", Trade.ResultRetcode());
+                        }
+                    } else {
+                        // Tính toán kích thước lô
+                        double lotSize = GetLotSize(entryPrice - stopLoss);
+                        // Mở lệnh BUYLIMIT
+                        if(!Trade.BuyLimit(lotSize, entryPrice, _Symbol, stopLoss, takeProfit, 0, 0, comment)){
+                            Print("Error placing Buy Order: ", Trade.ResultRetcode());
+                        }
                     }
                 }
                 // Vẽ Fibo
-                DrawFiboInChart(structArray[ftLowIndex].point, structArray[ftHighIndex].point);
-                
-            } else ObjectsDeleteAll(0, -1, OBJ_TREND);
-            
+                DrawFiboInChart(structArray[ftLowIndex].point, structArray[ftHighIndex].point);      
+            }
+        } else {
+            ObjectsDeleteAll(0, -1, OBJ_TREND);
+            ChartRedraw(0);
         }
     } else if(structArray[firstIndex].type == SPL){
         ftLowIndex = firstIndex;
@@ -143,28 +153,40 @@ void Trading(){
                 if(IsOrderExisted(comment)){
                     Print("Order with same stop loss already exists.");
                     return;
-                } else {    
-                    // Tính toán kích thước lô
-                    double lotSize = GetLotSize(stopLoss - entryPrice);
-                    // Mở lệnh SELLLIMIT
-                    if(!Trade.SellLimit(lotSize, entryPrice, _Symbol, stopLoss, takeProfit, 0, 0, comment)){
-                        Print("Error placing Sell Order: ", Trade.ResultRetcode());
+                } else {
+                    double currentBid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+                    if(currentBid > entryPrice){
+                        double lotSize = GetLotSize(stopLoss - currentBid);
+                        // Mở lệnh SELL
+                        if(!Trade.Sell(lotSize, _Symbol, currentBid, stopLoss, takeProfit, comment)){
+                            Print("Error placing Sell Order: ", Trade.ResultRetcode());
+                        }
+                    } else {    
+                        // Tính toán kích thước lô
+                        double lotSize = GetLotSize(stopLoss - entryPrice);
+                        // Mở lệnh SELLLIMIT
+                        if(!Trade.SellLimit(lotSize, entryPrice, _Symbol, stopLoss, takeProfit, 0, 0, comment)){
+                            Print("Error placing Sell Order: ", Trade.ResultRetcode());
+                        }
                     }
                 }
-
                 // Vẽ Fibo
                 DrawFiboInChart(structArray[ftHighIndex].point, structArray[ftLowIndex].point);
-            } else ObjectsDeleteAll(0, -1, OBJ_TREND);
+            }
+        } else {
+            ObjectsDeleteAll(0, -1, OBJ_TREND);
+            ChartRedraw(0);
         }
     }
-
+    
+    // Đóng hết lệnh nếu đảo chiều
+    if(structArray[scLowIndex].type == LPL) CloseAllPositions(SELL);
+    else if(structArray[scHighIndex].type == LPH) CloseAllPositions(BUY);
     // Vẽ cấu trúc thị trường
     if(DrawStruct){
         DrawStruct(structArray);
         ChartRedraw(0);
     }
-
-    //Print("Current ADX: ", GetCurrentADX());
 }
 
 void DrawStruct(StructPoint &pointArray[]){
@@ -724,4 +746,24 @@ bool IsOrderExisted(string comment){
     }
     
     return false; // Không có vị thế nào trùng SL
+}
+
+void CloseAllPositions(string positionType){
+    Print("Đóng tất cả các vị thế ", positionType, " hiện tại...");
+    for(int index = 0; index < PositionsTotal() && !IsStopped(); index++){
+        ulong ticket = PositionGetTicket(index);
+        if(ticket <= 0) continue;
+        
+        if(PositionSelectByTicket(ticket)){
+            string symbol = PositionGetString(POSITION_SYMBOL);
+            long type = PositionGetInteger(POSITION_TYPE);
+            
+            if(symbol == _Symbol){
+                if((positionType == BUY && type == POSITION_TYPE_BUY) || 
+                    (positionType == SELL && type == POSITION_TYPE_SELL)){
+                    Trade.PositionClose(ticket);
+                }
+            }
+        }
+    }
 }

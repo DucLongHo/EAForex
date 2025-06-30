@@ -26,6 +26,8 @@ struct StructPoint {
 const int ONE = 1;
 const int TWO = 2;
 const int THREE = 3;
+const int TWENTY_CANDLES = 20;
+
 const string BUY = "BUY";
 const string SELL = "SELL";
 const double FIBO_618 = 0.618;
@@ -41,6 +43,8 @@ input double RiskTrade = 50; // Rủi ro short trade (USD)
 input bool DrawStruct = true; // Vẽ cấu trúc thị trường
 input bool DrawFibo = true; // Vẽ Fibo
 input int PeriodADX = 14; // Chu kỳ tính toán ADX
+input double ValueADX = 25; // Giá trị ADX 
+
 // Input trading time
 input string TradingTimeStart = "00:00";  // Thời gian VN bắt đầu buổi sáng (HH:MM)
 input string TradingTimeEnd = "18:00";    // Thời gian VN kết thúc buổi sáng (HH:MM)
@@ -52,6 +56,10 @@ int OnInit(){
 
 void OnDeinit(const int reason){
    EventKillTimer();
+}
+
+void OnTick(){
+   ManagePositions();
 }
 
 void OnTimer(){
@@ -68,20 +76,68 @@ void OnTimer(){
     }
 
     if(isRunningEa && IsTradingTime()){
-        if(DrawStruct){
-            DrawStruct();
-            ChartRedraw(0);
-        }
-
-        //Print("Current ADX: ", GetCurrentADX());
+        Trading();
     }
 }
 
-void DrawStruct(){
+void Trading(){
+    StructPoint structArray[];
+    ArraySetAsSeries(structArray, true);
+    SetStructPointArray(structArray);
+    if(ArraySize(structArray) == 0) return;
+    // Kiểm tra số lượng lệnh đã mở trong ngày
+    if(!IsDailyOrderLimit()) return;
+    // Kiểm tra ADX
+    if(GetCurrentADX() < ValueADX) return;
+
+    int firstIndex = ArraySize(structArray) - ONE;
+    int ftLowIndex = 0, ftHighIndex = 0, scLowIndex = 0, scHighIndex = 0;
+
+    if(structArray[firstIndex].type == SPH){
+        ftLowIndex = firstIndex - ONE;
+        scLowIndex = firstIndex - THREE;
+        ftHighIndex = firstIndex;
+        scHighIndex = firstIndex - TWO;
+
+        // Kiểm tra cấu trúc thị trường
+        if(structArray[ftLowIndex].point > structArray[scLowIndex].point &&
+            structArray[ftHighIndex].point > structArray[scHighIndex].point){
+            // Thị trường đang trong xu hướng tăng
+            if(IsFiboCondition(structArray[ftLowIndex].point, structArray[scLowIndex].point)){   
+                         
+                // Vẽ Fibo
+                DrawFiboInChart(structArray[ftLowIndex].point, structArray[ftHighIndex].point);
+                
+            } else ObjectsDeleteAll(0, -1, OBJ_TREND);
+            
+        }
+    } else if(structArray[firstIndex].type == SPL){
+        ftLowIndex = firstIndex;
+        scLowIndex = firstIndex - TWO;
+        ftHighIndex = firstIndex - ONE;
+        scHighIndex = firstIndex - THREE;
+
+        if(structArray[ftLowIndex].point < structArray[scLowIndex].point &&
+            structArray[ftHighIndex].point < structArray[scHighIndex].point){
+            // Thị trường đang trong xu hướng giảm
+            if(IsFiboCondition(structArray[scLowIndex].point, structArray[ftLowIndex].point)){
+                // Vẽ Fibo
+                DrawFiboInChart(structArray[ftHighIndex].point, structArray[ftLowIndex].point);
+            } else ObjectsDeleteAll(0, -1, OBJ_TREND);
+        }
+    }
+
+    // Vẽ cấu trúc thị trường
+    if(DrawStruct){
+        DrawStruct(structArray);
+        ChartRedraw(0);
+    }
+
+    //Print("Current ADX: ", GetCurrentADX());
+}
+
+void DrawStruct(StructPoint &pointArray[]){
     ObjectsDeleteAll(0, -1, OBJ_TEXT);
-    
-    StructPoint pointArray[];
-    SetStructPointArray(pointArray);
 
     for(int index = 0; index < ArraySize(pointArray); index++){
         string name = DoubleToString(pointArray[index].point);
@@ -433,7 +489,7 @@ int GetBrokerTimezoneOffset(){
    return diff;
 }
 
-void managePositions(){
+void ManagePositions(){
     // Lặp qua tất cả các vị thế đang mở
     for(int index = 0; index < PositionsTotal(); index++){
         // Lấy thông tin vị thế
@@ -492,7 +548,7 @@ void ModifyStopLoss(ulong ticket, double newStopLoss, double takeProfit){
     }
 }
 
-bool CheckDailyOrderLimit(){
+bool IsDailyOrderLimit(){
     int dailyOrders = 0;
     datetime currentDay = iTime(_Symbol, PERIOD_D1, 0); // Thời gian bắt đầu của ngày hiện tại
    
@@ -533,4 +589,55 @@ bool CheckDailyOrderLimit(){
     }
    
     return true;
+}
+
+bool IsFiboCondition(double startPoint, double endPoint){
+    if(StringFind(_Symbol, "XAUUSD") > -1){
+        if(startPoint - endPoint > 20){
+            return true;
+        }
+    } else if(StringFind(_Symbol, "EURUSD") > -1){
+        if(startPoint - endPoint > 40 * _Point){
+            return true;
+        }
+    } else if(StringFind(_Symbol, "GBPUSD") > -1){
+        if(startPoint - endPoint > 60 * _Point){
+            return true;
+        }
+    }
+
+   return false;
+}
+
+void DrawFiboInChart(double startPoint, double endPoint){
+    // Xóa tất cả các đường xu hướng
+    ObjectsDeleteAll(0, -1, OBJ_TREND);
+    
+    datetime startTime = iTime(NULL, 0, 0);
+    datetime endTime = iTime(NULL, 0, TWENTY_CANDLES);
+
+    double priceStart = startPoint;
+    double priceEnd = endPoint;
+    double price618 = GetFibo618Data(startPoint, endPoint);
+
+    if (priceStart == 0 || priceEnd == 0) return;
+
+    string nameStart = "Start Fibo ";
+    string nameEnd = "End Fibo ";
+    string name618 = "Fibo 618 ";
+
+    // Tạo và thiết lập thuộc tính của đường xu hướng bắt đầu
+    ObjectCreate(0, nameStart, OBJ_TREND, 0, startTime, priceStart, endTime, priceStart);
+    ObjectSetInteger(0, nameStart, OBJPROP_COLOR, clrGreen);
+    ObjectSetInteger(0, nameStart, OBJPROP_WIDTH, 2);
+
+    // Tạo và thiết lập thuộc tính của đường xu hướng kết thúc
+    ObjectCreate(0, nameEnd, OBJ_TREND, 0, startTime, priceEnd, endTime, priceEnd);
+    ObjectSetInteger(0, nameEnd, OBJPROP_COLOR, clrRed);
+    ObjectSetInteger(0, nameEnd, OBJPROP_WIDTH, 2);
+
+    // Tạo và thiết lập thuộc tính của đường xu hướng 618
+    ObjectCreate(0, name618, OBJ_TREND, 0, startTime, price618, endTime, price618);
+    ObjectSetInteger(0, name618, OBJPROP_COLOR, clrBlue);
+    ObjectSetInteger(0, name618, OBJPROP_WIDTH, 1);
 }

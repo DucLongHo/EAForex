@@ -610,33 +610,51 @@ bool IsDailyOrderLimit(){
     int dailyOrders = 0;
     datetime currentDay = iTime(_Symbol, PERIOD_D1, 0); // Thời gian bắt đầu của ngày hiện tại
    
-    // Kiểm tra lệnh đang hoạt động (pending và positions)
-    if(OrdersTotal() > 0 || PositionsTotal() > 0){
-        for(int index = 0; index < OrdersTotal(); index++){
-            if(OrderGetTicket(index) > 0){
-                if(OrderGetString(ORDER_SYMBOL) == _Symbol && 
+    // Tạo mảng lưu trữ các lệnh đã kiểm tra để tránh trùng lặp
+    ulong checkedOrders[10];
+    int countCheckedOrders = 0;
+    // 1. Đếm các vị thế đang mở (positions)
+    for(int index = 0; index < PositionsTotal(); index++){
+        ulong ticket = PositionGetTicket(index);
+        if(ticket > 0 && PositionSelectByTicket(ticket)){
+            if(PositionGetString(POSITION_SYMBOL) == _Symbol && 
+                PositionGetInteger(POSITION_TIME) >= currentDay){
+                dailyOrders++;
+                countCheckedOrders++;
+                checkedOrders[countCheckedOrders - 1] = ticket;
+            }
+        }
+    }
+   
+    // 2. Đếm các lệnh đang chờ (pending orders)
+    for(int index = 0; index < OrdersTotal(); index++){
+        ulong ticket = OrderGetTicket(index);
+        if(ticket > 0){
+            if(OrderGetString(ORDER_SYMBOL) == _Symbol && 
                 OrderGetInteger(ORDER_TIME_SETUP) >= currentDay)
-                    dailyOrders++;
-            }
+                dailyOrders++;
         }
-      
-        for(int index = 0; index < PositionsTotal(); index++){
-            if(PositionSelectByTicket(PositionGetTicket(index))){
-                if(PositionGetString(POSITION_SYMBOL) == _Symbol && 
-                    PositionGetInteger(POSITION_TIME) >= currentDay)
-                    dailyOrders++;
-            }
-        }
-    }    
-    
-    // Kiểm tra lịch sử lệnh trong ngày
+    }
+   
+    // 3. Đếm lịch sử lệnh (history orders), bỏ qua các lệnh đã có position tương ứng
     if(HistorySelect(currentDay, TimeCurrent())){
         int totalHistoryOrders = HistoryOrdersTotal();
         for(int index = 0; index < totalHistoryOrders; index++){
             ulong ticket = HistoryOrderGetTicket(index);
-            if(HistoryOrderGetString(ticket, ORDER_SYMBOL) == _Symbol && 
+            // Kiểm tra xem lệnh này đã được tính qua position chưa
+            bool alreadyCounted = false;
+            for(int indexCheckedOrders = 0; indexCheckedOrders < 10; indexCheckedOrders++){
+                if(ticket == checkedOrders[indexCheckedOrders]){
+                    alreadyCounted = true;
+                    break;
+                }
+            }  
+         
+            if(!alreadyCounted && 
+                HistoryOrderGetString(ticket, ORDER_SYMBOL) == _Symbol && 
                 HistoryOrderGetInteger(ticket, ORDER_TIME_DONE) >= currentDay){
-                dailyOrders++;
+                if(HistoryDealGetInteger(ticket, DEAL_ENTRY) == DEAL_ENTRY_OUT)
+                    dailyOrders++;
             }
         }
     }

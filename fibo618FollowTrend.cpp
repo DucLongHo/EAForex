@@ -538,31 +538,37 @@ void ManagePositions(){
             double takeProfitDistance = MathAbs(entry - takeProfit);
 
             if(type == POSITION_TYPE_BUY && currentPrice > entry){
+                double currentProfit = currentPrice - entry;
                 // Dời BE khi được 1R
                 if(currentPrice - entry >= stopLossDistance && entry > stopLoss) 
                     ModifyStopLoss(ticket, entry, takeProfit);
                 // Dời Stop Loss khi đạt 1.3R
-                if(currentPrice > entry + stopLossDistance * 1.3 && !stopLossDistance){
-                    double newStopLoss = entry + stopLossDistance * 0.5; // Dời Stop Loss về 0.5R
+                if(currentProfit >  takeProfitDistance * 0.65 && !stopLossDistance){
+                    Print("Dời Stop Loss về 0.5R");
+                    double newStopLoss = entry + takeProfitDistance * 0.25; // Dời Stop Loss về 0.5R
                     ModifyStopLoss(ticket, newStopLoss, takeProfit);
                 }
                 // Dời Stop Loss khi đạt 1.6R
-                if(currentPrice > entry + stopLossDistance * 1.6 && entry < stopLoss){
-                    double newStopLoss = entry + stopLossDistance; // Dời Stop Loss về 1R
+                if(currentProfit > takeProfitDistance * 0.8 && stopLossDistance < takeProfitDistance * 0.5){
+                    Print("Dời Stop Loss về 1R");
+                    double newStopLoss = entry + takeProfitDistance * 0.5; // Dời Stop Loss về 1R
                     ModifyStopLoss(ticket, newStopLoss, takeProfit);
                 }
-            }else if(type == POSITION_TYPE_SELL && currentPrice < entry){
+            } else if(type == POSITION_TYPE_SELL && currentPrice < entry){
+                double currentProfit = entry - currentPrice;
                 // Dời BE khi được 1R
                 if(entry - currentPrice >= stopLossDistance && entry < stopLoss)
                     ModifyStopLoss(ticket, entry, takeProfit);
                 // Dời Stop Loss khi đạt 1.3R
-                if(currentPrice < entry - stopLossDistance * 1.3 && !stopLossDistance){
-                    double newStopLoss = entry - stopLossDistance * 0.5; // Dời Stop Loss về 0.5R
+                if(currentProfit > takeProfitDistance * 0.65 && !stopLossDistance){
+                    Print("Dời Stop Loss về 0.5R");
+                    double newStopLoss = entry - takeProfitDistance * 0.25; // Dời Stop Loss về 0.5R
                     ModifyStopLoss(ticket, newStopLoss, takeProfit);
                 }
                 // Dời Stop Loss khi đạt 1.6R
-                if(currentPrice < entry - stopLossDistance * 1.6 && entry > stopLoss){
-                    double newStopLoss = entry - stopLossDistance; // Dời Stop Loss về 1R
+                if(currentProfit > takeProfitDistance * 0.8 && stopLossDistance < takeProfitDistance * 0.5){
+                    Print("Dời Stop Loss về 1R");
+                    double newStopLoss = entry - takeProfitDistance * 0.5; // Dời Stop Loss về 1R
                     ModifyStopLoss(ticket, newStopLoss, takeProfit);
                 }
             }
@@ -698,5 +704,24 @@ bool IsOrderExisted(string comment){
                 return true; // Đã tồn tại vị thế có SL trùng
         }
     }
+
+    // Kiểm tra lịch sử lệnh trong ngày
+    datetime currentDay = iTime(_Symbol, PERIOD_D1, 0); // Thời gian bắt đầu của ngày hiện tại
+    if(HistorySelect(currentDay, TimeCurrent())){
+        int totalHistoryOrders = HistoryOrdersTotal();
+        for(int index = 0; index < totalHistoryOrders; index++){
+            ulong ticket = HistoryOrderGetTicket(index);
+            if(ticket > 0){
+                // Lấy thông tin vị thế
+                string symbol = HistoryOrderGetString(ticket, ORDER_SYMBOL);
+                string orderComment = HistoryOrderGetString(ticket, ORDER_COMMENT);
+                if(symbol == _Symbol && orderComment == comment){
+                    // Kiểm tra SL có trùng với vị thế limit không
+                    return true; // Đã tồn tại vị thế có SL trùng
+                }
+            }
+        }
+    }
+    
     return false; // Không có vị thế nào trùng SL
 }

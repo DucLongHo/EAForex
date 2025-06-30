@@ -106,15 +106,16 @@ void Trading(){
                 double entryPrice = GetFibo618Data(structArray[ftLowIndex].point, structArray[ftHighIndex].point);
                 double stopLoss = structArray[ftLowIndex].point;
                 double takeProfit = entryPrice + (entryPrice - stopLoss) * TWO;
-
-                if(IsOrderExisted(stopLoss, entryPrice)){
-                    Print("Order with same stop loss already exists.");
+                string comment = DoubleToString(structArray[ftLowIndex].point) + 
+                                " - " + DoubleToString(structArray[ftHighIndex].point);
+                if(IsOrderExisted(comment)){
+                    Print("Order with same setup already exists.");
                     return;
                 } else {
                      // Tính toán kích thước lô
                     double lotSize = GetLotSize(entryPrice - stopLoss);
                     // Mở lệnh BUYLIMIT
-                    if(!Trade.BuyLimit(lotSize, entryPrice, _Symbol, stopLoss, takeProfit)){
+                    if(!Trade.BuyLimit(lotSize, entryPrice, _Symbol, stopLoss, takeProfit, 0, 0, comment)){
                         Print("Error placing Buy Order: ", Trade.ResultRetcode());
                     }
                 }
@@ -137,15 +138,16 @@ void Trading(){
                 double entryPrice = GetFibo618Data(structArray[ftHighIndex].point, structArray[ftLowIndex].point);
                 double stopLoss = structArray[ftHighIndex].point;
                 double takeProfit = entryPrice - (stopLoss - entryPrice) * TWO;
-
-                if(IsOrderExisted(stopLoss, entryPrice)){
+                string comment = DoubleToString(structArray[ftHighIndex].point) + 
+                                  " - " + DoubleToString(structArray[ftLowIndex].point);
+                if(IsOrderExisted(comment)){
                     Print("Order with same stop loss already exists.");
                     return;
                 } else {    
                     // Tính toán kích thước lô
                     double lotSize = GetLotSize(stopLoss - entryPrice);
                     // Mở lệnh SELLLIMIT
-                    if(!Trade.SellLimit(lotSize, entryPrice, _Symbol, stopLoss, takeProfit)){
+                    if(!Trade.SellLimit(lotSize, entryPrice, _Symbol, stopLoss, takeProfit, 0, 0, comment)){
                         Print("Error placing Sell Order: ", Trade.ResultRetcode());
                     }
                 }
@@ -468,9 +470,8 @@ double GetLotSize(double stopLossDistance){
 }
 
 double GetFibo618Data(double start, double end){   
-   if(start == 0 && end == 0) return 0;
-      
-   return NormalizeDouble((start - end) * FIBO_618 + end, _Digits);
+    if(start == 0 && end == 0) return 0;
+    return NormalizeDouble((start - end) * FIBO_618 + end, _Digits);
 }
 
 bool IsTradingTime(){
@@ -671,17 +672,16 @@ void DrawFiboInChart(double startPoint, double endPoint){
     ObjectSetInteger(0, name618, OBJPROP_WIDTH, 1);
 }
 
-bool IsOrderExisted(double stopLossOrder, double entry){
+bool IsOrderExisted(string comment){
     // Duyệt qua tất cả các vị thế đang mở
     for(int index = 0; index < PositionsTotal(); index++){
         ulong ticket = PositionGetTicket(index);
         if(ticket > 0){
             // Lấy thông tin vị thế
             string symbol = PositionGetString(POSITION_SYMBOL);
-            double posotionEntry = PositionGetDouble(POSITION_PRICE_OPEN);
-            double orderSL = PositionGetDouble(POSITION_SL);
+            string positionComment = PositionGetString(POSITION_COMMENT);
 
-            if (symbol == _Symbol && orderSL == stopLossOrder && posotionEntry == entry)
+            if(symbol == _Symbol && positionComment == comment)
                 // Kiểm tra SL có trùng với vị thế hiện tại không
                 return true; // Đã tồn tại vị thế có SL trùng
         }
@@ -692,9 +692,8 @@ bool IsOrderExisted(double stopLossOrder, double entry){
         if(ticket > 0){
             // Lấy thông tin vị thế
             string symbol = OrderGetString(ORDER_SYMBOL);
-            double orderSL = OrderGetDouble(ORDER_SL);
-            double orderEntry = OrderGetDouble(ORDER_PRICE_OPEN);
-            if (symbol == _Symbol && orderSL == stopLossOrder && orderEntry == entry)
+            string orderComment = OrderGetString(ORDER_COMMENT);
+            if(symbol == _Symbol && orderComment == comment)
                 // Kiểm tra SL có trùng với vị thế limit không
                 return true; // Đã tồn tại vị thế có SL trùng
         }

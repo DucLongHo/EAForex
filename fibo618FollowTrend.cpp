@@ -131,6 +131,10 @@ void Trading(){
                 // Vẽ Fibo
                 DrawFiboInChart(structArray[ftLowIndex].point, structArray[ftHighIndex].point);      
             }
+            // Đóng hết lệnh nếu tiếp tục xu hướng
+            string commentPreOrder = DoubleToString(structArray[scLowIndex].point) + 
+                                        " - " + DoubleToString(structArray[scHighIndex].point);
+            CloseAllOrders(commentPreOrder);
         } else {
             ObjectsDeleteAll(0, -1, OBJ_TREND);
             ChartRedraw(0);
@@ -173,6 +177,10 @@ void Trading(){
                 // Vẽ Fibo
                 DrawFiboInChart(structArray[ftHighIndex].point, structArray[ftLowIndex].point);
             }
+            // Đóng hết lệnh nếu tiếp tục xu hướng
+            string commentPreOrder = DoubleToString(structArray[scHighIndex].point) + 
+                                        " - " + DoubleToString(structArray[scLowIndex].point);
+            CloseAllOrders(commentPreOrder);
         } else {
             ObjectsDeleteAll(0, -1, OBJ_TREND);
             ChartRedraw(0);
@@ -323,6 +331,7 @@ void SetStructPointArray(StructPoint &myArray[]){
 
     int startIndexPoint = 0;
     if(GetTypeTrend() == BUY){
+        //Lấy đáy tạm nếu trend tăng
         tempSpl.index = (int)GetPriceLowest(copied - 1, 0, LOW, true);
         tempSpl.point = GetPriceLowest(copied - 1, 0, LOW, false);
         tempSpl.type = SPL;
@@ -330,6 +339,7 @@ void SetStructPointArray(StructPoint &myArray[]){
         startIndexPoint = tempSpl.index;
         checkLPL = true;
     } else if (GetTypeTrend()== SELL){
+        //Lấy đỉnh tạm nếu trend giảm
         tempSph.index = (int)GetPriceHighest(copied - 1, 0, HIGH, true);
         tempSph.point = GetPriceHighest(copied - 1, 0, HIGH, false);
         tempSph.type = SPH;
@@ -345,6 +355,13 @@ void SetStructPointArray(StructPoint &myArray[]){
                 // Cập nhật đáy tạm
                 tempSpl.index = startIndexPoint;
                 tempSpl.point = ratesH1[startIndexPoint].low;
+            }
+            // Kiểm tra nếu giá cao hơn đỉnh thực trước đó
+            if(indexStructPointArray > ONE){
+                if(ratesH1[startIndexPoint].high > structPointArray[indexStructPointArray - 1].point){
+                    structPointArray[indexStructPointArray - 1].point = ratesH1[startIndexPoint].high;
+                    structPointArray[indexStructPointArray - 1].index = startIndexPoint;
+                }
             }
 
             if(ratesH1[startIndexPoint].close > ratesH1[tempSpl.index].high){
@@ -362,14 +379,20 @@ void SetStructPointArray(StructPoint &myArray[]){
                 tempSpl.type = NONE;
                 
                 startIndexPoint = tempSpl.index;
-            } 
+            }
         } else if(tempSph.type == SPH){
             if(ratesH1[startIndexPoint].high > tempSph.point){
                 // Cập nhật đỉnh tạm
                 tempSph.index = startIndexPoint;
                 tempSph.point = ratesH1[startIndexPoint].high;
             }
-
+            // Kiểm tra nếu giá thấp hơn đáy thực trước đó
+            if(indexStructPointArray > ONE){
+                if(ratesH1[startIndexPoint].low < structPointArray[indexStructPointArray - 1].point){
+                    structPointArray[indexStructPointArray - 1].point = ratesH1[startIndexPoint].low;
+                    structPointArray[indexStructPointArray - 1].index = startIndexPoint;
+                }
+            }
             if(ratesH1[startIndexPoint].close < ratesH1[tempSph.index].low){
                 // Từ đỉnh tạm trở thành đỉnh thực
                 structPointArray[indexStructPointArray].index = tempSph.index;
@@ -781,6 +804,23 @@ void CloseAllPositions(string positionType){
                     (positionType == SELL && type == POSITION_TYPE_SELL)){
                     Trade.PositionClose(ticket);
                 }
+            }
+        }
+    }
+}
+
+void CloseAllOrders(string comment){
+    for(int index = 0; index < OrdersTotal() && !IsStopped(); index++){
+        ulong ticket = OrderGetTicket(index);
+        if(ticket <= 0) continue;
+
+        if(OrderSelect(ticket)){
+            string symbol = OrderGetString(ORDER_SYMBOL);
+            long type = OrderGetInteger(ORDER_TYPE);
+            string orderComment = OrderGetString(ORDER_COMMENT);
+
+            if(symbol == _Symbol && orderComment == comment){
+                Trade.OrderDelete(ticket);
             }
         }
     }

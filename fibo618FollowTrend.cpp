@@ -78,6 +78,7 @@ void OnTimer(){
     if(isRunningEa && IsTradingTime()){
         Trading();
     }
+    CheckAndDeleteOldPendingOrders();
 }
 
 void Trading(){
@@ -356,13 +357,6 @@ void SetStructPointArray(StructPoint &myArray[]){
                 tempSpl.index = startIndexPoint;
                 tempSpl.point = ratesH1[startIndexPoint].low;
             }
-            // Kiểm tra nếu giá cao hơn đỉnh thực trước đó
-            if(indexStructPointArray > ONE){
-                if(ratesH1[startIndexPoint].high > structPointArray[indexStructPointArray - 1].point){
-                    structPointArray[indexStructPointArray - 1].point = ratesH1[startIndexPoint].high;
-                    structPointArray[indexStructPointArray - 1].index = startIndexPoint;
-                }
-            }
 
             if(ratesH1[startIndexPoint].close > ratesH1[tempSpl.index].high){
                 // Từ đáy tạm trở thành đáy thực
@@ -379,19 +373,18 @@ void SetStructPointArray(StructPoint &myArray[]){
                 tempSpl.type = NONE;
                 
                 startIndexPoint = tempSpl.index;
-            }
+            } //else if(indexStructPointArray > ONE){
+                // Kiểm tra nếu giá cao hơn đỉnh thực trước đó
+                //if(ratesH1[startIndexPoint].high > structPointArray[indexStructPointArray - 1].point){
+                    //structPointArray[indexStructPointArray - 1].point = ratesH1[startIndexPoint].high;
+                    //structPointArray[indexStructPointArray - 1].index = startIndexPoint;
+                //}
+            //}
         } else if(tempSph.type == SPH){
             if(ratesH1[startIndexPoint].high > tempSph.point){
                 // Cập nhật đỉnh tạm
                 tempSph.index = startIndexPoint;
                 tempSph.point = ratesH1[startIndexPoint].high;
-            }
-            // Kiểm tra nếu giá thấp hơn đáy thực trước đó
-            if(indexStructPointArray > ONE){
-                if(ratesH1[startIndexPoint].low < structPointArray[indexStructPointArray - 1].point){
-                    structPointArray[indexStructPointArray - 1].point = ratesH1[startIndexPoint].low;
-                    structPointArray[indexStructPointArray - 1].index = startIndexPoint;
-                }
             }
             if(ratesH1[startIndexPoint].close < ratesH1[tempSph.index].low){
                 // Từ đỉnh tạm trở thành đỉnh thực
@@ -407,7 +400,13 @@ void SetStructPointArray(StructPoint &myArray[]){
                 tempSph.type = NONE;
 
                 startIndexPoint = tempSph.index;
-            }
+            } //else if(indexStructPointArray > ONE){
+                // Kiểm tra nếu giá thấp hơn đáy thực trước đó
+                //if(ratesH1[startIndexPoint].low < structPointArray[indexStructPointArray - 1].point){
+                    //structPointArray[indexStructPointArray - 1].point = ratesH1[startIndexPoint].low;
+                    //structPointArray[indexStructPointArray - 1].index = startIndexPoint;
+                //}
+            //}
         }
 
         startIndexPoint--;
@@ -501,7 +500,9 @@ double GetLotSize(double stopLossDistance){
     
     // Tính toán kích thước lô
     double lotSize = RiskTrade / (stopLossPips * pipValue);
-    
+    if(StringFind(_Symbol, "XAUUSD") > -1 && _Digits == 2){
+        lotSize = lotSize / 100;
+    }
     // Đảm bảo rằng kích thước lô nằm trong phạm vi cho phép của sàn giao dịch
     double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
     double maxLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
@@ -816,10 +817,29 @@ void CloseAllOrders(string comment){
 
         if(OrderSelect(ticket)){
             string symbol = OrderGetString(ORDER_SYMBOL);
-            long type = OrderGetInteger(ORDER_TYPE);
             string orderComment = OrderGetString(ORDER_COMMENT);
 
             if(symbol == _Symbol && orderComment == comment){
+                Trade.OrderDelete(ticket);
+            }
+        }
+    }
+}
+
+void CheckAndDeleteOldPendingOrders(){
+    // Lấy thời gian hiện tại
+    datetime currentTime = TimeCurrent();
+    for(int index = 0; index < OrdersTotal() && !IsStopped(); index++){
+        ulong ticket = OrderGetTicket(index);
+        if(ticket <= 0) continue;
+
+        if(OrderSelect(ticket)){
+            string symbol = OrderGetString(ORDER_SYMBOL);
+            datetime setupTime = (datetime)OrderGetInteger(ORDER_TIME_SETUP);
+            double elapsedHours = (currentTime - setupTime)/3600.0;
+            
+            if(symbol == _Symbol && elapsedHours >= 24){
+                // Hủy lệnh
                 Trade.OrderDelete(ticket);
             }
         }

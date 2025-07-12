@@ -10,6 +10,7 @@
 CTrade Trade;
 CChartObjectButton TradeButton;// Nút bật/tắt giao dịch
 CChartObjectButton TrendButton;// Nút xu hướng giao dịch
+CChartObjectButton CloseAllButton;// Nút đóng tất cả giao dịch
 
 // Input parameters
 input double LotSize = 0.05; // SL tối thiểu (points) để tính
@@ -18,8 +19,12 @@ const int ZERO = 0;
 const int ONE = 1;
 const int TWO = 2;
 
+const string BUY = "BUY";
+const string SELL = "SELL";
+
 datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần 
 bool TradingEnabled = true; // Biến kiểm soát trạng thái giao dịch
+string TradingTrend = BUY; // Biến kiểm soát trạng thái xu hướng
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -28,17 +33,42 @@ int OnInit(){
     EventSetTimer(ONE);
 
     // Tạo nút và thiết lập thuộc tính
-    if(!TradeButton.Create(0, "TradeButton", 0, 400, 10, 150, 50))
+    if(!TradeButton.Create(0, "TradeButton", 0, 400, 10, 150, 35))
         return(INIT_FAILED);
     
     TradeButton.Description("TRADING: ON");
     TradeButton.Color(clrWhite);
     TradeButton.BackColor(clrGreen); 
     TradeButton.FontSize(12);
-    TradeButton.Font("Arial");
+    TradeButton.Font("Calibri");
     TradeButton.Selectable(true);
 
+    // Tạo nút và thiết lập thuộc tính
+    if(!TrendButton.Create(0, "TrendButton", 0, 600, 10, 150, 35))
+        return(INIT_FAILED);
+    
+    TrendButton.Description("TREND: BUY");
+    TrendButton.Color(clrWhite);
+    TrendButton.BackColor(clrGreen); 
+    TrendButton.FontSize(12);
+    TrendButton.Font("Calibri");
+    TrendButton.Selectable(true);
+
+    // Tạo nút và thiết lập thuộc tính
+    if(!CloseAllButton.Create(0, "CloseAllButton", 0, 800, 10, 175, 35))
+        return(INIT_FAILED);
+    
+    CloseAllButton.Description("CLOSE ALL POSITIONS");
+    CloseAllButton.Color(clrWhite);
+    CloseAllButton.BackColor(clrBlue); 
+    CloseAllButton.FontSize(12);
+    CloseAllButton.Font("Calibri");
+    CloseAllButton.Selectable(true);
+
     ObjectSetInteger(0, "TradeButton", OBJPROP_ZORDER, 10);
+    ObjectSetInteger(0, "TrendButton", OBJPROP_ZORDER, 10);
+    ObjectSetInteger(0, "CloseAllButton", OBJPROP_ZORDER, 10);
+
     ChartRedraw(0);
     
     return (INIT_SUCCEEDED);
@@ -62,7 +92,7 @@ void OnTimer(){
     }
 
     if(isRunningEa && TradingEnabled){
-        TradeEMAs();
+        Trade();
         isRunningEa = false;
     }
 }
@@ -79,32 +109,35 @@ void OnDeinit(const int reason){
 
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam){
     // Kiểm tra sự kiện nhấp chuột trên nút
-    if(id == CHARTEVENT_OBJECT_CLICK && sparam == "TradeButton") {
+    if(id == CHARTEVENT_OBJECT_CLICK && sparam == "TradeButton"){
         TradingEnabled = !TradingEnabled; // Đảo ngược trạng thái giao dịch
-        if(TradingEnabled) {
+        if(TradingEnabled){
             TradeButton.Description("TRADING: ON");
             TradeButton.Color(clrWhite);
             TradeButton.BackColor(clrGreen); // Màu xanh lá khi bật
-        } else {
+        } else{
             TradeButton.Description("TRADING: OFF");
             TradeButton.Color(clrWhite);
             TradeButton.BackColor(clrRed); // Màu đỏ khi tắt
         }
     }
-    // Kiểm tra sự kiện nhấn chuột trái
-    if(id == CHARTEVENT_OBJECT_CLICK && TradeButton.State()){
-        // Lấy tọa độ chuột
-        int x_distance = (int)lparam;
-        int y_distance = (int)dparam;
-        // Di chuyển nút đến vị trí mới
-        TradeButton.X_Distance(x_distance);
-        TradeButton.Y_Distance(y_distance);
-        // Vẽ lại biểu đồ
-        ChartRedraw(0);
+    // Nhấn nút trend
+    if(id == CHARTEVENT_OBJECT_CLICK && sparam == "TrendButton"){
+        // Đảo ngược trạng thái xu hướng
+        TradingTrend = TradingTrend == BUY ? SELL : BUY; 
+        if(TradingTrend == BUY){
+            TrendButton.Description("TREND: BUY");
+            TrendButton.Color(clrWhite);
+            TrendButton.BackColor(clrGreen); // Màu xanh lá khi bật
+        } else if(TradingTrend == SELL){
+            TrendButton.Description("TREND: SELL");
+            TrendButton.Color(clrWhite);
+            TrendButton.BackColor(clrRed); // Màu đỏ khi tắt
+        }
     }
 }
 
-void TradeEMAs(){
+void Trade(){
 
 }
 

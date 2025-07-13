@@ -11,6 +11,7 @@ CTrade Trade;
 CChartObjectButton TradeButton;// Nút bật/tắt giao dịch
 CChartObjectButton TrendButton;// Nút xu hướng giao dịch
 CChartObjectButton CloseAllButton;// Nút đóng tất cả giao dịch
+CChartObjectButton MoveAllSL;// Nút dời tất cả SL
 
 // Input parameters
 input double LotSize = 0.05; // SL tối thiểu (points) để tính
@@ -25,8 +26,9 @@ const int PERIOD_EMA = 25;
 
 datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần 
 
-bool TradingEnabled = true; // Biến kiểm soát trạng thái giao dịch
+bool TradingEnabled = false; // Biến kiểm soát trạng thái giao dịch
 bool CloseAllPositionsEnabled = false; // Biến kiểm soát đóng toàn bộ vị thế
+bool MoveAllSlEnabled = false; // Biến kiểm soát dời tất cả SL
 string TradingTrend = BUY; // Biến kiểm soát trạng thái xu hướng
 
 //+------------------------------------------------------------------+
@@ -40,9 +42,9 @@ int OnInit(){
     if(!TradeButton.Create(0, "TradeButton", 0, 400, 10, 150, 35))
         return(INIT_FAILED);
     
-    TradeButton.Description("TRADING: ON");
+    TradeButton.Description("TRADING: OFF");
     TradeButton.Color(clrWhite);
-    TradeButton.BackColor(clrGreen); 
+    TradeButton.BackColor(clrRed); 
     TradeButton.FontSize(12);
     TradeButton.Font("Calibri");
     TradeButton.Selectable(true);
@@ -69,10 +71,22 @@ int OnInit(){
     CloseAllButton.Font("Calibri");
     CloseAllButton.Selectable(true);
 
+    // Tạo nút và thiết lập thuộc tính
+    if(!MoveAllSL.Create(0, "MoveAllSL", 0, 1030, 10, 175, 35))
+        return(INIT_FAILED);
+    
+    MoveAllSL.Description("MOVE ALL SL");
+    MoveAllSL.Color(clrWhite);
+    MoveAllSL.BackColor(clrNavy); 
+    MoveAllSL.FontSize(12);
+    MoveAllSL.Font("Calibri");
+    MoveAllSL.Selectable(true);
+
     ObjectSetInteger(0, "TradeButton", OBJPROP_ZORDER, 10);
     ObjectSetInteger(0, "TrendButton", OBJPROP_ZORDER, 10);
     ObjectSetInteger(0, "CloseAllButton", OBJPROP_ZORDER, 10);
-
+    ObjectSetInteger(0, "MoveAllSL", OBJPROP_ZORDER, 10);
+    
     ChartRedraw(0);
     
     return (INIT_SUCCEEDED);
@@ -102,9 +116,11 @@ void OnTimer(){
 }
 
 void OnTick(){
-    // Kiểm tra xem có bật giao dịch không
-    ManagePositions();
-
+    if(MoveAllSlEnabled){
+        MoveAllSlEnabled = !MoveAllSlEnabled;
+        ManagePositions();
+    }
+    
     if(CloseAllPositionsEnabled){
         CloseAllPositionsEnabled = !CloseAllPositionsEnabled;
         CloseAllPositions();
@@ -147,6 +163,16 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
     // Nhấn nút close all
     if(id == CHARTEVENT_OBJECT_CLICK && sparam == "CloseAllButton"){
         CloseAllPositionsEnabled = !CloseAllPositionsEnabled;
+
+        // Đóng luôn giao dịch
+        TradingEnabled = false;
+        TradeButton.Description("TRADING: OFF");
+        TradeButton.Color(clrWhite);
+        TradeButton.BackColor(clrRed); // Màu đỏ khi tắt
+    }
+    // Nhấn nút dời SL
+    if(id == CHARTEVENT_OBJECT_CLICK && sparam == "MoveAllSL"){
+        MoveAllSlEnabled = !MoveAllSlEnabled;
     }
 }
 
@@ -165,24 +191,6 @@ void Trade(){
 
         if(!Trade.Sell(LotSize, _Symbol, entry)){
             Print("Error placing Sell Order: ", Trade.ResultRetcode());
-        }
-    }
-}
-
-void ManagePositions(){
-    // Lặp qua tất cả các vị thế đang mở
-    for(int index = PositionsTotal() - 1; index >= ZERO; index--){
-        // Lấy thông tin vị thế
-        ulong ticket = PositionGetTicket(index);
-        if(ticket <= 0) continue;
-        // Lấy thông tin chi tiết của vị thế
-        double entry = PositionGetDouble(POSITION_PRICE_OPEN);
-        double stopLoss = PositionGetDouble(POSITION_SL);
-        string symbol = PositionGetString(POSITION_SYMBOL);
-        ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
-
-        if(PositionSelectByTicket(ticket) && symbol == _Symbol){
-           
         }
     }
 }
@@ -209,7 +217,7 @@ bool IsCheckCandle(){
 
     double emaValue[];
     int handle = iMA(_Symbol, PERIOD_M1, PERIOD_EMA, 0, MODE_EMA, PRICE_CLOSE);;
-    if(handleM15 < 0) return false;
+    if(handle < 0) return false;
     ArraySetAsSeries(emaValue, true);
     if(CopyBuffer(handle, 0, 0, ONE, emaValue) <= 0) return false;
 
@@ -238,4 +246,37 @@ bool IsCheckCandle(){
     }
 
     return true;
+}
+
+void ManagePositions(){
+    // Lấy thông tin vị thế đầu tiên
+    if(PositionSelectByTicket(GetFirstPositionTicket())){
+        double firstPositionSL = PositionGetDouble(POSITION_SL);  // SL của vị thế đầu tiên
+
+        // Duyệt qua tất cả các vị thế hiện có
+        for(int index = PositionsTotal() - ONE; index >= 0; index--){
+            ulong ticket = PositionGetTicket(index);
+            if(ticket == GetFirstPositionTicket()) continue;  // Bỏ qua vị thế đầu tiên
+
+            if(PositionSelectByTicket(ticket)){
+                double currentSL = PositionGetDouble(POSITION_SL);
+                double newSL = firstPositionSL;
+                if(currentSL != newSL) ModifyStopLoss(ticket, newSL);
+            }
+        }
+    }
+}
+
+ulong GetFirstPositionTicket(){
+    // Giả sử vị thế đầu tiên là index 0
+    if(PositionsTotal() > 0) return PositionGetTicket(0);  
+    
+    return 0;  // Không có vị thế nào
+}
+
+void ModifyStopLoss(ulong ticket, double newStopLoss){
+    newStopLoss = NormalizeDouble(newStopLoss, _Digits);
+    if (!Trade.PositionModify(ticket, newStopLoss, 0)){
+        Print("Failed to modify position #", ticket, ". Error: ", GetLastError());
+    }
 }

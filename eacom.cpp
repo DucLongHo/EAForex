@@ -21,11 +21,12 @@ const int TWO = 2;
 
 const string BUY = "BUY";
 const string SELL = "SELL";
+const int PERIOD_EMA = 25;
 
 datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần 
 
 bool TradingEnabled = true; // Biến kiểm soát trạng thái giao dịch
-bool CloseAllPositionsEnabled = true; // Biến kiểm soát đóng toàn bộ vị thế
+bool CloseAllPositionsEnabled = false; // Biến kiểm soát đóng toàn bộ vị thế
 string TradingTrend = BUY; // Biến kiểm soát trạng thái xu hướng
 
 //+------------------------------------------------------------------+
@@ -80,7 +81,7 @@ int OnInit(){
 void OnTimer(){
     // Check current time and next M1 candle close time
     datetime currentTime = TimeCurrent();
-    datetime currentCandleCloseTime = iTime(_Symbol, PERIOD_M1, ONE) + PeriodSeconds(PERIOD_M1);
+    datetime currentCandleCloseTime = iTime(_Symbol, PERIOD_M1, 0) + PeriodSeconds(PERIOD_M1);
 
     datetime closeTime = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds(PERIOD_CURRENT);
     string timeString = TimeToString(closeTime - TimeCurrent(), TIME_SECONDS);
@@ -89,7 +90,7 @@ void OnTimer(){
     
     bool isRunningEa = false;
     if(currentCandleCloseTime != CandleCloseTime &&
-        currentCandleCloseTime - currentTime <= 2 ){
+        currentCandleCloseTime - currentTime <= TWO ){
         CandleCloseTime = currentCandleCloseTime;
         isRunningEa = true;
     }
@@ -145,14 +146,27 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
     }
     // Nhấn nút close all
     if(id == CHARTEVENT_OBJECT_CLICK && sparam == "CloseAllButton"){
-        if(!CloseAllPositionsEnabled){
-            CloseAllPositionsEnabled = !CloseAllPositionsEnabled;
-        }
+        CloseAllPositionsEnabled = !CloseAllPositionsEnabled;
     }
 }
 
 void Trade(){
+    if(!IsCheckCandle()) return;
+    
+    if(TradingTrend == BUY){
+        double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
 
+        if(!Trade.Buy(LotSize, _Symbol, entry)){
+            Print("Error placing Buy Order: ", Trade.ResultRetcode());
+        }
+
+    } else if(TradingTrend == SELL){
+        double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+
+        if(!Trade.Sell(LotSize, _Symbol, entry)){
+            Print("Error placing Sell Order: ", Trade.ResultRetcode());
+        }
+    }
 }
 
 void ManagePositions(){
@@ -185,4 +199,43 @@ void CloseAllPositions(){
             } else Print("Close failed #", ticket, " - Error: ", Trade.ResultComment());
         }
     }
+}
+
+bool IsCheckCandle(){
+    double priceOpen = iOpen(_Symbol, PERIOD_M1, 0);
+    double priceClose = iClose(_Symbol, PERIOD_M1, 0);
+    double priceHigh = iHigh(_Symbol, PERIOD_M1, 0);
+    double priceLow = iLow(_Symbol, PERIOD_M1, 0);
+
+    double emaValue[];
+    int handle = iMA(_Symbol, PERIOD_M1, PERIOD_EMA, 0, MODE_EMA, PRICE_CLOSE);;
+    if(handleM15 < 0) return false;
+    ArraySetAsSeries(emaValue, true);
+    if(CopyBuffer(handle, 0, 0, ONE, emaValue) <= 0) return false;
+
+    if(TradingTrend == BUY){
+        // Nến tăng thoả mãn
+        if(priceClose < priceOpen)
+            if((priceClose - priceLow) < (0.75) * (priceHigh - priceLow))
+                return false;
+        
+        // Kiểm tra bấc nến
+        if((priceHigh - priceClose) >= (0.5) * (priceHigh - priceLow)) return false;
+
+        // Kiểm tra với ema
+        if(priceClose <= emaValue[0]) return false;
+    } else if(TradingTrend == SELL){
+        // Nến giảm thoả mãn hoặc nến tăng rút râu
+        if(priceClose > priceOpen)
+            if((priceHigh - priceClose) < (0.75) * (priceHigh - priceLow))
+                return false;
+
+        // Kiểm tra bấc nến
+        if((priceClose - priceLow) >= (0.5) * (priceHigh - priceLow)) return false;
+
+        // Kiểm tra với ema
+        if(priceClose >= emaValue[0]) return false;
+    }
+
+    return true;
 }

@@ -23,8 +23,11 @@ const string BUY = "BUY";
 const string SELL = "SELL";
 
 datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần 
+
 bool TradingEnabled = true; // Biến kiểm soát trạng thái giao dịch
+bool CloseAllPositionsEnabled = true; // Biến kiểm soát đóng toàn bộ vị thế
 string TradingTrend = BUY; // Biến kiểm soát trạng thái xu hướng
+
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -100,6 +103,11 @@ void OnTimer(){
 void OnTick(){
     // Kiểm tra xem có bật giao dịch không
     ManagePositions();
+
+    if(CloseAllPositionsEnabled){
+        CloseAllPositionsEnabled = !CloseAllPositionsEnabled;
+        CloseAllPositions();
+    }
 }
 
 void OnDeinit(const int reason){
@@ -135,6 +143,12 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
             TrendButton.BackColor(clrRed); // Màu đỏ khi tắt
         }
     }
+    // Nhấn nút close all
+    if(id == CHARTEVENT_OBJECT_CLICK && sparam == "CloseAllButton"){
+        if(!CloseAllPositionsEnabled){
+            CloseAllPositionsEnabled = !CloseAllPositionsEnabled;
+        }
+    }
 }
 
 void Trade(){
@@ -155,6 +169,20 @@ void ManagePositions(){
 
         if(PositionSelectByTicket(ticket) && symbol == _Symbol){
            
+        }
+    }
+}
+
+void CloseAllPositions(){
+    for(int index = PositionsTotal() - ONE; index >= 0 && !IsStopped(); index--){
+        ulong ticket = PositionGetTicket(index);
+        if(ticket <= 0) continue;
+        
+        string symbol = PositionGetString(POSITION_SYMBOL);
+        if(PositionSelectByTicket(ticket) && symbol == _Symbol){
+            if(Trade.PositionClose(ticket)){
+                Print("Closed position #", ticket);
+            } else Print("Close failed #", ticket, " - Error: ", Trade.ResultComment());
         }
     }
 }

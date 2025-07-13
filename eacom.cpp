@@ -202,8 +202,8 @@ void CloseAllPositions(){
         
         string symbol = PositionGetString(POSITION_SYMBOL);
         if(PositionSelectByTicket(ticket) && symbol == _Symbol){
-            if(Trade.PositionClose(ticket))
-            else Print("Close failed #", ticket, " - Error: ", Trade.ResultComment());
+            if(!Trade.PositionClose(ticket))
+                Print("Close failed #", ticket, " - Error: ", Trade.ResultComment());
         }
     }
 }

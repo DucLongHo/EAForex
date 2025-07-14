@@ -5,13 +5,13 @@
 //+------------------------------------------------------------------+
 #include <Trade\Trade.mqh>
 #include <ChartObjects\ChartObjectsTxtControls.mqh>
-#include <Trade\DealInfo.mqh>  
 
 CTrade Trade;
 CChartObjectButton TradeButton;// Nút bật/tắt giao dịch
 CChartObjectButton TrendButton;// Nút xu hướng giao dịch
 CChartObjectButton CloseAllButton;// Nút đóng tất cả giao dịch
 CChartObjectButton MoveAllSL;// Nút dời tất cả SL
+CChartObjectLabel lblTotalSL, lblTotalTrade;
 
 // Input parameters
 input double LotSize = 0.05; // SL tối thiểu (points) để tính
@@ -40,49 +40,33 @@ int OnInit(){
     EventSetTimer(ONE);
 
     // Tạo nút và thiết lập thuộc tính
-    if(!TradeButton.Create(0, "TradeButton", 0, CalculateButtonX(), 30, 175, 35))
+    if(!CreateButton(TradeButton, "TradeButton", "TRADING: OFF", clrRed, 30))
         return(INIT_FAILED);
-    
-    TradeButton.Description("TRADING: OFF");
-    TradeButton.Color(clrWhite);
-    TradeButton.BackColor(clrRed); 
-    TradeButton.FontSize(12);
-    TradeButton.Font("Calibri");
-    TradeButton.Selectable(true);
+        
+    if(!CreateButton(TrendButton, "TrendButton", "TREND: BUY", clrGreen, 130))
+        return(INIT_FAILED);
+
+    if(!CreateButton(CloseAllButton, "CloseAllButton", "CLOSE ALL POSITIONS", clrBlue, 230))
+        return(INIT_FAILED);
 
     // Tạo nút và thiết lập thuộc tính
-    if(!TrendButton.Create(0, "TrendButton", 0, CalculateButtonX(), 130, 175, 35))
+    if(!CreateButton(MoveAllSL, "MoveAllSL", "MOVE ALL SL", clrNavy, 330))
         return(INIT_FAILED);
     
-    TrendButton.Description("TREND: BUY");
-    TrendButton.Color(clrWhite);
-    TrendButton.BackColor(clrGreen); 
-    TrendButton.FontSize(12);
-    TrendButton.Font("Calibri");
-    TrendButton.Selectable(true);
-
-    // Tạo nút và thiết lập thuộc tính
-    if(!CloseAllButton.Create(0, "CloseAllButton", 0, CalculateButtonX(), 230, 175, 35))
-        return(INIT_FAILED);
+    // Tạo label cho Total SL
+    lblTotalSL.Create(0, "TotalSLLabel", 0, CalculateButtonX(), 370);
+    lblTotalSL.Description("Total Stoploss: 0.00");
+    lblTotalSL.Color(clrWhite);
+    lblTotalSL.Font("Calibri");
+    lblTotalSL.FontSize(12);
     
-    CloseAllButton.Description("CLOSE ALL POSITIONS");
-    CloseAllButton.Color(clrWhite);
-    CloseAllButton.BackColor(clrBlue); 
-    CloseAllButton.FontSize(12);
-    CloseAllButton.Font("Calibri");
-    CloseAllButton.Selectable(true);
-
-    // Tạo nút và thiết lập thuộc tính
-    if(!MoveAllSL.Create(0, "MoveAllSL", 0, CalculateButtonX(), 330, 175, 35))
-        return(INIT_FAILED);
-    
-    MoveAllSL.Description("MOVE ALL SL");
-    MoveAllSL.Color(clrWhite);
-    MoveAllSL.BackColor(clrNavy); 
-    MoveAllSL.FontSize(12);
-    MoveAllSL.Font("Calibri");
-    MoveAllSL.Selectable(true);
-
+    // Tạo label cho Total Trade
+    lblTotalTrade.Create(0, "lblTotalTrade", 0, CalculateButtonX(), 390);
+    lblTotalTrade.Description("Total Lotsize: 0.00");
+    lblTotalTrade.Color(clrWhite);
+    lblTotalTrade.Font("Calibri");
+    lblTotalTrade.FontSize(12);
+       
     ObjectSetInteger(0, "TradeButton", OBJPROP_ZORDER, 10);
     ObjectSetInteger(0, "TrendButton", OBJPROP_ZORDER, 10);
     ObjectSetInteger(0, "CloseAllButton", OBJPROP_ZORDER, 10);
@@ -130,6 +114,10 @@ void OnTick(){
 
 void OnDeinit(const int reason){
     TradeButton.Delete();
+    CloseAllButton.Delete();
+    MoveAllSL.Delete();
+    TrendButton.Delete();
+    
     EventKillTimer();
 }
 
@@ -186,7 +174,6 @@ void Trade(){
         if(!Trade.Buy(LotSize, _Symbol, entry)){
             Print("Error placing Buy Order: ", Trade.ResultRetcode());
         }
-
     } else if(TradingTrend == SELL){
         double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
 
@@ -194,6 +181,8 @@ void Trade(){
             Print("Error placing Sell Order: ", Trade.ResultRetcode());
         }
     }
+
+    CalculateTotalVolume();
 }
 
 void CloseAllPositions(){
@@ -265,6 +254,8 @@ void ManagePositions(){
             }
         }
     }
+
+    CalculateTotalStopLoss();
 }
 
 ulong GetFirstPositionTicket(){
@@ -283,4 +274,69 @@ void ModifyStopLoss(ulong ticket, double newStopLoss){
 
 int CalculateButtonX(){
     return (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS) - Shift;;
+}
+
+bool CreateButton(CChartObjectButton &button, string name, string des, color bgColor, int y){
+    // Tạo nút và thiết lập thuộc tính
+    if(!button.Create(0, name, 0, CalculateButtonX(), y, 175, 35))
+        return false;
+    
+    button.Description(des);
+    button.Color(clrWhite);
+    button.BackColor(bgColor); 
+    button.FontSize(12);
+    button.Font("Calibri");
+    button.Selectable(true);
+    
+    return true;
+}
+
+void CalculateTotalVolume(){
+    double totalVolume = 0;
+
+    // Duyệt qua tất cả các vị thế hiện có
+    for(int index = PositionsTotal() - ONE; index >= 0; index--){
+        ulong ticket = PositionGetTicket(index);
+
+        if(PositionSelectByTicket(ticket)){
+            totalVolume += PositionGetDouble(POSITION_VOLUME);
+        }
+    }
+    // Cập nhật panel
+    lblTotalTrade.Description("Total Lotsize: " + DoubleToString(totalVolume, 2)+ "Lot");
+}
+
+void CalculateTotalStopLoss(){
+    double totalSl = 0;
+
+    // Duyệt qua tất cả các vị thế hiện có
+    for(int index = PositionsTotal() - ONE; index >= 0; index--){
+        ulong ticket = PositionGetTicket(index);
+
+        if(PositionSelectByTicket(ticket)){
+            double sl = PositionGetDouble(POSITION_SL);
+            double price = PositionGetDouble(POSITION_PRICE_OPEN);
+            double volume = PositionGetDouble(POSITION_VOLUME);
+            ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+            if(sl != 0){
+                // Tính khoản lỗ tiềm năng (SL - Price) * Volume
+               double diff = 0;
+                
+                // Tính chênh lệch SL theo hướng lệnh
+                if(type == POSITION_TYPE_BUY){
+                    diff = sl - price; // BUY: SL > Price = lỗ
+                } else {
+                    diff = price - sl; // SELL: SL < Price = lỗ
+                }
+            
+                // Chuyển đổi sang USD
+                double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+                double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+                double pointValue = tickValue / tickSize;
+                totalSl += diff * volume * pointValue;
+            }
+        }
+    }
+   // Cập nhật panel
+   lblTotalSL.Description("Total Lotsize: " + DoubleToString(totalSl, 2) + " USD");
 }

@@ -15,6 +15,7 @@ CChartObjectButton MoveAllSL;// Nút dời tất cả SL
 
 // Input parameters
 input double LotSize = 0.05; // SL tối thiểu (points) để tính
+input int Shift = 200; // Khoảng cách lề phải cho nút (pixels)
 // Constant data
 const int ZERO = 0;
 const int ONE = 1;
@@ -39,7 +40,7 @@ int OnInit(){
     EventSetTimer(ONE);
 
     // Tạo nút và thiết lập thuộc tính
-    if(!TradeButton.Create(0, "TradeButton", 0, 400, 10, 150, 35))
+    if(!TradeButton.Create(0, "TradeButton", 0, CalculateButtonX(), 30, 175, 35))
         return(INIT_FAILED);
     
     TradeButton.Description("TRADING: OFF");
@@ -50,7 +51,7 @@ int OnInit(){
     TradeButton.Selectable(true);
 
     // Tạo nút và thiết lập thuộc tính
-    if(!TrendButton.Create(0, "TrendButton", 0, 600, 10, 150, 35))
+    if(!TrendButton.Create(0, "TrendButton", 0, CalculateButtonX(), 130, 175, 35))
         return(INIT_FAILED);
     
     TrendButton.Description("TREND: BUY");
@@ -61,7 +62,7 @@ int OnInit(){
     TrendButton.Selectable(true);
 
     // Tạo nút và thiết lập thuộc tính
-    if(!CloseAllButton.Create(0, "CloseAllButton", 0, 800, 10, 175, 35))
+    if(!CloseAllButton.Create(0, "CloseAllButton", 0, CalculateButtonX(), 230, 175, 35))
         return(INIT_FAILED);
     
     CloseAllButton.Description("CLOSE ALL POSITIONS");
@@ -72,7 +73,7 @@ int OnInit(){
     CloseAllButton.Selectable(true);
 
     // Tạo nút và thiết lập thuộc tính
-    if(!MoveAllSL.Create(0, "MoveAllSL", 0, 1030, 10, 175, 35))
+    if(!MoveAllSL.Create(0, "MoveAllSL", 0, CalculateButtonX(), 330, 175, 35))
         return(INIT_FAILED);
     
     MoveAllSL.Description("MOVE ALL SL");
@@ -278,4 +279,8 @@ void ModifyStopLoss(ulong ticket, double newStopLoss){
     if (!Trade.PositionModify(ticket, newStopLoss, 0)){
         Print("Failed to modify position #", ticket, ". Error: ", GetLastError());
     }
+}
+
+int CalculateButtonX(){
+    return (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS) - Shift;;
 }

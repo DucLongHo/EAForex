@@ -190,12 +190,13 @@ void CloseAllPositions(){
         ulong ticket = PositionGetTicket(index);
         if(ticket <= 0) continue;
         
-        string symbol = PositionGetString(POSITION_SYMBOL);
-        if(PositionSelectByTicket(ticket) && symbol == _Symbol){
+        if(PositionSelectByTicket(ticket)){
+            Trade.SetAsyncMode(true);
             if(!Trade.PositionClose(ticket))
                 Print("Close failed #", ticket, " - Error: ", Trade.ResultComment());
         }
     }
+    Trade.SetAsyncMode(false);
 }
 
 bool IsCheckCandle(){

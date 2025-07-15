@@ -339,5 +339,5 @@ void CalculateTotalStopLoss(){
         }
     }
    // Cập nhật panel
-   lblTotalSL.Description("Total Lotsize: " + DoubleToString(totalSl, 2) + " USD");
+   lblTotalSL.Description("Total Stoploss: " + DoubleToString(totalSl, 2) + " USD");
 }

@@ -15,6 +15,7 @@ CChartObjectLabel lblTotalSL, lblTotalTrade;
 
 // Input parameters
 input double LotSize = 0.05; // SL tối thiểu (points) để tính
+input double RiskFirstPos = 20; // Sl của vị thế đầu tiên (Usd)
 input int Shift = 200; // Khoảng cách lề phải cho nút (pixels)
 // Constant data
 const int ZERO = 0;
@@ -170,18 +171,30 @@ void Trade(){
     
     if(TradingTrend == BUY){
         double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-
-        if(!Trade.Buy(LotSize, _Symbol, entry)){
-            Print("Error placing Buy Order: ", Trade.ResultRetcode());
+        if(GetFirstPositionTicket() == 0){
+            double diffSl = CalculateStopLossPoints();
+            if(!Trade.Buy(LotSize, _Symbol, entry, entry - diffSl)){
+                Print("Error placing Buy Order: ", Trade.ResultRetcode());
+            }
+        } else{
+            if(!Trade.Buy(LotSize, _Symbol, entry)){
+                Print("Error placing Buy Order: ", Trade.ResultRetcode());
+            }
         }
     } else if(TradingTrend == SELL){
         double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-
-        if(!Trade.Sell(LotSize, _Symbol, entry)){
-            Print("Error placing Sell Order: ", Trade.ResultRetcode());
+        if(GetFirstPositionTicket() == 0){
+            double diffSl = CalculateStopLossPoints();
+            if(!Trade.Sell(LotSize, _Symbol, entry, entry + diffSl)){
+                Print("Error placing Sell Order: ", Trade.ResultRetcode());
+            }
+        } else{
+            if(!Trade.Sell(LotSize, _Symbol, entry)){
+                Print("Error placing Sell Order: ", Trade.ResultRetcode());
+            }
         }
     }
-
+    CalculateTotalStopLoss();
     CalculateTotalVolume();
 }
 
@@ -304,7 +317,7 @@ void CalculateTotalVolume(){
         }
     }
     // Cập nhật panel
-    lblTotalTrade.Description("Total Lotsize: " + DoubleToString(totalVolume, 2)+ "Lot");
+    lblTotalTrade.Description("Total Lotsize: " + DoubleToString(totalVolume, 2)+ " Lot");
 }
 
 void CalculateTotalStopLoss(){
@@ -321,14 +334,12 @@ void CalculateTotalStopLoss(){
             ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
             if(sl != 0){
                 // Tính khoản lỗ tiềm năng (SL - Price) * Volume
-               double diff = 0;
+                double diff = 0;
                 
                 // Tính chênh lệch SL theo hướng lệnh
                 if(type == POSITION_TYPE_BUY){
                     diff = sl - price; // BUY: SL > Price = lỗ
-                } else {
-                    diff = price - sl; // SELL: SL < Price = lỗ
-                }
+                } else diff = price - sl; // SELL: SL < Price = lỗ
             
                 // Chuyển đổi sang USD
                 double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
@@ -340,4 +351,27 @@ void CalculateTotalStopLoss(){
     }
    // Cập nhật panel
    lblTotalSL.Description("Total Stoploss: " + DoubleToString(totalSl, 2) + " USD");
+}
+
+double CalculateStopLossPoints(){
+   // Lấy thông tin về công cụ giao dịch
+   double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+   double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   
+   // Kiểm tra giá trị hợp lệ
+   if (tickValue <= 0 || tickSize <= 0) {
+      return 0.0;
+   }
+   
+   // Tính giá trị pip
+   double pipValue = tickValue / tickSize;
+   
+   // Tính stop loss theo points
+   double stopLossPoints = RiskFirstPos / (LotSize * pipValue);
+   
+   // Đảm bảo stop loss không âm và làm tròn đến số nguyên
+   stopLossPoints = MathMax(stopLossPoints, 0);
+   stopLossPoints = MathRound(stopLossPoints);
+   
+   return stopLossPoints;
 }

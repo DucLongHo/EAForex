@@ -95,8 +95,11 @@ void OnTimer(){
         isRunningEa = true;
     }
 
-    if(isRunningEa && TradingEnabled){
-        Trade();
+    if(isRunningEa){
+        if(TradingEnabled) Trade();
+        
+        Draw();
+        
         isRunningEa = false;
     }
 }
@@ -354,24 +357,61 @@ void CalculateTotalStopLoss(){
 }
 
 double CalculateStopLossPoints(){
-   // Lấy thông tin về công cụ giao dịch
-   double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
-   double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
-   
-   // Kiểm tra giá trị hợp lệ
-   if (tickValue <= 0 || tickSize <= 0) {
-      return 0.0;
-   }
-   
-   // Tính giá trị pip
-   double pipValue = tickValue / tickSize;
-   
-   // Tính stop loss theo points
-   double stopLossPoints = RiskFirstPos / (LotSize * pipValue);
-   
-   // Đảm bảo stop loss không âm và làm tròn đến số nguyên
-   stopLossPoints = MathMax(stopLossPoints, 0);
-   stopLossPoints = MathRound(stopLossPoints);
-   
-   return stopLossPoints;
+    // Lấy thông tin về công cụ giao dịch
+    double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+    double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+
+    // Kiểm tra giá trị hợp lệ
+    if (tickValue <= 0 || tickSize <= 0) {
+        return 0.0;
+    }
+
+    // Tính giá trị pip
+    double pipValue = tickValue / tickSize;
+
+    // Tính stop loss theo points
+    double stopLossPoints = RiskFirstPos / (LotSize * pipValue);
+
+    // Đảm bảo stop loss không âm và làm tròn đến số nguyên
+    stopLossPoints = MathMax(stopLossPoints, 0);
+    stopLossPoints = MathRound(stopLossPoints);
+
+    return stopLossPoints;
+}
+
+void DrawMarkerPrice(ENUM_TIMEFRAMES timeframe, color lineColor){
+    double emaValue[];
+    int handle = iMA(_Symbol, timeframe, PERIOD_EMA, 0, MODE_EMA, PRICE_CLOSE);;
+    if(handle < 0) return ;
+
+    ArraySetAsSeries(emaValue, true);
+    if(CopyBuffer(handle, 0, 0, ONE, emaValue) <= 0) return;
+
+    double price = emaValue[0];
+    if(price == 0) return;
+
+    datetime currentTime = iTime(_Symbol, PERIOD_CURRENT, 0);
+    datetime start = currentTime + PeriodSeconds(PERIOD_CURRENT) * 10;
+    datetime end = currentTime + PeriodSeconds(PERIOD_CURRENT) * 2;
+    
+    string lineName = "Price " + DoubleToString(price);
+    string textName = "TimeframeLabel_" + IntegerToString(timeframe);
+
+    ObjectCreate(0, lineName, OBJ_TREND, 0, start, price, end, price);
+    ObjectSetInteger(0, lineName, OBJPROP_COLOR, lineColor);
+    ObjectSetInteger(0, lineName, OBJPROP_WIDTH, 2);
+    
+    ObjectCreate(0, textName, OBJ_TEXT, 0, start, price + 52 * _Point);
+    ObjectSetString(0, textName, OBJPROP_TEXT, StringSubstr(EnumToString(timeframe), 7));
+    ObjectSetInteger(0, textName, OBJPROP_COLOR, lineColor);
+    ObjectSetInteger(0, textName, OBJPROP_ANCHOR, ANCHOR_LEFT_UPPER);
+    ObjectSetInteger(0, textName, OBJPROP_FONTSIZE, 10);
+}
+
+void Draw(){
+   ObjectsDeleteAll(0, -1, OBJ_TREND);
+   ObjectsDeleteAll(0, -1, OBJ_TEXT);
+
+   DrawMarkerPrice(PERIOD_M5, clrGray);
+   DrawMarkerPrice(PERIOD_M15, clrTeal);
 }

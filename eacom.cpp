@@ -96,7 +96,12 @@ void OnTimer(){
     }
 
     if(isRunningEa){
-        if(TradingEnabled) Trade();
+        if(TradingEnabled){
+            Trade();
+            
+            if(CheckBreakEma())
+               CloseAllPositions();
+        }
         
         Draw();
         
@@ -197,6 +202,7 @@ void Trade(){
             }
         }
     }
+
     CalculateTotalStopLoss();
     CalculateTotalVolume();
 }
@@ -414,4 +420,31 @@ void Draw(){
 
    DrawMarkerPrice(PERIOD_M5, clrGray);
    DrawMarkerPrice(PERIOD_M15, clrTeal);
+}
+
+bool CheckBreakEma(){
+    if(PositionsTotal() == 0) return false;
+     
+    double emaValue[];
+    int handle = iMA(_Symbol, PERIOD_M1, PERIOD_EMA, 0, MODE_EMA, PRICE_CLOSE);;
+    if(handle < 0) return false;
+
+    ArraySetAsSeries(emaValue, true);
+    if(CopyBuffer(handle, 0, 0, TWO, emaValue) <= 0) return false;
+
+    double currentEma = emaValue[0], preEma = emaValue[ONE];
+    if(currentEma == 0 || preEma == 0) return false;
+   
+    double currentClose = iClose(_Symbol, PERIOD_M1, 0);
+    double preClose = iClose(_Symbol, PERIOD_M1, ONE);
+
+    if(TradingTrend == BUY){
+        if(currentClose < currentEma && preClose < preEma)
+            return true;        
+    } else if(TradingTrend == SELL){
+        if(currentClose > currentEma && preClose > preEma)
+            return true;  
+    }
+    
+    return false;
 }

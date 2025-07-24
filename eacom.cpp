@@ -117,6 +117,9 @@ void OnTick(){
         CloseAllPositionsEnabled = !CloseAllPositionsEnabled;
 
         CloseAllPositions();
+        // Cập nhật panel
+        lblTotalTrade.Description("Total Lotsize: 0.00 Lot");
+        lblTotalSL.Description("Total Stoploss: 0.00 USD");
     }
 }
 

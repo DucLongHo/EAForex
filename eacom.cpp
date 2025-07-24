@@ -87,11 +87,13 @@ void OnTimer(){
     }
 
     if(isRunningEa){
-        if(TradingEnabled){
-            Trade();
-            
+        if(PositionsTotal() > 0){
             CalculateTotalStopLoss();
             CalculateTotalVolume();
+        }
+        
+        if(TradingEnabled){
+            Trade();
             
             if(CheckBreakEma()){
                CloseAllPositions();

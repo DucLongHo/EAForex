@@ -178,6 +178,10 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
 void Trade(){
     if(!IsCheckCandle()) return;
     
+    double firstPositionSL = 0;
+    if(PositionSelectByTicket(GetFirstPositionTicket()))
+        firstPositionSL = PositionGetDouble(POSITION_SL);  // SL của vị thế đầu tiên
+
     if(TradingTrend == BUY){
         double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
         if(GetFirstPositionTicket() == 0){
@@ -185,8 +189,8 @@ void Trade(){
             if(!Trade.Buy(LotSize, _Symbol, entry, entry - diffSl)){
                 Print("Error placing Buy Order: ", Trade.ResultRetcode());
             }
-        } else{
-            if(!Trade.Buy(LotSize, _Symbol, entry)){
+        } else{ 
+            if(!Trade.Buy(LotSize, _Symbol, entry, firstPositionSL)){
                 Print("Error placing Buy Order: ", Trade.ResultRetcode());
             }
         }
@@ -198,7 +202,7 @@ void Trade(){
                 Print("Error placing Sell Order: ", Trade.ResultRetcode());
             }
         } else{
-            if(!Trade.Sell(LotSize, _Symbol, entry)){
+            if(!Trade.Sell(LotSize, _Symbol, entry, firstPositionSL)){
                 Print("Error placing Sell Order: ", Trade.ResultRetcode());
             }
         }

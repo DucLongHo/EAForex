@@ -11,6 +11,7 @@ CChartObjectButton TradeButton;// Nút bật/tắt giao dịch
 CChartObjectButton TrendButton;// Nút xu hướng giao dịch
 CChartObjectButton CloseAllButton;// Nút đóng tất cả giao dịch
 CChartObjectButton MoveAllSL;// Nút dời tất cả SL
+
 CChartObjectLabel lblTotalSL, lblTotalTrade;
 
 // Input parameters
@@ -47,27 +48,21 @@ int OnInit(){
     if(!CreateButton(TrendButton, "TrendButton", "TREND: BUY", clrGreen, 130))
         return(INIT_FAILED);
 
-    if(!CreateButton(CloseAllButton, "CloseAllButton", "CLOSE ALL POSITIONS", clrBlue, 230))
+    if(!CreateButton(CloseAllButton, "CloseAllButton", "CLOSE ALL POSITIONS", clrBlue, CalculateButtonY()))
         return(INIT_FAILED);
 
     // Tạo nút và thiết lập thuộc tính
-    if(!CreateButton(MoveAllSL, "MoveAllSL", "MOVE ALL SL", clrNavy, 330))
+    if(!CreateButton(MoveAllSL, "MoveAllSL", "MOVE ALL SL", clrNavy, 230))
         return(INIT_FAILED);
     
     // Tạo label cho Total SL
-    lblTotalSL.Create(0, "TotalSLLabel", 0, CalculateButtonX(), 370);
-    lblTotalSL.Description("Total Stoploss: 0.00");
-    lblTotalSL.Color(clrWhite);
-    lblTotalSL.Font("Calibri");
-    lblTotalSL.FontSize(12);
-    
+    if(!CreateLable(lblTotalSL, "TotalSLLabel", "Total Stoploss: 0.00", 270))
+        return(INIT_FAILED);
+
     // Tạo label cho Total Trade
-    lblTotalTrade.Create(0, "lblTotalTrade", 0, CalculateButtonX(), 390);
-    lblTotalTrade.Description("Total Lotsize: 0.00");
-    lblTotalTrade.Color(clrWhite);
-    lblTotalTrade.Font("Calibri");
-    lblTotalTrade.FontSize(12);
-       
+    if(!CreateLable(lblTotalSL, "TotalTradeLable", "Total Lotsize: 0.00", 290))
+        return(INIT_FAILED);
+
     ObjectSetInteger(0, "TradeButton", OBJPROP_ZORDER, 10);
     ObjectSetInteger(0, "TrendButton", OBJPROP_ZORDER, 10);
     ObjectSetInteger(0, "CloseAllButton", OBJPROP_ZORDER, 10);
@@ -83,10 +78,6 @@ void OnTimer(){
     datetime currentTime = TimeCurrent();
     datetime currentCandleCloseTime = iTime(_Symbol, PERIOD_M1, 0) + PeriodSeconds(PERIOD_M1);
 
-    datetime closeTime = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds(PERIOD_CURRENT);
-    string timeString = TimeToString(closeTime - TimeCurrent(), TIME_SECONDS);
-
-    Comment("Đếm ngược thời gian đóng nến: ", timeString, "\n", "\n");
     
     bool isRunningEa = false;
     if(currentCandleCloseTime != CandleCloseTime &&
@@ -298,7 +289,11 @@ void ModifyStopLoss(ulong ticket, double newStopLoss){
 }
 
 int CalculateButtonX(){
-    return (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS) - Shift;;
+    return (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS) - Shift;
+}
+
+int CalculateButtonY(){
+    return (int)ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS) - 100;
 }
 
 bool CreateButton(CChartObjectButton &button, string name, string des, color bgColor, int y){
@@ -313,6 +308,19 @@ bool CreateButton(CChartObjectButton &button, string name, string des, color bgC
     button.Font("Calibri");
     button.Selectable(true);
     
+    return true;
+}
+
+bool CreateLable(CChartObjectLabel &lable, string name, string des, int y){
+    // Tạo lable và thiết lập thuộc tính
+    if(!lable.Create(0, name, 0, CalculateButtonX(), y))
+        return false;
+
+    lable.Description(des);
+    lable.Color(clrWhite);
+    lable.Font("Calibri");
+    lable.FontSize(12);
+
     return true;
 }
 

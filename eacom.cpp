@@ -56,11 +56,11 @@ int OnInit(){
         return(INIT_FAILED);
     
     // Tạo label cho Total SL
-    if(!CreateLable(lblTotalSL, "TotalSLLabel", "Total Stoploss: 0.00", 270))
+    if(!CreateLable(lblTotalSL, "TotalSLLabel", "Total Stoploss: 0.00 USD", 270))
         return(INIT_FAILED);
 
     // Tạo label cho Total Trade
-    if(!CreateLable(lblTotalSL, "TotalTradeLable", "Total Lotsize: 0.00", 290))
+    if(!CreateLable(lblTotalTrade, "TotalTradeLable", "Total Lotsize: 0.00 Lot", 290))
         return(INIT_FAILED);
 
     ObjectSetInteger(0, "TradeButton", OBJPROP_ZORDER, 10);
@@ -87,11 +87,6 @@ void OnTimer(){
     }
 
     if(isRunningEa){
-        if(PositionsTotal() > 0){
-            CalculateTotalStopLoss();
-            CalculateTotalVolume();
-        }
-        
         if(TradingEnabled){
             Trade();
             
@@ -99,6 +94,11 @@ void OnTimer(){
                CloseAllPositions();
                CloseEA();
             }
+        }
+        
+        if(PositionsTotal() > 0){
+            CalculateTotalStopLoss();
+            CalculateTotalVolume();
         }
         
         Draw();
@@ -115,6 +115,7 @@ void OnTick(){
     
     if(CloseAllPositionsEnabled){
         CloseAllPositionsEnabled = !CloseAllPositionsEnabled;
+
         CloseAllPositions();
     }
 }
@@ -213,6 +214,7 @@ void CloseAllPositions(){
                 Print("Close failed #", ticket, " - Error: ", Trade.ResultComment());
         }
     }
+
     Trade.SetAsyncMode(false);
 }
 

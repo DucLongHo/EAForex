@@ -99,8 +99,13 @@ void OnTimer(){
         if(TradingEnabled){
             Trade();
             
-            if(CheckBreakEma())
+            CalculateTotalStopLoss();
+            CalculateTotalVolume();
+            
+            if(CheckBreakEma()){
                CloseAllPositions();
+               CloseEA();
+            }
         }
         
         Draw();
@@ -162,11 +167,7 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
     if(id == CHARTEVENT_OBJECT_CLICK && sparam == "CloseAllButton"){
         CloseAllPositionsEnabled = !CloseAllPositionsEnabled;
 
-        // Đóng luôn giao dịch
-        TradingEnabled = false;
-        TradeButton.Description("TRADING: OFF");
-        TradeButton.Color(clrWhite);
-        TradeButton.BackColor(clrRed); // Màu đỏ khi tắt
+        CloseEA();
     }
     // Nhấn nút dời SL
     if(id == CHARTEVENT_OBJECT_CLICK && sparam == "MoveAllSL"){
@@ -202,9 +203,6 @@ void Trade(){
             }
         }
     }
-
-    CalculateTotalStopLoss();
-    CalculateTotalVolume();
 }
 
 void CloseAllPositions(){
@@ -424,7 +422,7 @@ void Draw(){
 
 bool CheckBreakEma(){
     if(PositionsTotal() == 0) return false;
-     
+
     double emaValue[];
     int handle = iMA(_Symbol, PERIOD_M1, PERIOD_EMA, 0, MODE_EMA, PRICE_CLOSE);;
     if(handle < 0) return false;
@@ -436,7 +434,9 @@ bool CheckBreakEma(){
     if(currentEma == 0 || preEma == 0) return false;
    
     double currentClose = iClose(_Symbol, PERIOD_M1, 0);
+    double currentOpen = iOpen(_Symbol, PERIOD_M1, 0);
     double preClose = iClose(_Symbol, PERIOD_M1, ONE);
+    double preOpen = iOpen(_Symbol, PERIOD_M1, ONE);
 
     if(TradingTrend == BUY){
         if(currentClose < currentEma && preClose < preEma)
@@ -447,4 +447,12 @@ bool CheckBreakEma(){
     }
     
     return false;
+}
+
+void CloseEA(){
+    // Đóng luôn giao dịch
+    TradingEnabled = false;
+    TradeButton.Description("TRADING: OFF");
+    TradeButton.Color(clrWhite);
+    TradeButton.BackColor(clrRed); // Màu đỏ khi tắt
 }

@@ -525,4 +525,10 @@ void CheckPriceAlert(){
     } else if(TradingTrend == BUY && currentLow <= currentEma){
         Alert("Price crossed below EMA");
     }
+
+    // Cập nhật trạng thái cảnh báo
+    AlertEnabled = false;
+    AlertButton.Description("ALERT PRICE EMA: OFF");
+    AlertButton.Color(clrWhite);
+    AlertButton.BackColor(clrRed); // Màu đỏ khi tắt
 }

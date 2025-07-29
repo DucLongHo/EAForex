@@ -10,9 +10,10 @@ CTrade Trade;
 CChartObjectButton TradeButton;// Nút bật/tắt giao dịch
 CChartObjectButton TrendButton;// Nút xu hướng giao dịch
 CChartObjectButton CloseAllButton;// Nút đóng tất cả giao dịch
-CChartObjectButton MoveAllSL;// Nút dời tất cả SL
+CChartObjectButton MoveAllSLButton;// Nút dời tất cả SL
+CChartObjectButton AlertButton;// Nút cảnh báo
 
-CChartObjectLabel lblTotalSL, lblTotalTrade;
+CChartObjectLabel lblTotalSL, lblTotalTrade, lblSetup, lblFunctions;
 
 // Input parameters
 input double LotSize = 0.05; // SL tối thiểu (points) để tính
@@ -32,6 +33,7 @@ datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần
 bool TradingEnabled = false; // Biến kiểm soát trạng thái giao dịch
 bool CloseAllPositionsEnabled = false; // Biến kiểm soát đóng toàn bộ vị thế
 bool MoveAllSlEnabled = false; // Biến kiểm soát dời tất cả SL
+bool AlertEnabled = false; // Biến kiểm soát bật/tắt cảnh báo
 string TradingTrend = BUY; // Biến kiểm soát trạng thái xu hướng
 
 //+------------------------------------------------------------------+
@@ -40,33 +42,42 @@ string TradingTrend = BUY; // Biến kiểm soát trạng thái xu hướng
 
 int OnInit(){
     EventSetTimer(ONE);
-
+    // Tiêu đề các nút setup
+    if(!CreateLable(lblSetup, "lblSetup", "// SETUP BUTTON //", CalculateButtonX(), 30))
+        return(INIT_FAILED);
     // Tạo nút và thiết lập thuộc tính
-    if(!CreateButton(TradeButton, "TradeButton", "TRADING: OFF", clrRed, 30))
+    if(!CreateButton(TradeButton, "TradeButton", "TRADING: OFF", clrRed, 60))
         return(INIT_FAILED);
         
-    if(!CreateButton(TrendButton, "TrendButton", "TREND: BUY", clrGreen, 130))
+    if(!CreateButton(TrendButton, "TrendButton", "TREND: BUY", clrGreen, 140))
+        return(INIT_FAILED);
+
+    // Tiêu đề các nút chức năng
+    if(!CreateLable(lblFunctions, "lblFunctions", "// FUNCTION BUTTONS //", CalculateButtonX(), 190))
         return(INIT_FAILED);
 
     if(!CreateButton(CloseAllButton, "CloseAllButton", "CLOSE ALL POSITIONS", clrBlue, CalculateButtonY()))
         return(INIT_FAILED);
 
     // Tạo nút và thiết lập thuộc tính
-    if(!CreateButton(MoveAllSL, "MoveAllSL", "MOVE ALL SL", clrNavy, 230))
+    if(!CreateButton(MoveAllSLButton, "MoveAllSLButton", "MOVE ALL SL", clrNavy, 220))
         return(INIT_FAILED);
-    
+
+    if(!CreateButton(AlertButton, "AlertButton", "ALERT PRICE EMA: OFF", clrRed, 300))
+        return(INIT_FAILED);
+
     // Tạo label cho Total SL
-    if(!CreateLable(lblTotalSL, "TotalSLLabel", "Total Stoploss: 0.00 USD", 270))
+    if(!CreateLable(lblTotalSL, "TotalSLLabel", "Total Stoploss: 0.00 USD", 5, 30))
         return(INIT_FAILED);
 
     // Tạo label cho Total Trade
-    if(!CreateLable(lblTotalTrade, "TotalTradeLable", "Total Lotsize: 0.00 Lot", 290))
+    if(!CreateLable(lblTotalTrade, "TotalTradeLable", "Total Lotsize: 0.00 Lot", 5, 60))
         return(INIT_FAILED);
 
     ObjectSetInteger(0, "TradeButton", OBJPROP_ZORDER, 10);
     ObjectSetInteger(0, "TrendButton", OBJPROP_ZORDER, 10);
     ObjectSetInteger(0, "CloseAllButton", OBJPROP_ZORDER, 10);
-    ObjectSetInteger(0, "MoveAllSL", OBJPROP_ZORDER, 10);
+    ObjectSetInteger(0, "MoveAllSLButton", OBJPROP_ZORDER, 10);
     
     ChartRedraw(0);
     
@@ -96,6 +107,10 @@ void OnTimer(){
             }
         }
         
+        if(AlertEnabled){
+            CheckPriceAlert();
+        }
+
         if(PositionsTotal() > 0){
             CalculateTotalStopLoss();
             CalculateTotalVolume();
@@ -126,7 +141,7 @@ void OnTick(){
 void OnDeinit(const int reason){
     TradeButton.Delete();
     CloseAllButton.Delete();
-    MoveAllSL.Delete();
+    MoveAllSLButton.Delete();
     TrendButton.Delete();
     
     EventKillTimer();
@@ -160,6 +175,19 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
             TrendButton.BackColor(clrRed); // Màu đỏ khi tắt
         }
     }
+    // Nhấn nút cảnh báo
+    if(id == CHARTEVENT_OBJECT_CLICK && sparam == "AlertButton"){
+        AlertEnabled = !AlertEnabled; // Đảo ngược trạng thái cảnh báo
+        if(AlertEnabled){
+            AlertButton.Description("ALERT PRICE EMA: ON");
+            AlertButton.Color(clrWhite);
+            AlertButton.BackColor(clrGreen); // Màu xanh lá khi bật
+        } else{
+            AlertButton.Description("ALERT PRICE EMA: OFF");
+            AlertButton.Color(clrWhite);
+            AlertButton.BackColor(clrRed); // Màu đỏ khi tắt
+        }
+    }
     // Nhấn nút close all
     if(id == CHARTEVENT_OBJECT_CLICK && sparam == "CloseAllButton"){
         CloseAllPositionsEnabled = !CloseAllPositionsEnabled;
@@ -167,17 +195,19 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
         CloseEA();
     }
     // Nhấn nút dời SL
-    if(id == CHARTEVENT_OBJECT_CLICK && sparam == "MoveAllSL"){
+    if(id == CHARTEVENT_OBJECT_CLICK && sparam == "MoveAllSLButton"){
         MoveAllSlEnabled = !MoveAllSlEnabled;
     }
 }
 
 void Trade(){
     if(!IsCheckCandle()) return;
-    
-    double firstPositionSL = 0;
-    if(PositionSelectByTicket(GetFirstPositionTicket()))
+
+    double firstPositionSL = 0, firstPositionEntry = 0;
+    if(PositionSelectByTicket(GetFirstPositionTicket())){
         firstPositionSL = PositionGetDouble(POSITION_SL);  // SL của vị thế đầu tiên
+        firstPositionEntry = PositionGetDouble(POSITION_PRICE_OPEN); // Giá mở của vị thế đầu tiên
+    }
 
     if(TradingTrend == BUY){
         double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
@@ -186,7 +216,7 @@ void Trade(){
             if(!Trade.Buy(LotSize, _Symbol, entry, entry - diffSl)){
                 Print("Error placing Buy Order: ", Trade.ResultRetcode());
             }
-        } else{ 
+        } else if(firstPositionEntry <= entry){
             if(!Trade.Buy(LotSize, _Symbol, entry, firstPositionSL)){
                 Print("Error placing Buy Order: ", Trade.ResultRetcode());
             }
@@ -198,7 +228,7 @@ void Trade(){
             if(!Trade.Sell(LotSize, _Symbol, entry, entry + diffSl)){
                 Print("Error placing Sell Order: ", Trade.ResultRetcode());
             }
-        } else{
+        } else  if(firstPositionEntry >= entry){
             if(!Trade.Sell(LotSize, _Symbol, entry, firstPositionSL)){
                 Print("Error placing Sell Order: ", Trade.ResultRetcode());
             }
@@ -318,9 +348,9 @@ bool CreateButton(CChartObjectButton &button, string name, string des, color bgC
     return true;
 }
 
-bool CreateLable(CChartObjectLabel &lable, string name, string des, int y){
+bool CreateLable(CChartObjectLabel &lable, string name, string des, int x, int y){
     // Tạo lable và thiết lập thuộc tính
-    if(!lable.Create(0, name, 0, CalculateButtonX(), y))
+    if(!lable.Create(0, name, 0, x, y))
         return false;
 
     lable.Description(des);
@@ -474,4 +504,25 @@ void CloseEA(){
     TradeButton.Description("TRADING: OFF");
     TradeButton.Color(clrWhite);
     TradeButton.BackColor(clrRed); // Màu đỏ khi tắt
+}
+
+void CheckPriceAlert(){
+    double emaValue[];
+    int handle = iMA(_Symbol, PERIOD_M1, PERIOD_EMA, 0, MODE_EMA, PRICE_CLOSE);;
+    if(handle < 0) return;
+
+    ArraySetAsSeries(emaValue, true);
+    if(CopyBuffer(handle, 0, 0, ONE, emaValue) <= 0) return;
+
+    double currentEma = emaValue[0];
+    if(currentEma == 0) return;
+
+    double currentHigh = iHigh(_Symbol, PERIOD_M1, 0);
+    double currentLow = iLow(_Symbol, PERIOD_M1, 0);
+
+    if(TradingTrend == SELL && currentHigh >= currentEma){
+        Alert("Price crossed above EMA");
+    } else if(TradingTrend == BUY && currentLow <= currentEma){
+        Alert("Price crossed below EMA");
+    }
 }

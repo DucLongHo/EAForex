@@ -63,9 +63,6 @@ int OnInit(){
     if(!CreateButton(MoveAllSLButton, "MoveAllSLButton", "MOVE ALL SL", clrNavy, 220))
         return(INIT_FAILED);
 
-    if(!CreateButton(AlertButton, "AlertButton", "ALERT PRICE EMA: OFF", clrRed, 300))
-        return(INIT_FAILED);
-
     // Tạo label cho Total SL
     if(!CreateLable(lblTotalSL, "TotalSLLabel", "Total Stoploss: 0.00 USD", 5, 30))
         return(INIT_FAILED);
@@ -105,10 +102,6 @@ void OnTimer(){
                CloseAllPositions();
                CloseEA();
             }
-        }
-        
-        if(AlertEnabled){
-            CheckPriceAlert();
         }
 
         if(PositionsTotal() > 0){
@@ -175,19 +168,7 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
             TrendButton.BackColor(clrRed); // Màu đỏ khi tắt
         }
     }
-    // Nhấn nút cảnh báo
-    if(id == CHARTEVENT_OBJECT_CLICK && sparam == "AlertButton"){
-        AlertEnabled = !AlertEnabled; // Đảo ngược trạng thái cảnh báo
-        if(AlertEnabled){
-            AlertButton.Description("ALERT PRICE EMA: ON");
-            AlertButton.Color(clrWhite);
-            AlertButton.BackColor(clrGreen); // Màu xanh lá khi bật
-        } else{
-            AlertButton.Description("ALERT PRICE EMA: OFF");
-            AlertButton.Color(clrWhite);
-            AlertButton.BackColor(clrRed); // Màu đỏ khi tắt
-        }
-    }
+
     // Nhấn nút close all
     if(id == CHARTEVENT_OBJECT_CLICK && sparam == "CloseAllButton"){
         CloseAllPositionsEnabled = !CloseAllPositionsEnabled;
@@ -504,37 +485,4 @@ void CloseEA(){
     TradeButton.Description("TRADING: OFF");
     TradeButton.Color(clrWhite);
     TradeButton.BackColor(clrRed); // Màu đỏ khi tắt
-}
-
-void CheckPriceAlert(){
-    double emaValue[];
-    int handle = iMA(_Symbol, PERIOD_M1, PERIOD_EMA, 0, MODE_EMA, PRICE_CLOSE);;
-    if(handle < 0) return;
-
-    ArraySetAsSeries(emaValue, true);
-    if(CopyBuffer(handle, 0, 0, ONE, emaValue) <= 0) return;
-
-    double currentEma = emaValue[0];
-    if(currentEma == 0) return;
-
-    double currentHigh = iHigh(_Symbol, PERIOD_M1, 0);
-    double currentLow = iLow(_Symbol, PERIOD_M1, 0);
-
-    if(TradingTrend == SELL && currentHigh >= currentEma){
-        Alert("Price crossed above EMA");
-        
-        // Cập nhật trạng thái cảnh báo
-        AlertEnabled = false;
-        AlertButton.Description("ALERT PRICE EMA: OFF");
-        AlertButton.Color(clrWhite);
-        AlertButton.BackColor(clrRed); // Màu đỏ khi tắt
-    } else if(TradingTrend == BUY && currentLow <= currentEma){
-        Alert("Price crossed below EMA");
-        
-        // Cập nhật trạng thái cảnh báo
-        AlertEnabled = false;
-        AlertButton.Description("ALERT PRICE EMA: OFF");
-        AlertButton.Color(clrWhite);
-        AlertButton.BackColor(clrRed); // Màu đỏ khi tắt
-    }
 }

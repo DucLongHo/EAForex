@@ -19,7 +19,7 @@ int lastOrdersCount = 0;
 ulong lastDealTicket = 0;
 
 //+------------------------------------------------------------------+
-const int TIME_DATE = 7*3600; // Giờ Việt Nam
+const int TIME_VN = 7*3600; // Giờ Việt Nam
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -43,9 +43,7 @@ int OnInit(){
         string startMessage = "🤖 EA Telegram Bot MT5 ĐÃ KHỞI ĐỘNG\n";
         startMessage += "💻 Server: " + AccountInfoString(ACCOUNT_SERVER) + "\n";
         startMessage += "👤 Tài khoản: " + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + "\n";
-        startMessage += "💰 Số dư: " + DoubleToString(AccountInfoDouble(ACCOUNT_BALANCE), 2) + "\n";
-        startMessage += "📈 Cặp tiền: " + Symbol() + "\n";
-        startMessage += "⏰ Timeframe: " + TimeToString(TimeCurrent() + TIME_DATE, TIME_DATE|TIME_SECONDS) + "\n";
+        startMessage += "⏰ Timeframe: " + TimeToString(TimeCurrent() + TIME_VN, TIME_DATE|TIME_SECONDS) + "\n";
         
         SendTelegramMessage(startMessage);
     }
@@ -106,7 +104,7 @@ void CheckNewOpenedPositions(){
                 message += "Giá vào: " + DoubleToString(PositionGetDouble(POSITION_PRICE_OPEN), (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS)) + "\n";
                 message += "SL: " + FormatPriceLevel(symbol, PositionGetDouble(POSITION_SL)) + "\n";
                 message += "TP: " + FormatPriceLevel(symbol, PositionGetDouble(POSITION_TP)) + "\n";
-                message += "Thời gian: " + TimeToString(positionTime + TIME_DATE, TIME_DATE|TIME_MINUTES);
+                message += "Thời gian: " + TimeToString(positionTime + TIME_VN, TIME_DATE|TIME_MINUTES);
                 SendTelegramMessage(message);
                 Sleep(DelayBetweenMessages);
             }
@@ -142,7 +140,7 @@ void ProcessNewDeal(ulong dealTicket){
         message += "Cặp: " + HistoryDealGetString(dealTicket, DEAL_SYMBOL) + "\n";
         message += "Khối lượng: " + DoubleToString(HistoryDealGetDouble(dealTicket, DEAL_VOLUME), 2) + "\n";
         message += "Lợi nhuận: " + DoubleToString(HistoryDealGetDouble(dealTicket, DEAL_PROFIT), 2) + " " + AccountInfoString(ACCOUNT_CURRENCY) + "\n";
-        message += "Thời gian: " + TimeToString(HistoryDealGetInteger(dealTicket, DEAL_TIME) + TIME_DATE, TIME_DATE|TIME_MINUTES);
+        message += "Thời gian: " + TimeToString(HistoryDealGetInteger(dealTicket, DEAL_TIME) + TIME_VN, TIME_DATE|TIME_MINUTES);
         
         SendTelegramMessage(message);
         Sleep(DelayBetweenMessages);

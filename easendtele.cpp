@@ -40,7 +40,7 @@ int OnInit(){
     
     // Gửi thông báo khởi động
     if(EnableNotifications){
-        string startMessage = "🤖 EA Telegram Bot MT5 ĐÃ KHỞI ĐỘNG\n";
+        string startMessage = "🤖 EA ĐÃ KHỞI ĐỘNG\n";
         startMessage += "💻 Server: " + AccountInfoString(ACCOUNT_SERVER) + "\n";
         startMessage += "👤 Tài khoản: " + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN)) + "\n";
         startMessage += "⏰ Timeframe: " + TimeToString(TimeCurrent() + TIME_VN, TIME_DATE|TIME_SECONDS) + "\n";

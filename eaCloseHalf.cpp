@@ -164,7 +164,11 @@ bool CreateLable(CChartObjectLabel &lable, string name, string des, int y){
 
 void CalculateTotalPips(){
     double totalPips = 0;
-
+    if(PositionsTotal() - ONE < 0){
+        lblTotalPips.Description("Pips: 0 pips");
+        return;
+    }
+    
     // Duyệt qua tất cả các vị thế hiện có
     for(int index = PositionsTotal() - ONE; index >= 0; index--){
         ulong ticket = PositionGetTicket(index);

@@ -91,6 +91,7 @@ void OnTick(){
         ManagePositions();
     }
     CalculateTotalPips();
+    CalculateTotalStopLoss();
 }
 
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam){
@@ -262,7 +263,7 @@ void Draw(){
 
 void CalculateTotalStopLoss(){
     double totalSl = 0;
-
+    
     // Duyệt qua tất cả các vị thế hiện có
     for(int index = PositionsTotal() - ONE; index >= 0; index--){
         ulong ticket = PositionGetTicket(index);
@@ -285,7 +286,10 @@ void CalculateTotalStopLoss(){
                 double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
                 double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
                 double pointValue = tickValue / tickSize;
-                totalSl += diff * volume * pointValue;
+                //THE5ER
+                totalSl += diff * volume * pointValue * 100;
+                //EXNESS
+                // totalSl += diff * volume * pointValue; 
             }
         }
     }

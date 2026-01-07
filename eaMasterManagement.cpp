@@ -12,7 +12,7 @@ CTrade Trade;
 input group "=== Quản trị rủi ro ==="
 input double   InpMaxDailyLoss   = 100.0;    // Lỗ tối đa trong ngày ($)
 input double   InpTargetProfit   = 60.0;     // Mục tiêu lợi nhuận ngày ($)
-input double   InpCloseAtProfit  = 30.0;     // Mức dương để đóng tất cả ($)
+input double   InpCloseAtProfit  = 30.0;     // Mức dương bảo vệ lợi nhuận ($)
 
 input group "=== Chế độ Auto TP sau mục tiêu ==="
 input int      InpAutoTPPoints   = 50;       // Auto TP (50 points = 5 pips)
@@ -25,122 +25,121 @@ input bool     InpSendAlert      = true;     // Gửi thông báo về điện t
 double StartDayBalance = 0;
 bool   LockTrading = false;
 bool   TargetReachedToday = false;
+int    LastDay = -1; // Lưu ngày gần nhất để kiểm tra chuyển giao ngày mới
 
 //+------------------------------------------------------------------+
-int OnInit()
-{
-   StartDayBalance = AccountInfoDouble(ACCOUNT_BALANCE);
-   LockTrading = false;
-   TargetReachedToday = false;
+int OnInit(){
+   ResetDailyStats();
    return(INIT_SUCCEEDED);
 }
 
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   double currentEquity = AccountInfoDouble(ACCOUNT_EQUITY);
-   double currentBalance = AccountInfoDouble(ACCOUNT_BALANCE);
-   double dailyPL = currentEquity - StartDayBalance;
+    // Tự động Reset khi sang ngày mới
+    MqlDateTime dt;
+    TimeCurrent(dt);
+    if(dt.day != LastDay){
+        ResetDailyStats();
+        Print("--- Ngày mới bắt đầu. Đã cập nhật lại Balance mục tiêu ---");
+    }
 
-   // 1. KIỂM TRA LỖ NGÀY
-   if(dailyPL <= -InpMaxDailyLoss)
-   {
-      CloseAllOrders("Chạm giới hạn lỗ ngày! Đã khóa giao dịch.");
-      LockTrading = true;
-   }
+    double currentEquity = AccountInfoDouble(ACCOUNT_EQUITY);
+    double dailyPL = currentEquity - StartDayBalance;
 
-   // 2. KIỂM TRA MỤC TIÊU LỢI NHUẬN
-   if(dailyPL >= InpTargetProfit)
-   {
-      TargetReachedToday = true; // Đánh dấu đã đạt mục tiêu trong ngày
-   }
+    // 1. KIỂM TRA LỖ NGÀY
+    if(dailyPL <= -InpMaxDailyLoss){
+        // Chỉ gửi thông báo một lần khi bắt đầu khóa
+        if(!LockTrading) {
+            CloseAllOrders();
+            Print("Chạm giới hạn lỗ ngày! Đã khóa giao dịch.");
+            LockTrading = true;
+        } else if(PositionsTotal() > 0){
+            // Nếu có lệnh mới mở thêm khi đang khóa, đóng ngay lập tức
+            CloseAllOrders();
+            Print("Khóa giao dịch: Đóng lệnh mở thêm.");
+        }
+    }
 
-   // 3. ĐÓNG TẤT CẢ KHI VỀ MỨC DƯƠNG (Ví dụ đạt 60u nhưng rớt về 30u thì chốt sạch)
-   if(TargetReachedToday && dailyPL <= InpCloseAtProfit && dailyPL > 0 && PositionsTotal() > 0)
-   {
-      CloseAllOrders("Lợi nhuận sụt giảm về mức an toàn. Chốt tất cả.");
-   }
+    // 2. KIỂM TRA MỤC TIÊU LỢI NHUẬN
+    if(dailyPL >= InpTargetProfit){
+        if(!TargetReachedToday) {
+            TargetReachedToday = true;
+            if(InpSendAlert) SendNotification("Chúc mừng! Đã đạt mục tiêu lợi nhuận ngày. Kích hoạt Auto TP.");
+        }
+    }
 
-   // 4. KHÓA GIAO DỊCH NẾU ĐÃ CHẠM MAX LOSS
-   if(LockTrading && PositionsTotal() > 0)
-   {
-      CloseAllOrders("Lệnh bị đóng ngay lập tức do đã quá giới hạn lỗ.");
-   }
+    // 3. ĐÓNG TẤT CẢ KHI VỀ MỨC DƯƠNG (Bảo vệ lợi nhuận)
+    if(TargetReachedToday && dailyPL <= InpCloseAtProfit && dailyPL > 0 && PositionsTotal() > 0){
+        Print("Lợi nhuận sụt giảm về mức dương an toàn. Chốt tất cả.");
+        CloseAllOrders();
+    }
 
-   // 5. TỰ ĐỘNG ĐẶT TP (Chỉ kích hoạt sau khi đã đạt Target hoặc nếu cấu hình luôn bật)
-   if(!InpOnlyTPAfterTarget || (InpOnlyTPAfterTarget && TargetReachedToday))
-   {
-      ApplyAutoTP();
-   }
+    // 4. TỰ ĐỘNG ĐẶT TP (Chỉ kích hoạt sau khi đã đạt Target)
+    if(!InpOnlyTPAfterTarget || (InpOnlyTPAfterTarget && TargetReachedToday)){
+        ApplyAutoTP();
+    }
+}
+
+//+------------------------------------------------------------------+
+// Hàm Reset thông số theo ngày
+void ResetDailyStats(){
+    MqlDateTime dt;
+    TimeCurrent(dt);
+
+    LastDay = dt.day;
+    StartDayBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+    LockTrading = false;
+    TargetReachedToday = false;
 }
 
 //+------------------------------------------------------------------+
 // Hàm quét và đặt TP cho các lệnh chưa có TP
-void ApplyAutoTP()
-{
-   for(int i = 0; i < PositionsTotal(); i++)
-   {
-      ulong ticket = PositionGetTicket(i);
-      if(PositionSelectByTicket(ticket))
-      {
-         double tp = PositionGetDouble(POSITION_TP);
-         
-         // Nếu lệnh chưa có TP, tiến hành đặt TP tự động
-         if(tp == 0) 
-         {
-            double entryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-            ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
-            string symbol = PositionGetString(POSITION_SYMBOL);
-            double point = SymbolInfoDouble(symbol, SYMBOL_POINT);
-            double newTP = 0;
+void ApplyAutoTP(){
+    for(int i = 0; i < PositionsTotal(); i++){
+        ulong ticket = PositionGetTicket(i);
+        if(ticket <= 0) continue;
 
-            if(type == POSITION_TYPE_BUY)
-               newTP = entryPrice + InpAutoTPPoints * point;
-            else if(type == POSITION_TYPE_SELL)
-               newTP = entryPrice - InpAutoTPPoints * point;
+        // Lấy thông tin chi tiết của vị thế
+        double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+        double stopLoss = PositionGetDouble(POSITION_SL);
+        string symbol = PositionGetString(POSITION_SYMBOL);
+        ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
 
-            if(newTP > 0)
-            {
-               MqlTradeRequest request = {};
-               MqlTradeResult  result  = {};
-               request.action = TRADE_ACTION_SLTP;
-               request.position = ticket;
-               request.tp = NormalizeDouble(newTP, (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS));
-               request.sl = PositionGetDouble(POSITION_SL);
-
-               if(OrderSend(request, result))
-                  Print("Auto TP đã được đặt cho lệnh ", ticket, " sau khi đạt mục tiêu ngày.");
+        if(PositionSelectByTicket(ticket) && symbol == _Symbol){
+            if(type == POSITION_TYPE_BUY){
+                double newTP = entry + InpAutoTPPoints * _Point;
+                ModifyTakeProfit(ticket, stopLoss, newTP);
+            } else if(type == POSITION_TYPE_SELL){
+                double newTP = entry - InpAutoTPPoints * _Point;
+                ModifyTakeProfit(ticket, stopLoss, newTP);
             }
-         }
-      }
+        }
    }
 }
 
 //+------------------------------------------------------------------+
 // Hàm đóng toàn bộ vị thế đang mở
-void CloseAllOrders(string reason)
-{
-   for(int i = PositionsTotal() - 1; i >= 0; i--)
-   {
-      ulong ticket = PositionGetTicket(i);
-      if(PositionSelectByTicket(ticket))
-      {
-         MqlTradeRequest request = {};
-         MqlTradeResult  result  = {};
-         
-         request.action       = TRADE_ACTION_DEAL;
-         request.position     = ticket;
-         request.symbol       = PositionGetString(POSITION_SYMBOL);
-         request.volume       = PositionGetDouble(POSITION_VOLUME);
-         request.type         = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
-         request.price        = SymbolInfoDouble(request.symbol, (request.type == ORDER_TYPE_SELL) ? SYMBOL_BID : SYMBOL_ASK);
-         request.deviation    = 20;
-         
-         OrderSend(request, result);
-      }
-   }
-   
-   if(InpSendAlert)
-      SendNotification("EA Alert: " + reason);
-   Print(reason);
+void CloseAllOrders(){
+    for(int index = PositionsTotal() - 1; index >= 0 && !IsStopped(); index--){
+        ulong ticket = PositionGetTicket(index);
+        if(ticket <= 0) continue;
+        
+        string symbol = PositionGetString(POSITION_SYMBOL);
+        if(PositionSelectByTicket(ticket) && symbol == _Symbol){
+            double currentProfit = PositionGetDouble(POSITION_PROFIT);
+            // Đóng lệnh ngay mà không cần kiểm tra Magic Number
+            if(Trade.PositionClose(ticket)){
+                Print("Closed position #", ticket);
+            } else Print("Close failed #", ticket, " - Error: ", Trade.ResultComment());
+        }
+    }
+}
+
+// Hàm hỗ trợ để điều chỉnh Stop Loss
+void ModifyTakeProfit(ulong ticket, double stopLoss, double newTP){
+    stopLoss = NormalizeDouble(stopLoss, _Digits);
+    if (!Trade.PositionModify(ticket, stopLoss, newTP)){
+        Print("Failed to modify position #", ticket, ". Error: ", GetLastError());
+    }
 }

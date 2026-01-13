@@ -286,10 +286,7 @@ void CalculateTotalStopLoss(){
                 double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
                 double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
                 double pointValue = tickValue / tickSize;
-                //THE5ER
                 totalSl += diff * volume * pointValue * 100;
-                //EXNESS
-                // totalSl += diff * volume * pointValue; 
             }
         }
     }
@@ -309,8 +306,9 @@ void ManagePositions(){
 
             if(PositionSelectByTicket(ticket)){
                 double currentSL = PositionGetDouble(POSITION_SL);
+                double currentTP = PositionGetDouble(POSITION_TP);
                 double newSL = firstPositionSL;
-                if(currentSL != newSL) ModifyStopLoss(ticket, newSL);
+                if(currentSL != newSL) ModifyStopLoss(ticket, newSL, currentTP);
             }
         }
     }
@@ -325,9 +323,9 @@ ulong GetFirstPositionTicket(){
     return 0;  // Không có vị thế nào
 }
 
-void ModifyStopLoss(ulong ticket, double newStopLoss){
+void ModifyStopLoss(ulong ticket, double newStopLoss, double currentTP){
     newStopLoss = NormalizeDouble(newStopLoss, _Digits);
-    if (!Trade.PositionModify(ticket, newStopLoss, 0)){
+    if (!Trade.PositionModify(ticket, newStopLoss, currentTP)){
         Print("Failed to modify position #", ticket, ". Error: ", GetLastError());
     }
 }

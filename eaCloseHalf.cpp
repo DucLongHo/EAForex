@@ -18,10 +18,7 @@ const int FIVE = 5;
 
 const string BUY = "BUY";
 const string SELL = "SELL";
-
-// Biến toàn cục để tối ưu Handle
-int handleH1 = INVALID_HANDLE;
-int handleM15 = INVALID_HANDLE;
+const int PERIOD_EMA = 25;
 
 datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần 
 
@@ -35,11 +32,6 @@ bool MoveAllSlEnabled = false; // Biến kiểm soát dời tất cả SL
 int OnInit(){
     EventSetTimer(ONE);
 
-    // Khởi tạo Handle MA một lần duy nhất để tránh tràn bộ nhớ
-    handleH1 = iMA(_Symbol, PERIOD_H1, 25, 0, MODE_EMA, PRICE_CLOSE);
-    handleM15 = iMA(_Symbol, PERIOD_M15, 25, 0, MODE_EMA, PRICE_CLOSE);
-
-    // Tạo nút
     if(!CreateButton(CloseHalfButton, "CloseHalfButton", "HALF CLOSE", clrBlue, CalculateButtonY() - 100))
         return(INIT_FAILED);
     
@@ -82,7 +74,7 @@ void OnTimer(){
     }
 
     if(isRunningEa){
-        DrawMarkers();
+        Draw();
         
         if(PositionsTotal() > 0){
             CalculateTotalStopLoss();
@@ -253,25 +245,41 @@ void CalculateTotalPips(){
     lblTotalPips.Description("Pips: " + DoubleToString(totalPips, TWO) + " pips");
 }
 
-void DrawMarkers() {
-    ObjectsDeleteAll(0, "Marker_", -1, OBJ_TREND);
-    DrawSingleMarker(handleH1, PERIOD_H1, clrGray);
-    DrawSingleMarker(handleM15, PERIOD_M15, clrTeal);
+void DrawMarkerPrice(ENUM_TIMEFRAMES timeframe, color lineColor){
+    double emaValue[];
+    int handle = iMA(_Symbol, timeframe, PERIOD_EMA, 0, MODE_EMA, PRICE_CLOSE);;
+    if(handle < 0) return ;
+
+    ArraySetAsSeries(emaValue, true);
+    if(CopyBuffer(handle, 0, 0, ONE, emaValue) <= 0) return;
+
+    double price = emaValue[0];
+    if(price == 0) return;
+
+    datetime currentTime = iTime(_Symbol, PERIOD_CURRENT, 0);
+    datetime start = currentTime + PeriodSeconds(PERIOD_CURRENT) * 10;
+    datetime end = currentTime + PeriodSeconds(PERIOD_CURRENT) * 2;
+    
+    string lineName = "Price " + DoubleToString(price);
+    string textName = "TimeframeLabel_" + IntegerToString(timeframe);
+
+    ObjectCreate(0, lineName, OBJ_TREND, 0, start, price, end, price);
+    ObjectSetInteger(0, lineName, OBJPROP_COLOR, lineColor);
+    ObjectSetInteger(0, lineName, OBJPROP_WIDTH, 2);
+    
+    ObjectCreate(0, textName, OBJ_TEXT, 0, start, price + 52 * _Point);
+    ObjectSetString(0, textName, OBJPROP_TEXT, StringSubstr(EnumToString(timeframe), 7));
+    ObjectSetInteger(0, textName, OBJPROP_COLOR, lineColor);
+    ObjectSetInteger(0, textName, OBJPROP_ANCHOR, ANCHOR_LEFT_UPPER);
+    ObjectSetInteger(0, textName, OBJPROP_FONTSIZE, 10);
 }
 
-void DrawSingleMarker(int handle, ENUM_TIMEFRAMES tf, color clr) {
-    double buffer[];
-    if(CopyBuffer(handle, 0, 0, 1, buffer) > 0) {
-        double price = buffer[0];
-        string name = "Marker_" + EnumToString(tf);
-        datetime start = TimeCurrent() + PeriodSeconds(_Period)*5;
-        datetime end = start + PeriodSeconds(_Period)*10;
-        
-        ObjectCreate(0, name, OBJ_TREND, 0, start, price, end, price);
-        ObjectSetInteger(0, name, OBJPROP_COLOR, clr);
-        ObjectSetInteger(0, name, OBJPROP_RAY_RIGHT, false);
-        ObjectSetInteger(0, name, OBJPROP_WIDTH, 2);
-    }
+void Draw(){
+   ObjectsDeleteAll(0, -1, OBJ_TREND);
+   ObjectsDeleteAll(0, -1, OBJ_TEXT);
+
+   DrawMarkerPrice(PERIOD_H1, clrGray);
+   DrawMarkerPrice(PERIOD_M15, clrTeal);
 }
 
 void CalculateTotalStopLoss(){

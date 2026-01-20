@@ -9,7 +9,7 @@
 CTrade Trade;
 
 CChartObjectButton MoveAllSLButton;// Nút dời tất cả SL
-CChartObjectButton CloseAllButton;// Nút đóng tất cả giao dịch
+CChartObjectButton CloseHalfButton;// Nút đóng một nửa khối lương tất cả giao dịch
 CChartObjectLabel lblTotalSL, lblTotalPips;
 
 // Input parameters
@@ -26,7 +26,7 @@ const int PERIOD_EMA = 25;
 
 datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần 
 
-bool CloseAllPositionsEnabled = false; // Biến kiểm soát đóng toàn bộ vị thế
+bool CloseHalfEnabled = false; // Biến kiểm soát đóng một nửa khối lương tất cả giao dịch
 bool MoveAllSlEnabled = false; // Biến kiểm soát dời tất cả SL
 
 //+------------------------------------------------------------------+
@@ -35,7 +35,7 @@ bool MoveAllSlEnabled = false; // Biến kiểm soát dời tất cả SL
 int OnInit(){
     EventSetTimer(ONE);
 
-    if(!CreateButton(CloseAllButton, "CloseAllButton", "HALF CLOSE", clrBlue, CalculateButtonY()))
+    if(!CreateButton(CloseHalfButton, "CloseHalfButton", "HALF CLOSE", clrBlue, CalculateButtonY()))
         return(INIT_FAILED);
 
     if(!CreateButton(MoveAllSLButton, "MoveAllSLButton", "MOVE ALL SL", clrNavy, CalculateButtonY() - 50))
@@ -81,8 +81,8 @@ void OnTimer(){
 }
 
 void OnTick(){
-    if(CloseAllPositionsEnabled){
-        CloseAllPositionsEnabled = !CloseAllPositionsEnabled;
+    if(CloseHalfEnabled){
+        CloseHalfEnabled = !CloseHalfEnabled;
         CloseHalfVolume();
     }
     
@@ -97,7 +97,7 @@ void OnTick(){
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam){
     // Nhấn nút close all
     if(id == CHARTEVENT_OBJECT_CLICK && sparam == "CloseAllButton"){
-        CloseAllPositionsEnabled = !CloseAllPositionsEnabled;
+        CloseHalfEnabled = !CloseHalfEnabled;
     }
     
     // Nhấn nút dời SL
@@ -106,7 +106,7 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
     }
 }
 void OnDeinit(const int reason){
-    CloseAllButton.Delete();
+    CloseHalfButton.Delete();
     MoveAllSLButton.Delete();
     EventKillTimer();
 }

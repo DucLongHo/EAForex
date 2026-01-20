@@ -10,6 +10,7 @@ CTrade Trade;
 
 CChartObjectButton MoveAllSLButton;// Nút dời tất cả SL
 CChartObjectButton CloseHalfButton;// Nút đóng một nửa khối lương tất cả giao dịch
+CChartObjectButton CloseAllButton;// Nút đóng tất cả giao dịch
 CChartObjectLabel lblTotalSL, lblTotalPips;
 
 // Input parameters
@@ -27,6 +28,7 @@ const int PERIOD_EMA = 25;
 datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần 
 
 bool CloseHalfEnabled = false; // Biến kiểm soát đóng một nửa khối lương tất cả giao dịch
+bool CloseAllEnabled = false; // Biến kiểm soát đóng toàn bộ vị thế
 bool MoveAllSlEnabled = false; // Biến kiểm soát dời tất cả SL
 
 //+------------------------------------------------------------------+
@@ -35,10 +37,13 @@ bool MoveAllSlEnabled = false; // Biến kiểm soát dời tất cả SL
 int OnInit(){
     EventSetTimer(ONE);
 
-    if(!CreateButton(CloseHalfButton, "CloseHalfButton", "HALF CLOSE", clrBlue, CalculateButtonY()))
+    if(!CreateButton(CloseHalfButton, "CloseHalfButton", "HALF CLOSE", clrBlue, CalculateButtonY() - 50))
+        return(INIT_FAILED);
+    
+    if(!CreateButton(CloseAllButton, "CloseAllButton", "CLOSE ALL", clrRed, CalculateButtonY()))
         return(INIT_FAILED);
 
-    if(!CreateButton(MoveAllSLButton, "MoveAllSLButton", "MOVE ALL SL", clrNavy, CalculateButtonY() - 50))
+    if(!CreateButton(MoveAllSLButton, "MoveAllSLButton", "MOVE ALL SL", clrNavy, CalculateButtonY() - 100))
         return(INIT_FAILED);
         
     // Tạo label
@@ -48,7 +53,9 @@ int OnInit(){
     if(!CreateLable(lblTotalPips, "TotalPips", "Pips: 0 pips", 8, 60))
         return(INIT_FAILED);
         
+    ObjectSetInteger(0, "CloseHalfButton", OBJPROP_ZORDER, 10);
     ObjectSetInteger(0, "CloseAllButton", OBJPROP_ZORDER, 10);
+    ObjectSetInteger(0, "MoveAllSLButton", OBJPROP_ZORDER, 10);
     
     ChartRedraw(0);
     
@@ -90,14 +97,25 @@ void OnTick(){
         MoveAllSlEnabled = !MoveAllSlEnabled;
         ManagePositions();
     }
+
+    if(CloseAllEnabled){
+        CloseAllEnabled = !CloseAllEnabled;
+        CloseAllPositions();
+    }
+
     CalculateTotalPips();
     CalculateTotalStopLoss();
 }
 
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam){
-    // Nhấn nút close all
-    if(id == CHARTEVENT_OBJECT_CLICK && sparam == "CloseAllButton"){
+    // Nhấn nút đóng một nửa khối lượng
+    if(id == CHARTEVENT_OBJECT_CLICK && sparam == "CloseHalfButton"){
         CloseHalfEnabled = !CloseHalfEnabled;
+    }
+    
+    // Nhấn nút đóng tất cả
+    if(id == CHARTEVENT_OBJECT_CLICK && sparam == "CloseAllButton"){
+        CloseAllEnabled = !CloseAllEnabled;
     }
     
     // Nhấn nút dời SL
@@ -107,6 +125,7 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
 }
 void OnDeinit(const int reason){
     CloseHalfButton.Delete();
+    CloseAllButton.Delete();
     MoveAllSLButton.Delete();
     EventKillTimer();
 }
@@ -328,4 +347,19 @@ void ModifyStopLoss(ulong ticket, double newStopLoss, double currentTP){
     if (!Trade.PositionModify(ticket, newStopLoss, currentTP)){
         Print("Failed to modify position #", ticket, ". Error: ", GetLastError());
     }
+}
+
+void CloseAllPositions(){
+    for(int index = PositionsTotal() - ONE; index >= 0 && !IsStopped(); index--){
+        ulong ticket = PositionGetTicket(index);
+        if(ticket <= 0) continue;
+        
+        if(PositionSelectByTicket(ticket)){
+            Trade.SetAsyncMode(true);
+            if(!Trade.PositionClose(ticket))
+                Print("Close failed #", ticket, " - Error: ", Trade.ResultComment());
+        }
+    }
+
+    Trade.SetAsyncMode(false);
 }

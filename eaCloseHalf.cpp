@@ -6,10 +6,11 @@ CTrade Trade;
 CChartObjectButton MoveAllSLButton;// Nút dời tất cả SL
 CChartObjectButton CloseHalfButton;// Nút đóng một nửa khối lương tất cả giao dịch
 CChartObjectButton CloseAllButton;// Nút đóng tất cả giao dịch
-CChartObjectLabel lblTotalSL, lblTotalTP, lblTotalPips;
+CChartObjectLabel lblTotalSL, lblTotalTP;
 
 // Input parameters
-input int Shift = 200; // Khoảng cách lề phải cho nút (pixels)
+input double   InpMaxLossAmount  = 15.0;    // Số tiền rủi ro tối đa trên mỗi lệnh (Ví dụ: 100$)
+
 // Constant data
 const int ZERO = 0;
 const int ONE = 1;
@@ -47,9 +48,6 @@ int OnInit(){
 
     if(!CreateLable(lblTotalTP, "TotalTP", "Total TP: 0.00 USD", 8, 60))
         return(INIT_FAILED);
-
-    if(!CreateLable(lblTotalPips, "TotalPips", "Pips: 0 pips", 8, 90))
-        return(INIT_FAILED);
         
     ObjectSetInteger(0, "CloseHalfButton", OBJPROP_ZORDER, 10);
     ObjectSetInteger(0, "CloseAllButton", OBJPROP_ZORDER, 10);
@@ -76,14 +74,11 @@ void OnTimer(){
     if(isRunningEa){
         Draw();
         
-        if(PositionsTotal() > 0){
-            CalculateTotalStopLoss();
-        } else {
-            lblTotalSL.Description("Total SL: 0.00 USD");
-            lblTotalTP.Description("Total TP: 0.00 USD");
-        }
         isRunningEa = false;
     }
+
+    CalculateLable();
+    CheckAndAdjustStopLoss();
 }
 
 void OnTick(){
@@ -101,10 +96,6 @@ void OnTick(){
         CloseAllEnabled = !CloseAllEnabled;
         CloseAllPositions();
     }
-
-    CalculateTotalPips();
-    CalculateTotalStopLoss();
-    CalculateTotalTakeProfit();
 }
 
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam){
@@ -169,7 +160,7 @@ void CloseHalfVolume(){
 }
 
 int CalculateButtonX(){
-    return (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS) - Shift;
+    return (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS) - 200;
 }
 
 int CalculateButtonY(){
@@ -204,46 +195,6 @@ bool CreateLable(CChartObjectLabel &lable, string name, string des, int x, int y
     return true;
 }
 
-
-void CalculateTotalPips(){
-    double totalPips = 0;
-    if(PositionsTotal() - ONE < 0){
-        lblTotalPips.Description("Pips: 0 pips");
-        return;
-    }
-    
-    // Duyệt qua tất cả các vị thế hiện có
-    for(int index = PositionsTotal() - ONE; index >= 0; index--){
-        ulong ticket = PositionGetTicket(index);
-
-        if(PositionSelectByTicket(ticket)){
-            double currentPrice = 0;
-            double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-            double volume = PositionGetDouble(POSITION_VOLUME);
-            ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
-            
-            // Lấy giá hiện tại tùy theo loại lệnh
-            if(type == POSITION_TYPE_BUY){
-                currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-            } else {
-                currentPrice = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-            }
-            
-            // Tính số pip hiện tại
-            double pipDiff = 0;
-            if(type == POSITION_TYPE_BUY){
-                pipDiff = currentPrice - openPrice; // BUY: giá tăng = lợi nhuận dương
-            } else {
-                pipDiff = openPrice - currentPrice; // SELL: giá giảm = lợi nhuận dương
-            }
-
-            totalPips = pipDiff; // Tính theo khối lượng
-        }
-    }
-    
-    // Cập nhật panel
-    lblTotalPips.Description("Pips: " + DoubleToString(totalPips, TWO) + " pips");
-}
 
 void DrawMarkerPrice(ENUM_TIMEFRAMES timeframe, color lineColor){
     double emaValue[];
@@ -282,8 +233,13 @@ void Draw(){
    DrawMarkerPrice(PERIOD_M15, clrTeal);
 }
 
-void CalculateTotalStopLoss(){
+void CalculateLable(){
     double totalSl = 0;
+    double totalTp = 0;
+    
+    double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+    double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+    double pointValue = tickValue / tickSize;
     
     // Duyệt qua tất cả các vị thế hiện có
     for(int index = PositionsTotal() - ONE; index >= 0; index--){
@@ -291,9 +247,12 @@ void CalculateTotalStopLoss(){
 
         if(PositionSelectByTicket(ticket)){
             double sl = PositionGetDouble(POSITION_SL);
+            double tp = PositionGetDouble(POSITION_TP);
+
             double price = PositionGetDouble(POSITION_PRICE_OPEN);
             double volume = PositionGetDouble(POSITION_VOLUME);
             ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+            
             if(sl != 0){
                 // Tính khoản lỗ tiềm năng (SL - Price) * Volume
                 double diff = 0;
@@ -302,31 +261,10 @@ void CalculateTotalStopLoss(){
                 if(type == POSITION_TYPE_BUY){
                     diff = sl - price; // BUY: SL > Price = lỗ
                 } else diff = price - sl; // SELL: SL < Price = lỗ
-            
-                // Chuyển đổi sang USD
-                double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
-                double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
-                double pointValue = tickValue / tickSize;
+
                 totalSl += diff * volume * pointValue * 100;
             }
-        }
-    }
-   // Cập nhật panel
-   lblTotalSL.Description("Total SL: " + DoubleToString(totalSl, 2) + " USD");
-}
 
-void CalculateTotalTakeProfit(){
-    double totalTp = 0;
-    
-    // Duyệt qua tất cả các vị thế hiện có
-    for(int index = PositionsTotal() - ONE; index >= 0; index--){
-        ulong ticket = PositionGetTicket(index);
-
-        if(PositionSelectByTicket(ticket)){
-            double tp = PositionGetDouble(POSITION_TP);
-            double price = PositionGetDouble(POSITION_PRICE_OPEN);
-            double volume = PositionGetDouble(POSITION_VOLUME);
-            ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
             if(tp != 0){
                 // Tính khoản lời tiềm năng (TP - Price) * Volume
                 double diff = 0;
@@ -335,17 +273,15 @@ void CalculateTotalTakeProfit(){
                 if(type == POSITION_TYPE_BUY){
                     diff = tp - price; // BUY: TP > Price = lời
                 } else diff = price - tp; // SELL: TP < Price = lời
-            
-                // Chuyển đổi sang USD
-                double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
-                double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
-                double pointValue = tickValue / tickSize;
+
                 totalTp += diff * volume * pointValue * 100;
             }
         }
     }
-   // Cập nhật panel
-   lblTotalTP.Description("Total TP: " + DoubleToString(totalTp, 2) + " USD");
+    
+    // Cập nhật panel
+    lblTotalSL.Description("Total SL: " + DoubleToString(totalSl, 2) + " USD");
+    lblTotalTP.Description("Total TP: " + DoubleToString(totalTp, 2) + " USD");
 }
 
 void ManagePositions(){
@@ -366,8 +302,6 @@ void ManagePositions(){
             }
         }
     }
-
-    CalculateTotalStopLoss();
 }
 
 ulong GetFirstPositionTicket(){
@@ -397,4 +331,47 @@ void CloseAllPositions(){
     }
 
     Trade.SetAsyncMode(false);
+}
+
+void CheckAndAdjustStopLoss(){
+    // Duyệt qua tất cả các lệnh đang mở
+    for(int index = PositionsTotal() - ONE; index >= 0; index--){
+        ulong ticket = PositionGetTicket(index);
+        
+        if(PositionSelectByTicket(ticket)){
+
+            double lot      = PositionGetDouble(POSITION_VOLUME);
+            long type       = PositionGetInteger(POSITION_TYPE);
+            double priceOpen = PositionGetDouble(POSITION_PRICE_OPEN);
+            double currentSL = PositionGetDouble(POSITION_SL);
+            double curentTP = PositionGetDouble(POSITION_TP);
+            
+            // 1. Tính toán khoảng cách SL (theo giá) tương ứng với số tiền mất
+            // Công thức: Khoảng cách SL = Số tiền / (Khối lượng * TickValue / TickSize)
+            double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+            double tickSize  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+            
+            if(tickValue <= 0) continue; // Tránh lỗi chia cho 0
+
+            double slDistance = (InpMaxLossAmount / (lot * tickValue)) * tickSize;
+            double targetSL = 0;
+
+            // 2. Xác định mức giá SL mục tiêu
+            if(type == POSITION_TYPE_BUY){
+                targetSL = NormalizeDouble(priceOpen - slDistance, _Digits);
+                
+                // Nếu chưa có SL HOẶC SL đang đặt xa hơn mức tiền cho phép (thấp hơn targetSL)
+                if(currentSL == 0 || currentSL < targetSL){
+                    ModifyStopLoss(ticket, targetSL, curentTP);
+                }
+            } else if(type == POSITION_TYPE_SELL){
+                targetSL = NormalizeDouble(priceOpen + slDistance, _Digits);
+                
+                // Nếu chưa có SL HOẶC SL đang đặt xa hơn mức tiền cho phép (cao hơn targetSL)
+                if(currentSL == 0 || currentSL > targetSL){
+                    ModifyStopLoss(ticket, targetSL, curentTP);
+                }
+            }
+        }
+    }
 }

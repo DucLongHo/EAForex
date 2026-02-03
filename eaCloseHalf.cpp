@@ -6,16 +6,19 @@ CTrade Trade;
 CChartObjectButton MoveAllSLButton;// Nút dời tất cả SL
 CChartObjectButton CloseHalfButton;// Nút đóng một nửa khối lương tất cả giao dịch
 CChartObjectButton CloseAllButton;// Nút đóng tất cả giao dịch
+CChartObjectButton SLBE;// Nút dời SL về điểm hòa vốn
+CChartObjectButton TPBE;// Nút dời TP về điểm hòa vốn
+
 CChartObjectLabel lblTotalSL, lblTotalTP;
 
 // Input parameters
 input double   InpMaxLossAmount  = 15.0;    // Số tiền rủi ro tối đa trên mỗi lệnh (Ví dụ: 100$)
+input int FIVE = 50; // Số pip để đặt SL/TP cách điểm hòa vốn
 
 // Constant data
 const int ZERO = 0;
 const int ONE = 1;
 const int TWO = 2;
-const int FIVE = 5;
 
 const string BUY = "BUY";
 const string SELL = "SELL";
@@ -26,6 +29,8 @@ datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần
 bool CloseHalfEnabled = false; // Biến kiểm soát đóng một nửa khối lương tất cả giao dịch
 bool CloseAllEnabled = false; // Biến kiểm soát đóng toàn bộ vị thế
 bool MoveAllSlEnabled = false; // Biến kiểm soát dời tất cả SL
+bool SlBeEnabled = false; // Biến kiểm soát dời SL về điểm hòa vốn
+bool TpBeEnabled = false; // Biến kiểm soát dời TP về điểm hòa
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -40,6 +45,12 @@ int OnInit(){
         return(INIT_FAILED);
 
     if(!CreateButton(MoveAllSLButton, "MoveAllSLButton", "MOVE ALL SL", clrNavy, CalculateButtonY() - 150))
+        return(INIT_FAILED);
+
+    if(!CreateButton(SLBE, "SLBEButton", "SL BE", clrSilver, CalculateButtonY() - 250))
+        return(INIT_FAILED);
+    
+    if(!CreateButton(TPBE, "TPBEButton", "TP BE", clrGreen, CalculateButtonY() - 200))
         return(INIT_FAILED);
         
     // Tạo label
@@ -96,6 +107,16 @@ void OnTick(){
         CloseAllEnabled = !CloseAllEnabled;
         CloseAllPositions();
     }
+
+    if(SlBeEnabled){
+        SlBeEnabled = !SlBeEnabled;
+        MoveSLBE();
+    }
+
+    if(TpBeEnabled){
+        TpBeEnabled = !TpBeEnabled;
+        MoveTPBE();
+    }
 }
 
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam){
@@ -113,11 +134,23 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
     if(id == CHARTEVENT_OBJECT_CLICK && sparam == "MoveAllSLButton"){
         MoveAllSlEnabled = !MoveAllSlEnabled;
     }
+
+    // Nhấn nút dời SL về điểm hòa vốn
+    if(id == CHARTEVENT_OBJECT_CLICK && sparam == "SLBEButton"){
+        SlBeEnabled = !SlBeEnabled;
+    }
+
+    // Nhấn nút dời TP về điểm hòa vốn
+    if(id == CHARTEVENT_OBJECT_CLICK && sparam == "TPBEButton"){
+        TpBeEnabled = !TpBeEnabled;
+    }
 }
 void OnDeinit(const int reason){
     CloseHalfButton.Delete();
     CloseAllButton.Delete();
     MoveAllSLButton.Delete();
+    SLBE.Delete();
+    TPBE.Delete();
     EventKillTimer();
 }
 
@@ -154,6 +187,46 @@ void CloseHalfVolume(){
                 if(!Trade.PositionModify(ticket, newStoploss, currentTP)){
                         Print("Failed to modify position #", ticket, ". Error: ", GetLastError());
                 }
+            }
+        }
+    }
+}
+
+void MoveSLBE(){
+    // Code dời SL về điểm hòa vốn
+    for(int index = PositionsTotal() - ONE; index >= 0 && !IsStopped(); index--){
+        ulong ticket = PositionGetTicket(index);
+        if(ticket <= 0) continue;
+        
+        if(PositionSelectByTicket(ticket)){
+            double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+            double currentTP = PositionGetDouble(POSITION_TP);
+            ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+            
+            double newStoploss = (type == POSITION_TYPE_BUY) ? openPrice + FIVE * _Point : openPrice - FIVE * _Point;
+            
+            if(!Trade.PositionModify(ticket, newStoploss, currentTP)){
+                Print("Failed to modify position #", ticket, ". Error: ", GetLastError());
+            }
+        }    
+    }
+}
+
+void MoveTPBE(){
+    // Code dời TP về điểm hòa vốn
+    for(int index = PositionsTotal() - ONE; index >= 0 && !IsStopped(); index--){
+        ulong ticket = PositionGetTicket(index);
+        if(ticket <= 0) continue;
+        
+        if(PositionSelectByTicket(ticket)){
+            double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+            double currentSL = PositionGetDouble(POSITION_SL);
+            ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+            
+            double newTakeProfit = (type == POSITION_TYPE_BUY) ? openPrice + FIVE * _Point : openPrice - FIVE * _Point;
+            
+            if(!Trade.PositionModify(ticket, currentSL, newTakeProfit)){
+                Print("Failed to modify position #", ticket, ". Error: ", GetLastError());
             }
         }
     }

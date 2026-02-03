@@ -47,7 +47,7 @@ int OnInit(){
     if(!CreateButton(MoveAllSLButton, "MoveAllSLButton", "MOVE ALL SL", clrNavy, CalculateButtonY() - 150))
         return(INIT_FAILED);
 
-    if(!CreateButton(SLBE, "SLBEButton", "SL BE", clrSilver, CalculateButtonY() - 250))
+    if(!CreateButton(SLBE, "SLBEButton", "SL BE", clrBlack, CalculateButtonY() - 250))
         return(INIT_FAILED);
     
     if(!CreateButton(TPBE, "TPBEButton", "TP BE", clrGreen, CalculateButtonY() - 200))
@@ -426,7 +426,7 @@ void CheckAndAdjustStopLoss(){
             
             if(tickValue <= 0) continue; // Tránh lỗi chia cho 0
 
-            double slDistance = (InpMaxLossAmount / (lot * tickValue)) * tickSize;
+            double slDistance = (InpMaxLossAmount / (lot * tickValue * 100)) * tickSize;
             double targetSL = 0;
 
             // 2. Xác định mức giá SL mục tiêu

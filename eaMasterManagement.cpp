@@ -82,7 +82,7 @@ void OnTick()
 
     // 5. TỰ ĐỘNG ĐẶT TP (Chỉ kích hoạt khi TargetReachedToday = true)
     if(!InpOnlyTPAfterTarget || (InpOnlyTPAfterTarget && TargetReachedToday)){
-        ApplyAutoTP();
+        CloseAllOrders();
     }
 }
 

@@ -20,7 +20,7 @@ datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần
 
 input double LotSize = 0.01; // Khối lượng từng lệnh
 
-int ProfitHedge = -5; // Mức chênh lệch lợi nhuận để thực hiện vào lệnh cân bằng (đơn vị: USD)
+int ProfitHedge = -10; // Mức chênh lệch lợi nhuận để thực hiện vào lệnh cân bằng (đơn vị: USD)
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -54,6 +54,8 @@ void OnTimer(){
     }
 
     if(isRunningEa) isRunningEa = false;
+    
+    HedgePositions();
 
     // Cập nhật lên Panel (Giả định bạn đã đổi tên label)
     lblTotalBuyProfit.Description("Buy Profit: " + DoubleToString(GetTotalBuyProfit(), 2) + " USD");
@@ -64,7 +66,6 @@ void OnTick(){
     if(GetTotalBuyProfit() + GetTotalSellProfit() >= 1){
         CloseAllPositions();
     }
-    HedgePositions();
 }
 
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam){
@@ -124,10 +125,7 @@ double GetTotalBuyProfit() {
         if(PositionSelectByTicket(ticket)) {
             // Kiểm tra nếu là lệnh BUY
             if((ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) {
-                double profit = PositionGetDouble(POSITION_PROFIT);
-                double swap = PositionGetDouble(POSITION_SWAP);
-                
-                totalProfit += (profit + swap);
+                totalProfit += PositionGetDouble(POSITION_PROFIT);
             }
         }
     }
@@ -142,10 +140,7 @@ double GetTotalSellProfit() {
         if(PositionSelectByTicket(ticket)) {
             // Kiểm tra nếu là lệnh SELL
             if((ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL) {
-                double profit = PositionGetDouble(POSITION_PROFIT);
-                double swap = PositionGetDouble(POSITION_SWAP);
-                
-                totalProfit += (profit + swap);
+                totalProfit += PositionGetDouble(POSITION_PROFIT);
             }
         }
     }
@@ -192,7 +187,13 @@ void HedgePositions() {
     // 1. Tính toán trạng thái hiện tại
     for(int i = PositionsTotal() - 1; i >= 0; i--) {
         ulong ticket = PositionGetTicket(i);
-        if(PositionSelectByTicket(ticket)) {
+        if(PositionSelectByTicket(ticket)){
+            if(PositionGetDouble(POSITION_PROFIT) > 5 &&  PositionGetDouble(POSITION_VOLUME) > 0.01){
+                if(!Trade.PositionClose(ticket))
+                    Print("Close failed #", ticket, " - Error: ", Trade.ResultComment());
+                    
+                continue;
+            }
             totalProfit += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
             if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) 
                 buyLots += PositionGetDouble(POSITION_VOLUME);
@@ -204,11 +205,11 @@ void HedgePositions() {
 
     // Reset cờ nếu tài khoản dương trở lại hoặc hết lệnh (để chuẩn bị cho chu kỳ mới)
     if(PositionsTotal() == 0){
-        ProfitHedge = -5;
+        ProfitHedge = -10;
     }
 
     if(totalProfit <= ProfitHedge){
-        ProfitHedge -= 10; // Giảm thêm 5 USD cho lần tiếp theo nếu vẫn chưa cân bằng được
+        ProfitHedge -= 10;
         ExecuteHedge(buyLots, sellLots);
     }
 }

@@ -20,7 +20,7 @@ datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần
 
 input double LotSize = 0.01; // Khối lượng từng lệnh
 
-int ProfitHedge = -10; // Mức chênh lệch lợi nhuận để thực hiện vào lệnh cân bằng (đơn vị: USD)
+int ProfitHedge = -20; // Mức chênh lệch lợi nhuận để thực hiện vào lệnh cân bằng (đơn vị: USD)
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -54,8 +54,6 @@ void OnTimer(){
     }
 
     if(isRunningEa) isRunningEa = false;
-    
-    HedgePositions();
 
     // Cập nhật lên Panel (Giả định bạn đã đổi tên label)
     lblTotalBuyProfit.Description("Buy Profit: " + DoubleToString(GetTotalBuyProfit(), 2) + " USD");
@@ -66,6 +64,7 @@ void OnTick(){
     if(GetTotalBuyProfit() + GetTotalSellProfit() >= 1){
         CloseAllPositions();
     }
+    HedgePositions();
 }
 
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam){
@@ -205,11 +204,11 @@ void HedgePositions() {
 
     // Reset cờ nếu tài khoản dương trở lại hoặc hết lệnh (để chuẩn bị cho chu kỳ mới)
     if(PositionsTotal() == 0){
-        ProfitHedge = -10;
+        ProfitHedge = -20;
     }
 
     if(totalProfit <= ProfitHedge){
-        ProfitHedge -= 10;
+        ProfitHedge -= 20; // Giảm thêm 5 USD cho lần tiếp theo nếu vẫn chưa cân bằng được
         ExecuteHedge(buyLots, sellLots);
     }
 }

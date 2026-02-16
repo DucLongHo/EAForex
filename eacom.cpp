@@ -3,10 +3,9 @@
 
 CTrade Trade;
 
+CChartObjectButton OnOffButton;// Nút bật tắt EA
 
 CChartObjectLabel lblTotalBuyProfit, lblTotalSellProfit;
-
-// Input parameters
 
 // Constant data
 const int ZERO = 0;
@@ -18,7 +17,11 @@ const string SELL = "SELL";
 
 datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần 
 
+bool OnOffEnabled = false; // Biến kiểm soát bật tắt EA
+
+// Input parameters
 input double LotSize = 0.01; // Khối lượng từng lệnh
+input double TrailingStartProfit = 5.0;  // Có lời 5 USD thì bắt đầu kích hoạt trailing stop
 
 int ProfitHedge = -20; // Mức chênh lệch lợi nhuận để thực hiện vào lệnh cân bằng (đơn vị: USD)
 //+------------------------------------------------------------------+
@@ -26,6 +29,9 @@ int ProfitHedge = -20; // Mức chênh lệch lợi nhuận để thực hiện 
 //+------------------------------------------------------------------+
 int OnInit(){
     EventSetTimer(ONE);
+
+    if(!CreateButton(OnOffButton, "OnOffButton", "OFF", clrRed, CalculateButtonY() - 100))
+        return(INIT_FAILED);
 
     // Tạo label
     if(!CreateLable(lblTotalBuyProfit, "lblTotalBuyProfit", "Total BUY: 0.00 USD", 30))
@@ -68,26 +74,43 @@ void OnTick(){
 }
 
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam){
-
+    // Nhấn nút đóng EA
+    if(id == CHARTEVENT_OBJECT_CLICK && sparam == "OnOffButton"){
+        OnOffEnabled = !OnOffEnabled;
+        
+        if(OnOffEnabled){
+            OnOffButton.Description("ON");
+            TradeButton.Color(clrWhite);
+            OnOffButton.BackColor(clrGreen);
+        } else {
+            OnOffButton.Description("OFF");
+            TradeButton.Color(clrWhite);
+            OnOffButton.BackColor(clrRed);
+        }
+    }
 }
 
 void OnDeinit(const int reason){
+    OnOffButton.Delete();
     EventKillTimer();
 }
 
 void TradeCom(){
     if(PositionsTotal() == 0){
-        Trade.SetAsyncMode(true);
+        
+        if(OnOffEnabled){
+            Trade.SetAsyncMode(true);
 
-        if(!Trade.Sell(LotSize, _Symbol)){
-            Print("Error placing Sell Order: ", Trade.ResultRetcode());
+            if(!Trade.Sell(LotSize, _Symbol)){
+                Print("Error placing Sell Order: ", Trade.ResultRetcode());
+            }
+
+            if(!Trade.Buy(LotSize, _Symbol)){
+                Print("Error placing Buy Order: ", Trade.ResultRetcode());
+            }
+
+            Trade.SetAsyncMode(false);
         }
-
-        if(!Trade.Buy(LotSize, _Symbol)){
-            Print("Error placing Buy Order: ", Trade.ResultRetcode());
-        }
-
-        Trade.SetAsyncMode(false);
     } else {
         if(GetTotalBuyProfit() >= GetTotalSellProfit()){
             if(!Trade.Buy(LotSize, _Symbol)){
@@ -115,6 +138,28 @@ bool CreateLable(CChartObjectLabel &lable, string name, string des, int y){
     return true;
 }
 
+int CalculateButtonX(){
+    return (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS) - 200;
+}
+
+int CalculateButtonY(){
+    return (int)ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS) - 50;
+}
+
+bool CreateButton(CChartObjectButton &button, string name, string des, color bgColor, int y){
+    // Tạo nút và thiết lập thuộc tính
+    if(!button.Create(0, name, 0, CalculateButtonX(), y, 175, 35))
+        return false;
+    
+    button.Description(des);
+    button.Color(clrWhite);
+    button.BackColor(bgColor); 
+    button.FontSize(12);
+    button.Font("Calibri");
+    button.Selectable(true);
+    
+    return true;
+}
 
 double GetTotalBuyProfit() {
     double totalProfit = 0;

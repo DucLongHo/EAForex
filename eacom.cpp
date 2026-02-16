@@ -22,6 +22,7 @@ bool OnOffEnabled = false; // Biến kiểm soát bật tắt EA
 // Input parameters
 input double LotSize = 0.01; // Khối lượng từng lệnh
 input double TrailingStartProfit = 5.0;  // Có lời 5 USD thì bắt đầu kích hoạt trailing stop
+input int TrailingStepPips = 50;   // Khoảng cách duy trì (ví dụ 50 pips)
 
 int ProfitHedge = -20; // Mức chênh lệch lợi nhuận để thực hiện vào lệnh cân bằng (đơn vị: USD)
 //+------------------------------------------------------------------+
@@ -255,5 +256,40 @@ void HedgePositions() {
     if(totalProfit <= ProfitHedge){
         ProfitHedge -= 20; // Giảm thêm 5 USD cho lần tiếp theo nếu vẫn chưa cân bằng được
         ExecuteHedge(buyLots, sellLots);
+    }
+}
+
+void TrailingByProfitUSD(){
+    // Duyệt qua tất cả các lệnh đang mở trên tài khoản
+    for(int i = PositionsTotal() - 1; i >= 0; i--){
+        ulong ticket = PositionGetTicket(i);
+
+        if(PositionSelectByTicket(ticket)){
+            // Kiểm tra xem có đúng ký hiệu (Symbol) của biểu đồ hiện tại không
+            if(PositionGetString(POSITION_SYMBOL) == _Symbol){
+                double profit = PositionGetDouble(POSITION_PROFIT); // Lấy lợi nhuận hiện tại (USD)
+                double currentSL = PositionGetDouble(POSITION_SL);
+                double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+                double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+
+                // 1. Nếu là lệnh BUY và lợi nhuận > 5 USD
+                if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY && profit >= TrailingStartProfit){
+                    double newSL = bid - (TrailingStepPips * _Point);
+                    // Chỉ dời SL lên cao hơn mức SL cũ
+                    if(newSL > currentSL || currentSL == 0){
+                        Trade.PositionModify(ticket, newSL, 0);
+                    }
+                }
+
+                // 2. Nếu là lệnh SELL và lợi nhuận > 5 USD
+                if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL && profit >= TrailingStartProfit){
+                    double newSL = ask + (TrailingStepPips * point);
+                    // Chỉ dời SL xuống thấp hơn mức SL cũ
+                    if(newSL < currentSL || currentSL == 0){
+                        Trade.PositionModify(ticket, newSL, 0);
+                    }
+                }
+            }
+        }
     }
 }

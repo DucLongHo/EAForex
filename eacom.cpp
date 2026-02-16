@@ -5,8 +5,6 @@ CTrade Trade;
 
 CChartObjectButton OnOffButton;// Nút bật tắt EA
 
-CChartObjectLabel lblTotalBuyProfit, lblTotalSellProfit;
-
 // Constant data
 const int ZERO = 0;
 const int ONE = 1;
@@ -31,14 +29,7 @@ int ProfitHedge = -20; // Mức chênh lệch lợi nhuận để thực hiện 
 int OnInit(){
     EventSetTimer(ONE);
 
-    if(!CreateButton(OnOffButton, "OnOffButton", "OFF", clrRed, CalculateButtonY() - 100))
-        return(INIT_FAILED);
-
-    // Tạo label
-    if(!CreateLable(lblTotalBuyProfit, "lblTotalBuyProfit", "Total BUY: 0.00 USD", 30))
-        return(INIT_FAILED);
-
-    if(!CreateLable(lblTotalSellProfit, "lblTotalSellProfit", "Total TP: 0.00 USD", 60))
+    if(!CreateButton(OnOffButton, "OnOffButton", "OFF", clrRed, CalculateButtonY() - 30))
         return(INIT_FAILED);
     
     ChartRedraw(0);
@@ -81,11 +72,11 @@ void OnChartEvent(const int id, const long &lparam, const double &dparam, const 
         
         if(OnOffEnabled){
             OnOffButton.Description("ON");
-            TradeButton.Color(clrWhite);
+            OnOffButton.Color(clrWhite);
             OnOffButton.BackColor(clrGreen);
         } else {
             OnOffButton.Description("OFF");
-            TradeButton.Color(clrWhite);
+            OnOffButton.Color(clrWhite);
             OnOffButton.BackColor(clrRed);
         }
     }
@@ -123,20 +114,6 @@ void TradeCom(){
             }
         }     
     }
-}
-
-bool CreateLable(CChartObjectLabel &lable, string name, string des, int y){
-    int xPos = (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS) - 200;
-    // Tạo lable và thiết lập thuộc tính
-    if(!lable.Create(0, name, 0, xPos, y))
-        return false;
-
-    lable.Description(des);
-    lable.Color(clrWhite);
-    lable.Font("Calibri");
-    lable.FontSize(12);
-
-    return true;
 }
 
 int CalculateButtonX(){

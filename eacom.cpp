@@ -51,17 +51,22 @@ void OnTimer(){
         TradeCom();
     }
 
+    if(PositionsTotal() == 0){
+        TradeCom();
+    }
+    
     if(isRunningEa) isRunningEa = false;
-
-    // Cập nhật lên Panel (Giả định bạn đã đổi tên label)
-    lblTotalBuyProfit.Description("Buy Profit: " + DoubleToString(GetTotalBuyProfit(), 2) + " USD");
-    lblTotalSellProfit.Description("Sell Profit: " + DoubleToString(GetTotalSellProfit(), 2) + " USD");
 }
 
 void OnTick(){
     if(GetTotalBuyProfit() + GetTotalSellProfit() >= 1){
         CloseAllPositions();
     }
+
+    if(PositionsTotal() > 0){
+        TrailingByProfitUSD();
+    }
+
     HedgePositions();
 }
 
@@ -237,37 +242,50 @@ void HedgePositions() {
 }
 
 void TrailingByProfitUSD(){
-    // Duyệt qua tất cả các lệnh đang mở trên tài khoản
+    MqlTick last_tick;
+    if(!SymbolInfoTick(_Symbol, last_tick)) return; // Lấy giá Bid/Ask nhanh nhất
+
     for(int i = PositionsTotal() - 1; i >= 0; i--){
         ulong ticket = PositionGetTicket(i);
-
         if(PositionSelectByTicket(ticket)){
-            // Kiểm tra xem có đúng ký hiệu (Symbol) của biểu đồ hiện tại không
-            if(PositionGetString(POSITION_SYMBOL) == _Symbol){
-                double profit = PositionGetDouble(POSITION_PROFIT); // Lấy lợi nhuận hiện tại (USD)
-                double currentSL = PositionGetDouble(POSITION_SL);
-                double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-                double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-                double volume = PositionGetDouble(POSITION_VOLUME);
+            double profit = PositionGetDouble(POSITION_PROFIT);
+            double currentSL = PositionGetDouble(POSITION_SL);
+            double priceOpen = PositionGetDouble(POSITION_PRICE_OPEN);
+            double volume = PositionGetDouble(POSITION_VOLUME);
+            if(volume == LotSize){
+                continue;
+            }
+            // Công thức: (Lợi nhuận mục tiêu / (Khối lượng * Giá trị 1 tick)) * Kích thước 1 tick
+            double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+            double tickSize  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
                 
-                if (volume == LotSize){
-                    continue;
-                }
-                
-                // 1. Nếu là lệnh BUY và lợi nhuận > 5 USD
-                if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY && profit >= TrailingStartProfit){
-                    double newSL = bid - (TrailingStepPips * _Point);
-                    // Chỉ dời SL lên cao hơn mức SL cũ
-                    if(newSL > currentSL || currentSL == 0){
+            double pointsFor5USD = (5.0 / (volume * tickValue)) * tickSize;
+            double step = NormalizeDouble(pointsFor5USD, _Digits);
+
+            // --- XỬ LÝ LỆNH BUY ---
+            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
+                if(profit >= TrailingStartProfit){
+                    // SL mới duy trì khoảng cách 'step' so với giá hiện tại
+                    double newSL = NormalizeDouble(last_tick.bid - step, _Digits);
+                        
+                    // Điều kiện 1: Nếu chưa có SL hoặc SL đang dưới Entry -> Đưa về Entry
+                    if(currentSL < priceOpen){
+                        Trade.PositionModify(ticket, priceOpen, 0);
+                    } else if(newSL > currentSL + _Point){
                         Trade.PositionModify(ticket, newSL, 0);
                     }
                 }
+            }
 
-                // 2. Nếu là lệnh SELL và lợi nhuận > 5 USD
-                if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL && profit >= TrailingStartProfit){
-                    double newSL = ask + (TrailingStepPips * _Point);
-                    // Chỉ dời SL xuống thấp hơn mức SL cũ
-                    if(newSL < currentSL || currentSL == 0){
+            // --- XỬ LÝ LỆNH SELL ---
+            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL){
+                if(profit >= TrailingStartProfit){
+                    // SL mới duy trì khoảng cách 'step' so với giá hiện tại
+                    double newSL = NormalizeDouble(last_tick.ask + step, _Digits);
+                    
+                    if(currentSL > priceOpen || currentSL == 0){
+                        Trade.PositionModify(ticket, priceOpen, 0);
+                    } else if(newSL < currentSL - _Point){
                         Trade.PositionModify(ticket, newSL, 0);
                     }
                 }

@@ -248,7 +248,12 @@ void TrailingByProfitUSD(){
                 double currentSL = PositionGetDouble(POSITION_SL);
                 double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
                 double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-
+                double volume = PositionGetDouble(POSITION_VOLUME);
+                
+                if (volume == LotSize){
+                    continue;
+                }
+                
                 // 1. Nếu là lệnh BUY và lợi nhuận > 5 USD
                 if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY && profit >= TrailingStartProfit){
                     double newSL = bid - (TrailingStepPips * _Point);
@@ -260,7 +265,7 @@ void TrailingByProfitUSD(){
 
                 // 2. Nếu là lệnh SELL và lợi nhuận > 5 USD
                 if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL && profit >= TrailingStartProfit){
-                    double newSL = ask + (TrailingStepPips * point);
+                    double newSL = ask + (TrailingStepPips * _Point);
                     // Chỉ dời SL xuống thấp hơn mức SL cũ
                     if(newSL < currentSL || currentSL == 0){
                         Trade.PositionModify(ticket, newSL, 0);

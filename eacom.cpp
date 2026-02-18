@@ -215,12 +215,6 @@ void HedgePositions() {
     for(int i = PositionsTotal() - 1; i >= 0; i--) {
         ulong ticket = PositionGetTicket(i);
         if(PositionSelectByTicket(ticket)){
-            if(PositionGetDouble(POSITION_PROFIT) > 5 &&  PositionGetDouble(POSITION_VOLUME) > 0.01){
-                if(!Trade.PositionClose(ticket))
-                    Print("Close failed #", ticket, " - Error: ", Trade.ResultComment());
-                    
-                continue;
-            }
             totalProfit += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
             if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) 
                 buyLots += PositionGetDouble(POSITION_VOLUME);
@@ -238,6 +232,25 @@ void HedgePositions() {
     if(totalProfit <= ProfitHedge){
         ProfitHedge -= 20; // Giảm thêm 5 USD cho lần tiếp theo nếu vẫn chưa cân bằng được
         ExecuteHedge(buyLots, sellLots);
+    }
+
+    for(int i = PositionsTotal() - 1; i >= 0; i--) {
+        ulong ticket = PositionGetTicket(i);
+        if(PositionSelectByTicket(ticket)){
+            if(PositionGetDouble(POSITION_VOLUME) > LotSize && PositionGetDouble(POSITION_PROFIT) >= 5){
+                if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
+                    if(buyLots - sellLots >= PositionGetDouble(POSITION_VOLUME)){
+                         if(!Trade.PositionClose(ticket))
+                            Print("Close failed #", ticket, " - Error: ", Trade.ResultComment());
+                    }
+                } else if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL){
+                    if(sellLots - buyLots >= PositionGetDouble(POSITION_VOLUME)){
+                        if(!Trade.PositionClose(ticket))
+                            Print("Close failed #", ticket, " - Error: ", Trade.ResultComment());
+                    }
+                }
+            }    
+        }
     }
 }
 
@@ -259,7 +272,7 @@ void TrailingByProfitUSD(){
             double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
             double tickSize  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
                 
-            double pointsFor5USD = (5.0 / (volume * tickValue)) * tickSize;
+            double pointsFor5USD = (TrailingStartProfit / (volume * tickValue)) * tickSize;
             double step = NormalizeDouble(pointsFor5USD, _Digits);
 
             // --- XỬ LÝ LỆNH BUY ---

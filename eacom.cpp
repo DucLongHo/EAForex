@@ -90,10 +90,7 @@ void OnDeinit(const int reason){
 
 void TradeCom(){
     if(PositionsTotal() == 0){
-        
         if(OnOffEnabled){
-            Trade.SetAsyncMode(true);
-
             if(!Trade.Sell(LotSize, _Symbol)){
                 Print("Error placing Sell Order: ", Trade.ResultRetcode());
             }
@@ -101,8 +98,6 @@ void TradeCom(){
             if(!Trade.Buy(LotSize, _Symbol)){
                 Print("Error placing Buy Order: ", Trade.ResultRetcode());
             }
-
-            Trade.SetAsyncMode(false);
         }
     } else {
         if(GetTotalBuyProfit() >= GetTotalSellProfit()){

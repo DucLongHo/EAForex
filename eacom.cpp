@@ -50,10 +50,6 @@ void OnTimer(){
 
         TradeCom();
     }
-
-    if(PositionsTotal() == 0){
-        TradeCom();
-    }
     
     if(isRunningEa) isRunningEa = false;
 }

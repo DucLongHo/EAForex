@@ -20,7 +20,7 @@ bool OnOffEnabled = false; // Biến kiểm soát bật tắt EA
 // Input parameters
 input double LotSize = 0.01; // Khối lượng từng lệnh
 input double TrailingStartProfit = 5.0;  // Có lời 5 USD thì bắt đầu kích hoạt trailing stop
-input int TrailingStepPips = 50;   // Khoảng cách duy trì (ví dụ 50 pips)
+input int TrailingStepPips = 100;   // Khoảng cách duy trì
 
 int ProfitHedge = -20; // Mức chênh lệch lợi nhuận để thực hiện vào lệnh cân bằng (đơn vị: USD)
 //+------------------------------------------------------------------+

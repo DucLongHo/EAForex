@@ -226,8 +226,7 @@ void HedgePositions() {
         ProfitHedge -= 20; // Giảm thêm 5 USD cho lần tiếp theo nếu vẫn chưa cân bằng được
         ExecuteHedge(buyLots, sellLots);
     }
-
-    if(MathAbs(sellLots - buyLots) == LotSize){
+    if(NormalizeDouble(MathAbs(sellLots - buyLots), TWO) == LotSize){
         ulong ticket = PositionGetTicket(PositionsTotal() - ONE);
 
         if(PositionSelectByTicket(ticket)){

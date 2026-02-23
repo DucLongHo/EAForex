@@ -227,6 +227,15 @@ void HedgePositions() {
         ExecuteHedge(buyLots, sellLots);
     }
 
+    if(MathAbs(sellLots - buyLots) == LotSize){
+        ulong ticket = PositionGetTicket(PositionsTotal() - ONE);
+
+        if(PositionSelectByTicket(ticket)){
+            if(PositionGetDouble(POSITION_PROFIT) <= -3){
+                ExecuteHedge(buyLots, sellLots);
+            }    
+        }
+    }
     for(int i = PositionsTotal() - 1; i >= 0; i--) {
         ulong ticket = PositionGetTicket(i);
         
@@ -252,6 +261,10 @@ void TrailingByProfitUSD(){
     MqlTick last_tick;
     if(!SymbolInfoTick(_Symbol, last_tick)) return; // Lấy giá Bid/Ask nhanh nhất
 
+    // Công thức: (Lợi nhuận mục tiêu / (Khối lượng * Giá trị 1 tick)) * Kích thước 1 tick
+    double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+    double tickSize  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+    
     for(int i = PositionsTotal() - 1; i >= 0; i--){
         ulong ticket = PositionGetTicket(i);
         if(PositionSelectByTicket(ticket)){
@@ -262,9 +275,6 @@ void TrailingByProfitUSD(){
             if(volume == LotSize){
                 continue;
             }
-            // Công thức: (Lợi nhuận mục tiêu / (Khối lượng * Giá trị 1 tick)) * Kích thước 1 tick
-            double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
-            double tickSize  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
                 
             double pointsFor5USD = (TrailingStartProfit / (volume * tickValue)) * tickSize;
             double step = NormalizeDouble(pointsFor5USD, _Digits);

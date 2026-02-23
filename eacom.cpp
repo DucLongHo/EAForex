@@ -20,7 +20,9 @@ bool OnOffEnabled = false; // Biến kiểm soát bật tắt EA
 // Input parameters
 input double LotSize = 0.01; // Khối lượng từng lệnh
 input double TrailingStartProfit = 5.0;  // Có lời 5 USD thì bắt đầu kích hoạt trailing stop
+input double TakeProfitHedge = 5.0; // Mỗi khi lời 5 USD thì căn cắt lệnh cân
 input int TrailingStepPips = 100;   // Khoảng cách duy trì
+input int TakeProfitUSD = 1; // Mức lợi nhuận mục tiêu để đóng lệnh (đơn vị: USD)
 
 int ProfitHedge = -20; // Mức chênh lệch lợi nhuận để thực hiện vào lệnh cân bằng (đơn vị: USD)
 //+------------------------------------------------------------------+
@@ -55,7 +57,7 @@ void OnTimer(){
 }
 
 void OnTick(){
-    if(GetTotalBuyProfit() + GetTotalSellProfit() >= 1){
+    if(GetTotalBuyProfit() + GetTotalSellProfit() >= TakeProfitUSD){
         CloseAllPositions();
     }
 
@@ -227,11 +229,12 @@ void HedgePositions() {
 
     for(int i = PositionsTotal() - 1; i >= 0; i--) {
         ulong ticket = PositionGetTicket(i);
+        
         if(PositionSelectByTicket(ticket)){
-            if(PositionGetDouble(POSITION_VOLUME) > LotSize && PositionGetDouble(POSITION_PROFIT) >= 5){
+            if(PositionGetDouble(POSITION_VOLUME) > LotSize && PositionGetDouble(POSITION_PROFIT) >= TakeProfitHedge){
                 if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
                     if(buyLots - sellLots >= PositionGetDouble(POSITION_VOLUME)){
-                         if(!Trade.PositionClose(ticket))
+                        if(!Trade.PositionClose(ticket))
                             Print("Close failed #", ticket, " - Error: ", Trade.ResultComment());
                     }
                 } else if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL){

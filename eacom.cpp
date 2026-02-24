@@ -24,6 +24,7 @@ input double TakeProfitHedge = 10.0; // Mốc lợi nhuận để đóng lệnh 
 input int TrailingStepPips = 100;   // Khoảng cách duy trì
 input double TakeProfitUSD = 1; // Mức lợi nhuận đóng lệnh (đơn vị: USD)
 input double DrawdownLimitUSD = -100; // Mức thua lỗ tối đa (đơn vị: USD)
+input double TakeProfitSLEntry = 3; // Mức lợi nhuận để BE (đơn vị: USD)
 
 int ProfitHedge = -20; // Mức chênh lệch vào lệnh cân bằng (đơn vị: USD)
 //+------------------------------------------------------------------+
@@ -229,7 +230,8 @@ void HedgePositions() {
             ProfitHedge = -50;
         } else if(ProfitHedge == -50){
             ProfitHedge = -90;
-        } 
+        }
+
         ExecuteHedge(buyLots, sellLots);
     }
 
@@ -281,12 +283,25 @@ void TrailingByProfitUSD(){
             double currentSL = PositionGetDouble(POSITION_SL);
             double priceOpen = PositionGetDouble(POSITION_PRICE_OPEN);
             double volume = PositionGetDouble(POSITION_VOLUME);
+            double entryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+            ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+
             if(volume == LotSize){
+                if(profit >= TakeProfitSLEntry){
+                    if(type == POSITION_TYPE_BUY){
+                        double newSL = entryPrice + 500 * _Point; // Cách Entry 50 pips
+                        Trade.PositionModify(ticket, newSL, 0);
+                    } else if(type == POSITION_TYPE_SELL){
+                        double newSL = entryPrice - 500 * _Point; // Cách Entry 50 pips
+                        Trade.PositionModify(ticket, newSL, 0);
+                    }
+                }
+
                 continue;
             }
                 
-            double pointsFor5USD = (TrailingStartProfit / (volume * tickValue)) * tickSize;
-            double step = NormalizeDouble(pointsFor5USD, _Digits);
+            double pointsD = (TrailingStartProfit / (volume * tickValue)) * tickSize;
+            double step = NormalizeDouble(pointsD, _Digits);
 
             // --- XỬ LÝ LỆNH BUY ---
             if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){

@@ -24,7 +24,7 @@ input double TakeProfitHedge = 10.0; // Mốc lợi nhuận để đóng lệnh 
 input int TrailingStepPips = 100;   // Khoảng cách duy trì
 input double TakeProfitUSD = 1; // Mức lợi nhuận đóng lệnh (đơn vị: USD)
 input double DrawdownLimitUSD = -100; // Mức thua lỗ tối đa (đơn vị: USD)
-input double TakeProfitSLEntry = 3; // Mức lợi nhuận để BE (đơn vị: USD)
+input double TakeProfitSLEntry = 5; // Mức lợi nhuận để BE (đơn vị: USD)
 
 int ProfitHedge = -20; // Mức chênh lệch vào lệnh cân bằng (đơn vị: USD)
 //+------------------------------------------------------------------+

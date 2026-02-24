@@ -95,12 +95,17 @@ void OnDeinit(const int reason){
 void TradeCom(){
     if(PositionsTotal() == 0){
         if(OnOffEnabled){
-            if(!Trade.Sell(LotSize, _Symbol)){
-                Print("Error placing Sell Order: ", Trade.ResultRetcode());
+            double openPrice = iOpen(_Symbol, _Period, ONE);
+            double closePrice = iClose(_Symbol, _Period, ONE);
+            
+            if(closePrice > openPrice) {
+                if(!Trade.Buy(LotSize, _Symbol)){
+                    Print("Error placing Buy Order: ", Trade.ResultRetcode());
             }
-
-            if(!Trade.Buy(LotSize, _Symbol)){
-                Print("Error placing Buy Order: ", Trade.ResultRetcode());
+            } else if(closePrice < openPrice) {
+                if(!Trade.Sell(LotSize, _Symbol)){
+                    Print("Error placing Sell Order: ", Trade.ResultRetcode());
+            }
             }
         }
     } else {

@@ -19,12 +19,13 @@ bool OnOffEnabled = false; // Biến kiểm soát bật tắt EA
 
 // Input parameters
 input double LotSize = 0.01; // Khối lượng từng lệnh
-input double TrailingStartProfit = 5.0;  // Có lời 5 USD thì bắt đầu kích hoạt trailing stop
-input double TakeProfitHedge = 5.0; // Mỗi khi lời 5 USD thì căn cắt lệnh cân
+input double TrailingStartProfit = 5.0;  // Mốc lợi nhuận lệnh cân trailing stop
+input double TakeProfitHedge = 10.0; // Mốc lợi nhuận để đóng lệnh cân bằng
 input int TrailingStepPips = 100;   // Khoảng cách duy trì
-input int TakeProfitUSD = 1; // Mức lợi nhuận mục tiêu để đóng lệnh (đơn vị: USD)
+input double TakeProfitUSD = 1; // Mức lợi nhuận đóng lệnh (đơn vị: USD)
+input double DrawdownLimitUSD = -100; // Mức thua lỗ tối đa (đơn vị: USD)
 
-int ProfitHedge = -20; // Mức chênh lệch lợi nhuận để thực hiện vào lệnh cân bằng (đơn vị: USD)
+input int ProfitHedge = -20; // Mức chênh lệch vào lệnh cân bằng (đơn vị: USD)
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -57,7 +58,7 @@ void OnTimer(){
 }
 
 void OnTick(){
-    if(GetTotalBuyProfit() + GetTotalSellProfit() >= TakeProfitUSD){
+    if(GetTotalBuyProfit() + GetTotalSellProfit() >= TakeProfitUSD || GetTotalBuyProfit() + GetTotalSellProfit() <= DrawdownLimitUSD){
         CloseAllPositions();
     }
 
@@ -222,10 +223,17 @@ void HedgePositions() {
         ProfitHedge = -20;
     }
 
+    // Cân bằng nếu thua lỗ vượt mức
     if(totalProfit <= ProfitHedge){
-        ProfitHedge -= 20; // Giảm thêm 5 USD cho lần tiếp theo nếu vẫn chưa cân bằng được
+        if(ProfitHedge == -20){
+            ProfitHedge = -50;
+        } else if(ProfitHedge == -50){
+            ProfitHedge = -90;
+        } 
         ExecuteHedge(buyLots, sellLots);
     }
+
+    // Cân lệnh lẻ
     if(NormalizeDouble(MathAbs(sellLots - buyLots), TWO) == LotSize){
         ulong ticket = PositionGetTicket(PositionsTotal() - ONE);
 
@@ -235,7 +243,9 @@ void HedgePositions() {
             }    
         }
     }
-    for(int i = PositionsTotal() - 1; i >= 0; i--) {
+
+    // Cắt lệnh cân khi đã bù được khối lượng để giảm rủi ro
+    for(int i = PositionsTotal() - ONE; i >= 0; i--) {
         ulong ticket = PositionGetTicket(i);
         
         if(PositionSelectByTicket(ticket)){

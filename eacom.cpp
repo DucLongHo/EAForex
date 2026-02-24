@@ -230,6 +230,8 @@ void HedgePositions() {
             ProfitHedge = -50;
         } else if(ProfitHedge == -50){
             ProfitHedge = -90;
+        } else if(ProfitHedge == -90){
+            ProfitHedge = -110;
         }
 
         ExecuteHedge(buyLots, sellLots);
@@ -251,7 +253,7 @@ void HedgePositions() {
         ulong ticket = PositionGetTicket(i);
         
         if(PositionSelectByTicket(ticket)){
-            if(PositionGetDouble(POSITION_VOLUME) > LotSize && PositionGetDouble(POSITION_PROFIT) >= TakeProfitHedge){
+            if(PositionGetDouble(POSITION_VOLUME) > LotSize && PositionGetDouble(POSITION_PROFIT) > TakeProfitHedge){
                 if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
                     if(buyLots - sellLots >= PositionGetDouble(POSITION_VOLUME)){
                         if(!Trade.PositionClose(ticket))

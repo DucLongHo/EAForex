@@ -21,9 +21,9 @@ bool OnOffEnabled = false; // Biến kiểm soát bật tắt EA
 input double LotSize = 0.01; // Khối lượng từng lệnh
 input double TrailingStartProfit = 5.0;  // Mốc lợi nhuận lệnh cân trailing stop
 input double TakeProfitHedge = 10.0; // Mốc lợi nhuận để đóng lệnh cân bằng
-input int TrailingStepPips = 100;   // Khoảng cách duy trì
+input int TrailingStepPips = 200;   // Khoảng cách duy trì
 input double TakeProfitUSD = 1; // Mức lợi nhuận đóng lệnh (đơn vị: USD)
-input double DrawdownLimitUSD = -100; // Mức thua lỗ tối đa (đơn vị: USD)
+input double DrawdownLimitUSD = -50; // Mức thua lỗ tối đa (đơn vị: USD)
 input double TakeProfitSLEntry = 5; // Mức lợi nhuận để BE (đơn vị: USD)
 
 int ProfitHedge = -30; // Mức chênh lệch vào lệnh cân bằng (đơn vị: USD)
@@ -225,14 +225,14 @@ void HedgePositions() {
     }
 
     // Reset cờ nếu tài khoản dương trở lại hoặc hết lệnh (để chuẩn bị cho chu kỳ mới)
-    if(PositionsTotal() == 0 || (totalProfit > -5 && ProfitHedge == -110)){
+    if(PositionsTotal() == 0 || (totalProfit > -5 && ProfitHedge == -60)){
         ProfitHedge = -30;
     }
 
     // Cân bằng nếu thua lỗ vượt mức
     if(totalProfit <= ProfitHedge){
         if(ProfitHedge == -30){
-            ProfitHedge = -110;
+            ProfitHedge = -60;
         }
 
         ExecuteHedge(buyLots, sellLots);

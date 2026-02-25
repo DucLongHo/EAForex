@@ -26,7 +26,7 @@ input double TakeProfitUSD = 1; // Mức lợi nhuận đóng lệnh (đơn vị
 input double DrawdownLimitUSD = -100; // Mức thua lỗ tối đa (đơn vị: USD)
 input double TakeProfitSLEntry = 5; // Mức lợi nhuận để BE (đơn vị: USD)
 
-int ProfitHedge = -20; // Mức chênh lệch vào lệnh cân bằng (đơn vị: USD)
+int ProfitHedge = -30; // Mức chênh lệch vào lệnh cân bằng (đơn vị: USD)
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -231,12 +231,12 @@ void HedgePositions() {
 
     // Cân bằng nếu thua lỗ vượt mức
     if(totalProfit <= ProfitHedge){
-        if(ProfitHedge == -20){
-            ProfitHedge = -50;
-        } else if(ProfitHedge == -50){
+        if(ProfitHedge == -30){
+            ProfitHedge = -60;
+        } else if(ProfitHedge == -60){
             ProfitHedge = -90;
         } else if(ProfitHedge == -90){
-            ProfitHedge = -110;
+            ProfitHedge = -120;
         }
 
         ExecuteHedge(buyLots, sellLots);

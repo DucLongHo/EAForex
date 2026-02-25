@@ -27,7 +27,6 @@ input double DrawdownLimitUSD = -50; // Mức thua lỗ tối đa (đơn vị: U
 input double TakeProfitSLEntry = 5; // Mức lợi nhuận để BE (đơn vị: USD)
 input double TakeProfitHedgeEntryFirst = -2; // Mức lợi nhuận để hedge cho lệnh đầu tiên (đơn vị: USD)
 
-int ProfitHedge = -30; // Mức chênh lệch vào lệnh cân bằng (đơn vị: USD)
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -225,20 +224,6 @@ void HedgePositions() {
         }
     }
 
-    // Reset cờ nếu tài khoản dương trở lại hoặc hết lệnh (để chuẩn bị cho chu kỳ mới)
-    if(PositionsTotal() == 0 || (totalProfit > -5 && ProfitHedge == -60)){
-        ProfitHedge = -30;
-    }
-
-    // Cân bằng nếu thua lỗ vượt mức
-    if(totalProfit <= ProfitHedge){
-        if(ProfitHedge == -30){
-            ProfitHedge = -60;
-        }
-
-        ExecuteHedge(buyLots, sellLots);
-    }
-
     // Cân lệnh lẻ
     if(NormalizeDouble(MathAbs(sellLots - buyLots), TWO) == LotSize){
         ulong ticket = PositionGetTicket(PositionsTotal() - ONE);
@@ -251,27 +236,6 @@ void HedgePositions() {
             if(PositionsTotal() == ONE && PositionGetDouble(POSITION_PROFIT) <= TakeProfitHedgeEntryFirst){
                 ExecuteHedge(buyLots, sellLots);
             }
-        }
-    }
-
-    // Cắt lệnh cân khi đã bù được khối lượng để giảm rủi ro
-    for(int i = PositionsTotal() - ONE; i >= 0; i--) {
-        ulong ticket = PositionGetTicket(i);
-        
-        if(PositionSelectByTicket(ticket)){
-            if(PositionGetDouble(POSITION_VOLUME) > LotSize && PositionGetDouble(POSITION_PROFIT) > TakeProfitHedge){
-                if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
-                    if(buyLots - sellLots >= PositionGetDouble(POSITION_VOLUME)){
-                        if(!Trade.PositionClose(ticket))
-                            Print("Close failed #", ticket, " - Error: ", Trade.ResultComment());
-                    }
-                } else if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL){
-                    if(sellLots - buyLots >= PositionGetDouble(POSITION_VOLUME)){
-                        if(!Trade.PositionClose(ticket))
-                            Print("Close failed #", ticket, " - Error: ", Trade.ResultComment());
-                    }
-                }
-            }    
         }
     }
 }
@@ -294,51 +258,15 @@ void TrailingByProfitUSD(){
             double entryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
             ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
 
-            if(volume == LotSize){
-                if(profit >= TakeProfitSLEntry && PositionsTotal() > 20){
-                    if(type == POSITION_TYPE_BUY){
-                        double newSL = entryPrice + 500 * _Point; // Cách Entry 50 pips
-                        Trade.PositionModify(ticket, newSL, 0);
-                    } else if(type == POSITION_TYPE_SELL){
-                        double newSL = entryPrice - 500 * _Point; // Cách Entry 50 pips
-                        Trade.PositionModify(ticket, newSL, 0);
-                    }
-                }
-
-                continue;
-            }
-                
-            double pointsD = (TrailingStartProfit / (volume * tickValue)) * tickSize;
-            double step = NormalizeDouble(pointsD, _Digits);
-
-            // --- XỬ LÝ LỆNH BUY ---
-            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
-                if(profit >= TrailingStartProfit){
-                    // SL mới duy trì khoảng cách 'step' so với giá hiện tại
-                    double newSL = NormalizeDouble(last_tick.bid - step, _Digits);
-                        
-                    // Điều kiện 1: Nếu chưa có SL hoặc SL đang dưới Entry -> Đưa về Entry
-                    if(currentSL < priceOpen){
-                        Trade.PositionModify(ticket, priceOpen, 0);
-                    } else if(newSL > currentSL + _Point){
-                        Trade.PositionModify(ticket, newSL, 0);
-                    }
-                }
-            }
-
-            // --- XỬ LÝ LỆNH SELL ---
-            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL){
-                if(profit >= TrailingStartProfit){
-                    // SL mới duy trì khoảng cách 'step' so với giá hiện tại
-                    double newSL = NormalizeDouble(last_tick.ask + step, _Digits);
-                    
-                    if(currentSL > priceOpen || currentSL == 0){
-                        Trade.PositionModify(ticket, priceOpen, 0);
-                    } else if(newSL < currentSL - _Point){
-                        Trade.PositionModify(ticket, newSL, 0);
-                    }
+            if(profit >= TakeProfitSLEntry && PositionsTotal() > 25){
+                if(type == POSITION_TYPE_BUY){
+                    double newSL = entryPrice + 500 * _Point; // Cách Entry 50 pips
+                    Trade.PositionModify(ticket, newSL, 0);
+                } else if(type == POSITION_TYPE_SELL){
+                    double newSL = entryPrice - 500 * _Point; // Cách Entry 50 pips
+                    Trade.PositionModify(ticket, newSL, 0);
                 }
             }
         }
-    }
+    }        
 }

@@ -247,7 +247,7 @@ void HedgePositions() {
         ulong ticket = PositionGetTicket(PositionsTotal() - ONE);
 
         if(PositionSelectByTicket(ticket)){
-            if(PositionGetDouble(POSITION_PROFIT) <= -3){
+            if(PositionGetDouble(POSITION_PROFIT) <= -3 && totalProfit <= 0){
                 ExecuteHedge(buyLots, sellLots);
             }    
         }

@@ -248,7 +248,7 @@ void HedgePositions() {
                 ExecuteHedge(buyLots, sellLots);
             }
             
-            if(PositionTotal() == ONE && PositionGetDouble(POSITION_PROFIT) <= TakeProfitHedgeEntryFirst){
+            if(PositionsTotal() == ONE && PositionGetDouble(POSITION_PROFIT) <= TakeProfitHedgeEntryFirst){
                 ExecuteHedge(buyLots, sellLots);
             }
         }

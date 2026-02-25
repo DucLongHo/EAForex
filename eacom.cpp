@@ -225,18 +225,14 @@ void HedgePositions() {
     }
 
     // Reset cờ nếu tài khoản dương trở lại hoặc hết lệnh (để chuẩn bị cho chu kỳ mới)
-    if(PositionsTotal() == 0){
-        ProfitHedge = -20;
+    if(PositionsTotal() == 0 || (totalProfit > -5 && ProfitHedge == -110)){
+        ProfitHedge = -30;
     }
 
     // Cân bằng nếu thua lỗ vượt mức
     if(totalProfit <= ProfitHedge){
         if(ProfitHedge == -30){
-            ProfitHedge = -60;
-        } else if(ProfitHedge == -60){
-            ProfitHedge = -90;
-        } else if(ProfitHedge == -90){
-            ProfitHedge = -120;
+            ProfitHedge = -110;
         }
 
         ExecuteHedge(buyLots, sellLots);

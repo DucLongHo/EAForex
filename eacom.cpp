@@ -19,14 +19,12 @@ bool OnOffEnabled = false; // Biến kiểm soát bật tắt EA
 
 // Input parameters
 input double LotSize = 0.01; // Khối lượng từng lệnh
-input double TrailingStartProfit = 5.0;  // Mốc lợi nhuận lệnh cân trailing stop
-input double TakeProfitHedge = 10.0; // Mốc lợi nhuận để đóng lệnh cân bằng
-input int TrailingStepPips = 200;   // Khoảng cách duy trì
-input double TakeProfitUSD = 1; // Mức lợi nhuận đóng lệnh (đơn vị: USD)
-input double DrawdownLimitUSD = -50; // Mức thua lỗ tối đa (đơn vị: USD)
-input double TakeProfitSLEntry = 5; // Mức lợi nhuận để BE (đơn vị: USD)
-input double TakeProfitHedgeEntryFirst = -2; // Mức lợi nhuận để hedge cho lệnh đầu tiên (đơn vị: USD)
-
+input double TakeProfitUSD = 1; // Mức lợi nhuận đóng lệnh (USD)
+input double DrawdownLimitUSD = -30; // Mức thua lỗ tối đa (USD)
+input double TakeProfitSLEntry = 5; // Mức lợi nhuận để BE (USD)
+input int AmountOrdersToBE = 25; // Số lượng lệnh để BE
+input double DrawdownHedgeEntryFirst = -2; // Mức lợi nhuận để hedge cho lệnh đầu tiên (USD)
+input double DrawdownHedgeEntryNext = -3; // Mức lợi nhuận để hedge cho lệnh tiếp theo (USD)
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -211,29 +209,57 @@ void HedgePositions() {
     double buyLots = 0;
     double sellLots = 0;
 
+    int count = 0;
+    double profit = 0;
+    ENUM_POSITION_TYPE latestType = WRONG_VALUE;
+    bool isCheckType = true;
+
     // 1. Tính toán trạng thái hiện tại
-    for(int i = PositionsTotal() - 1; i >= 0; i--) {
+    for(int i = PositionsTotal() - ONE; i >= 0; i--) {
         ulong ticket = PositionGetTicket(i);
         if(PositionSelectByTicket(ticket)){
+            ENUM_POSITION_TYPE currentType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+
             totalProfit += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
             if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) 
                 buyLots += PositionGetDouble(POSITION_VOLUME);
 
             if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL) 
                 sellLots += PositionGetDouble(POSITION_VOLUME);
+            
+            if(isCheckType){
+                if(latestType == WRONG_VALUE){
+                    latestType = currentType;
+                    count++;
+                    profit = totalProfit;
+                } else if(currentType == latestType){
+                    count++;
+                    profit = totalProfit;
+                } else isCheckType = false;
+            }
         }
     }
 
-    // Cân lệnh lẻ
-    if(NormalizeDouble(MathAbs(sellLots - buyLots), TWO) == LotSize){
+    // Cân lệnh đâu tiên nếu thua lỗ vượt mức
+    if(PositionsTotal() == ONE){
         ulong ticket = PositionGetTicket(PositionsTotal() - ONE);
 
         if(PositionSelectByTicket(ticket)){
-            if(PositionGetDouble(POSITION_PROFIT) <= -3 && totalProfit <= 0){ //Cần sửa check cùng chiều chứ
+            if(PositionGetDouble(POSITION_PROFIT) <= DrawdownHedgeEntryFirst){
                 ExecuteHedge(buyLots, sellLots);
             }
-            
-            if(PositionsTotal() == ONE && PositionGetDouble(POSITION_PROFIT) <= TakeProfitHedgeEntryFirst){
+        }
+    }
+
+    // Cân lệnh tiếp theo nếu thua lỗ vượt mức
+    if(NormalizeDouble(MathAbs(sellLots - buyLots), TWO) == LotSize * count){
+        ulong ticket = PositionGetTicket(PositionsTotal() - ONE);
+
+        if(PositionSelectByTicket(ticket) && profit <= DrawdownHedgeEntryNext * count){
+            if(buyLots > sellLots && PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
+                ExecuteHedge(buyLots, sellLots);
+            }
+            if(sellLots > buyLots && PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL){
                 ExecuteHedge(buyLots, sellLots);
             }
         }
@@ -258,7 +284,7 @@ void TrailingByProfitUSD(){
             double entryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
             ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
 
-            if(profit >= TakeProfitSLEntry && PositionsTotal() > 25){
+            if(profit >= TakeProfitSLEntry && PositionsTotal() > AmountOrdersToBE){
                 if(type == POSITION_TYPE_BUY){
                     double newSL = entryPrice + 500 * _Point; // Cách Entry 50 pips
                     Trade.PositionModify(ticket, newSL, 0);

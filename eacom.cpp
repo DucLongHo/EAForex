@@ -25,6 +25,7 @@ input int TrailingStepPips = 200;   // Khoảng cách duy trì
 input double TakeProfitUSD = 1; // Mức lợi nhuận đóng lệnh (đơn vị: USD)
 input double DrawdownLimitUSD = -50; // Mức thua lỗ tối đa (đơn vị: USD)
 input double TakeProfitSLEntry = 5; // Mức lợi nhuận để BE (đơn vị: USD)
+input double TakeProfitHedgeEntryFirst = -2; // Mức lợi nhuận để hedge cho lệnh đầu tiên (đơn vị: USD)
 
 int ProfitHedge = -30; // Mức chênh lệch vào lệnh cân bằng (đơn vị: USD)
 //+------------------------------------------------------------------+
@@ -243,9 +244,13 @@ void HedgePositions() {
         ulong ticket = PositionGetTicket(PositionsTotal() - ONE);
 
         if(PositionSelectByTicket(ticket)){
-            if(PositionGetDouble(POSITION_PROFIT) <= -3 && totalProfit <= 0){
+            if(PositionGetDouble(POSITION_PROFIT) <= -3 && totalProfit <= 0){ //Cần sửa check cùng chiều chứ
                 ExecuteHedge(buyLots, sellLots);
-            }    
+            }
+            
+            if(PositionTotal() == ONE && PositionGetDouble(POSITION_PROFIT) <= TakeProfitHedgeEntryFirst){
+                ExecuteHedge(buyLots, sellLots);
+            }
         }
     }
 
@@ -290,7 +295,7 @@ void TrailingByProfitUSD(){
             ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
 
             if(volume == LotSize){
-                if(profit >= TakeProfitSLEntry){
+                if(profit >= TakeProfitSLEntry && PositionsTotal() > 20){
                     if(type == POSITION_TYPE_BUY){
                         double newSL = entryPrice + 500 * _Point; // Cách Entry 50 pips
                         Trade.PositionModify(ticket, newSL, 0);

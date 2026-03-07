@@ -20,7 +20,7 @@ bool OnOffEnabled = true; // Biến kiểm soát bật tắt EA
 
 // Input parameters
 input double TrailingStartProfit = 10.0;  // Mốc lợi nhuận trailing stop
-
+input double RiskTrade = 15; // Rủi ro long trade (USD)
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -177,17 +177,54 @@ void TradeNosdCandle(const MqlRates &rates[]){
     if(candle.close > candle.open){
         if(preCandle.close < preCandle.open  
             && candle.close > preCandle.open
-            && candle.high > preCandle.high)
-            if(!Trade.Buy(0.01, _Symbol)){
-                Print("Error placing Buy Order: ", Trade.ResultRetcode());
+            && candle.high > preCandle.high
+            && candle.low < preCandle.low){
+                double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+                double stopLossDistance = MathAbs(entry - candle.low);
+                double lotSize = GetLotSize(stopLossDistance, candle);
+                if(!Trade.Buy(lotSize, _Symbol, entry, candle.low)){
+                    Print("Error placing Buy Order: ", Trade.ResultRetcode());
+                }
             }
+            
         
     } else if(candle.close < candle.open){
         if(preCandle.close > preCandle.open 
             && candle.close < preCandle.open
-            && candle.low < preCandle.low)
-            if(!Trade.Sell(0.01, _Symbol)){
-                Print("Error placing Sell Order: ", Trade.ResultRetcode());
+            && candle.low < preCandle.low
+            && candle.high > preCandle.high){
+                double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+                double stopLossDistance = MathAbs(entry - candle.high);
+                double lotSize = GetLotSize(stopLossDistance, candle);
+                if(!Trade.Sell(lotSize, _Symbol, entry, candle.high)){
+                    Print("Error placing Sell Order: ", Trade.ResultRetcode());
+                }
             }
     }
+}
+
+double GetLotSize(double stopLossDistance, MqlRates &candle){
+    // Lấy thông tin về công cụ giao dịch
+    double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+    double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+
+    // Tính số pips tương ứng với stopLossDistance
+    double stopLossPips = stopLossDistance / _Point;
+
+    // Tính giá trị pip
+    double pipValue = tickValue / (tickSize / _Point);
+   
+    // Tính toán kích thước lô
+    double lotSize = RiskTrade / (stopLossPips * pipValue);
+   
+    // Đảm bảo rằng kích thước lô nằm trong phạm vi cho phép của sàn giao dịch
+    double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+    double maxLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+    lotSize = MathMin(MathMax(lotSize, minLot), maxLot);
+   
+    // Làm tròn kích thước lô đến số thập phân phù hợp
+    double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+    lotSize = MathFloor(lotSize / lotStep) * lotStep;
+
+    return lotSize;
 }

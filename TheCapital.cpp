@@ -1,0 +1,193 @@
+#include <Trade\Trade.mqh>
+#include <ChartObjects\ChartObjectsTxtControls.mqh>
+
+CTrade Trade;
+
+CChartObjectButton OnOffButton;// Nút bật tắt EA
+
+// Constant data
+const int ZERO = 0;
+const int ONE = 1;
+const int TWO = 2;
+const int THREE = 3;
+
+const string BUY = "BUY";
+const string SELL = "SELL";
+
+datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần 
+
+bool OnOffEnabled = true; // Biến kiểm soát bật tắt EA
+
+// Input parameters
+input double TrailingStartProfit = 10.0;  // Mốc lợi nhuận trailing stop
+
+//+------------------------------------------------------------------+
+//| Expert initialization function                                   |
+//+------------------------------------------------------------------+
+int OnInit(){
+    EventSetTimer(ONE);
+
+    if(!CreateButton(OnOffButton, "OnOffButton", "OFF", clrRed))
+        return(INIT_FAILED);
+    
+    ChartRedraw(0);
+    
+    return (INIT_SUCCEEDED);
+}
+
+void OnTimer(){
+    // Check current time and next M1 candle close time
+    datetime currentTime = TimeCurrent();
+    datetime currentCandleCloseTime = iTime(_Symbol, PERIOD_M1, ONE) + PeriodSeconds(PERIOD_M1);
+
+    bool isRunningEa = false;
+    if(currentCandleCloseTime != CandleCloseTime && currentCandleCloseTime <= currentTime){
+        CandleCloseTime = currentCandleCloseTime;
+        isRunningEa = true;
+
+        if(OnOffEnabled) RunningEA();
+    }
+    
+    if(isRunningEa) isRunningEa = false;
+}
+
+void OnTick(){
+    if(PositionsTotal() > 0){
+        TrailingByProfitUSD();
+    }
+}
+
+void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam){
+    // Nhấn nút đóng EA
+    if(id == CHARTEVENT_OBJECT_CLICK && sparam == "OnOffButton"){
+        OnOffEnabled = !OnOffEnabled;
+        
+        if(OnOffEnabled){
+            OnOffButton.Description("ON");
+            OnOffButton.Color(clrWhite);
+            OnOffButton.BackColor(clrGreen);
+        } else {
+            OnOffButton.Description("OFF");
+            OnOffButton.Color(clrWhite);
+            OnOffButton.BackColor(clrRed);
+        }
+    }
+}
+
+void OnDeinit(const int reason){
+    OnOffButton.Delete();
+    EventKillTimer();
+}
+
+bool CreateButton(CChartObjectButton &button, string name, string des, color bgColor){
+    int width = 175, height = 35;
+    int xPosition = (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS) - 200;
+    int yPosition = (int)ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS) - 50;
+
+    // Tạo nút và thiết lập thuộc tính
+    if(!button.Create(0, name, 0, xPosition, yPosition, width, height))
+        return false;
+    
+    button.Description(des);
+    button.Color(clrWhite);
+    button.BackColor(bgColor); 
+    button.FontSize(12);
+    button.Font("Calibri");
+    button.Selectable(true);
+    
+    return true;
+}
+
+void RunningEA(){
+    MqlRates rates[];
+    ArraySetAsSeries(rates, true);
+    int copied = CopyRates(_Symbol, _Period, ZERO, THREE, rates);
+    if(copied <= 0) return;
+    
+    TradeNosdCandle(rates);
+}
+void CloseAllPositions(){
+    for(int index = PositionsTotal() - ONE; index >= 0 && !IsStopped(); index--){
+        ulong ticket = PositionGetTicket(index);
+        if(ticket <= 0) continue;
+        
+        if(PositionSelectByTicket(ticket)){
+            if(!Trade.PositionClose(ticket))
+                Print("Close failed #", ticket, " - Error: ", Trade.ResultComment());
+        }
+    }
+}
+
+void TrailingByProfitUSD(){
+    MqlTick last_tick;
+    if(!SymbolInfoTick(_Symbol, last_tick)) return;
+
+    double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+    double tickSize  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+
+    for(int index = PositionsTotal() - ONE; index >= 0; index--){
+        ulong ticket = PositionGetTicket(index);
+        if(PositionSelectByTicket(ticket)){
+            double profit = PositionGetDouble(POSITION_PROFIT);
+            double currentSL = PositionGetDouble(POSITION_SL);
+            double priceOpen = PositionGetDouble(POSITION_PRICE_OPEN);
+            double volume = PositionGetDouble(POSITION_VOLUME);
+
+            double pointsD = (TrailingStartProfit / (volume * tickValue)) * tickSize;
+            double step = NormalizeDouble(pointsD, _Digits);
+
+            // --- XỬ LÝ LỆNH BUY ---
+            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
+                if(profit >= TrailingStartProfit){
+                    double newSL = NormalizeDouble(last_tick.bid - step, _Digits);
+                        
+                    if(currentSL < priceOpen || currentSL == 0){
+                        Trade.PositionModify(ticket, priceOpen, 0);
+                    } else if(newSL > currentSL + _Point){
+                        Trade.PositionModify(ticket, newSL, 0);
+                    }
+                }
+            }
+
+            // --- XỬ LÝ LỆNH SELL ---
+            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL){
+                if(profit >= TrailingStartProfit){
+                    double newSL = NormalizeDouble(last_tick.ask + step, _Digits);
+                    
+                    if(currentSL > priceOpen || currentSL == 0){
+                        Trade.PositionModify(ticket, priceOpen, 0);
+                    } else if(newSL < currentSL - _Point){
+                        Trade.PositionModify(ticket, newSL, 0);
+                    }
+                }
+            }
+        }
+
+    }
+    
+}
+
+void TradeNosdCandle(const MqlRates &rates[]){
+    int preIndex = TWO;
+    MqlRates candle = rates[ONE], preCandle = rates[preIndex];
+
+    double bodySizeCandle = MathAbs(candle.high - candle.low);
+    double bodySizePreCandle = MathAbs(preCandle.high - preCandle.low);
+
+    if(candle.close > candle.open){
+        if(preCandle.close < preCandle.open  
+            && candle.close > preCandle.open
+            && candle.high > preCandle.high)
+            if(!Trade.Buy(0.01, _Symbol)){
+                Print("Error placing Buy Order: ", Trade.ResultRetcode());
+            }
+        
+    } else if(candle.close < candle.open){
+        if(preCandle.close > preCandle.open 
+            && candle.close < preCandle.open
+            && candle.low < preCandle.low)
+            if(!Trade.Sell(0.01, _Symbol)){
+                Print("Error placing Sell Order: ", Trade.ResultRetcode());
+            }
+    }
+}

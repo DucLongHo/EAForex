@@ -6,10 +6,7 @@ CTrade Trade;
 CChartObjectButton OnOffButton;// Nút bật tắt EA
 
 // Constant data
-const int ZERO = 0;
-const int ONE = 1;
-const int TWO = 2;
-const int THREE = 3;
+const int ZERO = 0, ONE = 1, TWO = 2, THREE = 3, FOUR = 4;
 
 const string BUY = "BUY";
 const string SELL = "SELL";
@@ -101,7 +98,7 @@ bool CreateButton(CChartObjectButton &button, string name, string des, color bgC
 void RunningEA(){
     MqlRates rates[];
     ArraySetAsSeries(rates, true);
-    int copied = CopyRates(_Symbol, _Period, ZERO, THREE, rates);
+    int copied = CopyRates(_Symbol, _Period, ZERO, FOUR, rates);
     if(copied <= 0) return;
     
     TradeNosdCandle(rates);
@@ -168,38 +165,39 @@ void TrailingByProfitUSD(){
 }
 
 void TradeNosdCandle(const MqlRates &rates[]){
-    int preIndex = TWO;
-    MqlRates candle = rates[ONE], preCandle = rates[preIndex];
+    MqlRates candle = rates[ONE], secondCandle = rates[TWO], thirdCandle = rates[THREE];
 
     double bodySizeCandle = MathAbs(candle.high - candle.low);
-    double bodySizePreCandle = MathAbs(preCandle.high - preCandle.low);
+    double bodySizePreCandle = MathAbs(secondCandle.high - secondCandle.low);
 
     if(candle.close > candle.open){
-        if(preCandle.close < preCandle.open  
-            && candle.close > preCandle.open
-            && candle.high > preCandle.high
-            && candle.low < preCandle.low){
-                double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-                double stopLossDistance = MathAbs(entry - candle.low);
-                double lotSize = GetLotSize(stopLossDistance, candle);
-                if(!Trade.Buy(lotSize, _Symbol, entry, candle.low)){
-                    Print("Error placing Buy Order: ", Trade.ResultRetcode());
-                }
+        if(secondCandle.close < secondCandle.open  
+            && candle.close > secondCandle.open
+            && candle.low < secondCandle.low
+            && candle.low < thirdCandle.low
+        ){
+            double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+            double stopLossDistance = MathAbs(entry - candle.low);
+            double lotSize = GetLotSize(stopLossDistance, candle);
+
+            if(!Trade.Buy(lotSize, _Symbol, entry, candle.low)){
+                Print("Error placing Buy Order: ", Trade.ResultRetcode());
             }
-            
-        
+        }
     } else if(candle.close < candle.open){
-        if(preCandle.close > preCandle.open 
-            && candle.close < preCandle.open
-            && candle.low < preCandle.low
-            && candle.high > preCandle.high){
-                double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-                double stopLossDistance = MathAbs(entry - candle.high);
-                double lotSize = GetLotSize(stopLossDistance, candle);
-                if(!Trade.Sell(lotSize, _Symbol, entry, candle.high)){
-                    Print("Error placing Sell Order: ", Trade.ResultRetcode());
-                }
+        if(secondCandle.close > secondCandle.open 
+            && candle.close < secondCandle.open
+            && candle.high > secondCandle.high
+            && candle.high > thirdCandle.high
+        ){
+            double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+            double stopLossDistance = MathAbs(entry - candle.high);
+            double lotSize = GetLotSize(stopLossDistance, candle);
+
+            if(!Trade.Sell(lotSize, _Symbol, entry, candle.high)){
+                Print("Error placing Sell Order: ", Trade.ResultRetcode());
             }
+        }
     }
 }
 

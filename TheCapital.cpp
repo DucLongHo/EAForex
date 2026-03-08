@@ -166,15 +166,16 @@ void TrailingByProfitUSD(){
 
 void TradeNosdCandle(const MqlRates &rates[]){
     MqlRates candle = rates[ONE], secondCandle = rates[TWO], thirdCandle = rates[THREE];
-
-    double bodySizeCandle = MathAbs(candle.high - candle.low);
-    double bodySizePreCandle = MathAbs(secondCandle.high - secondCandle.low);
+    double upperWick = candle.high - MathMax(candle.open, candle.close);
+    double lowerWick = MathMin(candle.open, candle.close) - candle.low;
 
     if(candle.close > candle.open){
         if(secondCandle.close < secondCandle.open  
             && candle.close > secondCandle.open
+            && candle.high > secondCandle.high
             && candle.low < secondCandle.low
             && candle.low < thirdCandle.low
+            && upperWick < (candle.close - candle.open)/2.0
         ){
             double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
             double stopLossDistance = MathAbs(entry - candle.low);
@@ -187,8 +188,10 @@ void TradeNosdCandle(const MqlRates &rates[]){
     } else if(candle.close < candle.open){
         if(secondCandle.close > secondCandle.open 
             && candle.close < secondCandle.open
+            && candle.low < secondCandle.low
             && candle.high > secondCandle.high
             && candle.high > thirdCandle.high
+            && lowerWick < (candle.open - candle.close)/2.0
         ){
             double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
             double stopLossDistance = MathAbs(entry - candle.high);

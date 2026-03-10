@@ -6,14 +6,12 @@ CTrade Trade;
 CChartObjectButton OnOffButton;// Nút bật tắt EA
 
 // Constant data
-const int ZERO = 0, ONE = 1, TWO = 2, THREE = 3, FOUR = 4;
+const int ZERO = 0, ONE = 1, TWO = 2, THREE = 3, FOUR = 4, FIVE = 5, TEN = 10;
 
 const string BUY = "BUY";
 const string SELL = "SELL";
 
 datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần 
-
-bool OnOffEnabled = true; // Biến kiểm soát bật tắt EA
 
 // Input parameters
 input double TrailingStartProfit = 10.0;  // Mốc lợi nhuận trailing stop
@@ -23,11 +21,6 @@ input double RiskTrade = 15; // Rủi ro long trade (USD)
 //+------------------------------------------------------------------+
 int OnInit(){
     EventSetTimer(ONE);
-
-    if(!CreateButton(OnOffButton, "OnOffButton", "OFF", clrRed))
-        return(INIT_FAILED);
-    
-    ChartRedraw(0);
     
     return (INIT_SUCCEEDED);
 }
@@ -42,7 +35,7 @@ void OnTimer(){
         CandleCloseTime = currentCandleCloseTime;
         isRunningEa = true;
 
-        if(OnOffEnabled) RunningEA();
+        RunningEA();
     }
     
     if(isRunningEa) isRunningEa = false;
@@ -55,50 +48,17 @@ void OnTick(){
 }
 
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam){
-    // Nhấn nút đóng EA
-    if(id == CHARTEVENT_OBJECT_CLICK && sparam == "OnOffButton"){
-        OnOffEnabled = !OnOffEnabled;
-        
-        if(OnOffEnabled){
-            OnOffButton.Description("ON");
-            OnOffButton.Color(clrWhite);
-            OnOffButton.BackColor(clrGreen);
-        } else {
-            OnOffButton.Description("OFF");
-            OnOffButton.Color(clrWhite);
-            OnOffButton.BackColor(clrRed);
-        }
-    }
+
 }
 
 void OnDeinit(const int reason){
-    OnOffButton.Delete();
     EventKillTimer();
-}
-
-bool CreateButton(CChartObjectButton &button, string name, string des, color bgColor){
-    int width = 175, height = 35;
-    int xPosition = (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS) - 200;
-    int yPosition = (int)ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS) - 50;
-
-    // Tạo nút và thiết lập thuộc tính
-    if(!button.Create(0, name, 0, xPosition, yPosition, width, height))
-        return false;
-    
-    button.Description(des);
-    button.Color(clrWhite);
-    button.BackColor(bgColor); 
-    button.FontSize(12);
-    button.Font("Calibri");
-    button.Selectable(true);
-    
-    return true;
 }
 
 void RunningEA(){
     MqlRates rates[];
     ArraySetAsSeries(rates, true);
-    int copied = CopyRates(_Symbol, _Period, ZERO, FOUR, rates);
+    int copied = CopyRates(_Symbol, _Period, ZERO, TEN, rates);
     if(copied <= 0) return;
     
     TradeNosdCandle(rates);

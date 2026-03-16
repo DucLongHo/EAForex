@@ -126,7 +126,7 @@ void TrailingByProfitUSD(){
 }
 
 void TradeNosdCandle(const MqlRates &rates[]){
-    MqlRates candle = rates[ONE], secondCandle = rates[TWO], thirdCandle = rates[THREE];
+    MqlRates candle = rates[ZERO], secondCandle = rates[ONE], thirdCandle = rates[TWO];
 
     if(candle.close > candle.open){
         if(secondCandle.close < secondCandle.open  

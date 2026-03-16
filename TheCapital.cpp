@@ -9,7 +9,7 @@ datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần
 // Input parameters
 input double RiskTrade = 15; // Rủi ro long trade (USD)
 input double ProfitBreakEvent = 5; // Lợi nhuận để BE (USD)
-input double TrailingStartProfit = 2.0;  // Mốc lợi nhuận trailing stop
+input double TrailingStartProfit = 1.5;  // Mốc lợi nhuận trailing stop
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -27,7 +27,7 @@ void OnTimer(){
 
     bool isRunningEa = false;
     if(currentCandleCloseTime != CandleCloseTime && 
-        currentCandleCloseTime - currentTime <= 2){
+        currentCandleCloseTime - currentTime <= 1){
         CandleCloseTime = currentCandleCloseTime;
         isRunningEa = true;
 
@@ -89,7 +89,7 @@ void TradeNosdCandle(const MqlRates &rates[]){
             double lotSize = GetLotSize(stopLossDistance, candle);
             double takeProfit = entry + 2 * stopLossDistance;
 
-            if(!Trade.Buy(lotSize, _Symbol, entry, candle.low, takeProfit)){
+            if(!Trade.Buy(lotSize, _Symbol, entry, candle.low - 200 * _Point, takeProfit)){
                 Print("Error placing Buy Order: ", Trade.ResultRetcode());
             }
         }
@@ -105,7 +105,7 @@ void TradeNosdCandle(const MqlRates &rates[]){
             double lotSize = GetLotSize(stopLossDistance, candle);
             double takeProfit = entry - 2 * stopLossDistance;
 
-            if(!Trade.Sell(lotSize, _Symbol, entry, candle.high, takeProfit)){
+            if(!Trade.Sell(lotSize, _Symbol, entry, candle.high + 200 * _Point, takeProfit)){
                 Print("Error placing Sell Order: ", Trade.ResultRetcode());
             }
         }
@@ -123,7 +123,7 @@ void TradeMazubozuCandle(const MqlRates &rates[]){
             double stopLossDistance = MathAbs(entry - candle.low);
             double lotSize = GetLotSize(stopLossDistance, candle);
 
-            if(!Trade.Buy(lotSize, _Symbol, entry, candle.low)){
+            if(!Trade.Buy(lotSize, _Symbol, entry, candle.low - 200 * _Point)){
                 Print("Error placing Buy Order: ", Trade.ResultRetcode());
             }
         }
@@ -133,7 +133,7 @@ void TradeMazubozuCandle(const MqlRates &rates[]){
             double stopLossDistance = MathAbs(entry - candle.high);
             double lotSize = GetLotSize(stopLossDistance, candle);
 
-            if(!Trade.Sell(lotSize, _Symbol, entry, candle.high)){
+            if(!Trade.Sell(lotSize, _Symbol, entry, candle.high + 200 * _Point)){
                 Print("Error placing Sell Order: ", Trade.ResultRetcode());
             }
         }

@@ -9,6 +9,8 @@ datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần
 // Input parameters
 input double RiskTrade = 15; // Rủi ro long trade (USD)
 input double ProfitBreakEvent = 5; // Lợi nhuận để BE (USD)
+input double TrailingStartProfit = 2.0;  // Mốc lợi nhuận trailing stop
+
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -38,7 +40,9 @@ void OnTimer(){
 }
 
 void OnTick(){
-
+    if(PositionsTotal() > 0){
+        TrailingByProfitUSD();
+    }
 }
 
 void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam){
@@ -56,6 +60,7 @@ void RunningEA(){
     if(copied <= 0) return;
     
     TradeNosdCandle(rates);
+    TradeMazubozuCandle(rates);
 }
 void CloseAllPositions(){
     for(int index = PositionsTotal() - 1; index >= 0 && !IsStopped(); index--){
@@ -107,6 +112,34 @@ void TradeNosdCandle(const MqlRates &rates[]){
     }
 }
 
+void TradeMazubozuCandle(const MqlRates &rates[]){
+    MqlRates candle = rates[0];
+    double upperShadow = candle.high - MathMax(candle.open, candle.close);
+    double lowerShadow = MathMin(candle.open, candle.close) - candle.low;
+
+    if(candle.close > candle.open){
+        if(upperShadow <= 0.1 * (candle.close - candle.open)){
+            double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+            double stopLossDistance = MathAbs(entry - candle.low);
+            double lotSize = GetLotSize(stopLossDistance, candle);
+
+            if(!Trade.Buy(lotSize, _Symbol, entry, candle.low)){
+                Print("Error placing Buy Order: ", Trade.ResultRetcode());
+            }
+        }
+    } else if(candle.close < candle.open){
+        if(lowerShadow <= 0.1 * (candle.open - candle.close)){
+            double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+            double stopLossDistance = MathAbs(entry - candle.high);
+            double lotSize = GetLotSize(stopLossDistance, candle);
+
+            if(!Trade.Sell(lotSize, _Symbol, entry, candle.high)){
+                Print("Error placing Sell Order: ", Trade.ResultRetcode());
+            }
+        }
+    }
+}
+
 double GetLotSize(double stopLossDistance, MqlRates &candle){
     // Lấy thông tin về công cụ giao dịch
     double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
@@ -143,7 +176,7 @@ void ManageBreakEven(){
             double takeProfit = PositionGetDouble(POSITION_TP);
             double profit = PositionGetDouble(POSITION_PROFIT);
 
-            if(profit >= ProfitBreakEvent){
+            if(profit >= ProfitBreakEvent && takeProfit > 0){
                 if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
                     double newStopLoss = entryPrice + 100 * _Point; // Đặt stop loss về giá entry
                     if(!Trade.PositionModify(ticket, newStopLoss, takeProfit)){
@@ -158,4 +191,57 @@ void ManageBreakEven(){
             }
         }
     }
+}
+
+void TrailingByProfitUSD(){
+    MqlTick last_tick;
+    if(!SymbolInfoTick(_Symbol, last_tick)) return;
+
+    double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+    double tickSize  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+
+    for(int index = PositionsTotal() - 1; index >= 0; index--){
+        ulong ticket = PositionGetTicket(index);
+        if(PositionSelectByTicket(ticket)){
+            double profit = PositionGetDouble(POSITION_PROFIT);
+            double currentSL = PositionGetDouble(POSITION_SL);
+            double priceOpen = PositionGetDouble(POSITION_PRICE_OPEN);
+            double takeProfit = PositionGetDouble(POSITION_TP);
+            double volume = PositionGetDouble(POSITION_VOLUME);
+        
+            double pointsD = (TrailingStartProfit / (volume * tickValue)) * tickSize;
+            double step = NormalizeDouble(pointsD, _Digits);
+
+            if(takeProfit == 0){
+                // --- XỬ LÝ LỆNH BUY ---
+                if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
+                    if(profit >= TrailingStartProfit){
+                        double newSL = NormalizeDouble(last_tick.bid - step, _Digits);
+                            
+                        if(currentSL < priceOpen || currentSL == 0){
+                            Trade.PositionModify(ticket, priceOpen, 0);
+                        } else if(newSL > currentSL + _Point){
+                            Trade.PositionModify(ticket, newSL, 0);
+                        }
+                    }
+                }
+
+                // --- XỬ LÝ LỆNH SELL ---
+                if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL){
+                    if(profit >= TrailingStartProfit){
+                        double newSL = NormalizeDouble(last_tick.ask + step, _Digits);
+                        
+                        if(currentSL > priceOpen || currentSL == 0){
+                            Trade.PositionModify(ticket, priceOpen, 0);
+                        } else if(newSL < currentSL - _Point){
+                            Trade.PositionModify(ticket, newSL, 0);
+                        }
+                    }
+                }
+            }
+            
+        }
+
+    }
+    
 }

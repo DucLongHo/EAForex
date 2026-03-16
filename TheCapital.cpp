@@ -14,7 +14,7 @@ const string SELL = "SELL";
 datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần 
 
 // Input parameters
-input double TrailingStartProfit = 1.0;  // Mốc lợi nhuận trailing stop
+input double TrailingStartProfit = 2.0;  // Mốc lợi nhuận trailing stop
 input double RiskTrade = 15; // Rủi ro long trade (USD)
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -28,10 +28,11 @@ int OnInit(){
 void OnTimer(){
     // Check current time and next M1 candle close time
     datetime currentTime = TimeCurrent();
-    datetime currentCandleCloseTime = iTime(_Symbol, PERIOD_M1, ONE) + PeriodSeconds(PERIOD_M1);
+    datetime currentCandleCloseTime = iTime(_Symbol, PERIOD_M1, ZERO) + PeriodSeconds(PERIOD_M1);
 
     bool isRunningEa = false;
-    if(currentCandleCloseTime != CandleCloseTime && currentCandleCloseTime <= currentTime){
+    if(currentCandleCloseTime != CandleCloseTime && 
+        currentCandleCloseTime - currentTime <= TWO){
         CandleCloseTime = currentCandleCloseTime;
         isRunningEa = true;
 

@@ -7,8 +7,6 @@ datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần
 // Input parameters
 input double RiskTrade = 15; // Rủi ro long trade (USD)
 input double ProfitBreakEvent = 5; // Lợi nhuận để BE (USD)
-input double TrailingStartPoint = 500;  // Mốc lợi nhuận trailing stop
-
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -33,8 +31,7 @@ void OnTimer(){
     }
     
     if(isRunningEa) isRunningEa = false;
-
-\}
+}
 
 void OnTick(){
     if(PositionsTotal() > 0){
@@ -76,7 +73,7 @@ void Trading(const MqlRates &rates[]){
         if(upperShadow <= 0.15 * (candle.close - candle.open)
             && (candle.high > secondCandle.high || candle.low < secondCandle.low)
         ){
-            BUY(candle); // Mazubozu
+            BUY(candle, true); // Mazubozu
         }
     } else if(candle.close < candle.open){
         if(secondCandle.close > secondCandle.open 
@@ -93,7 +90,7 @@ void Trading(const MqlRates &rates[]){
         if(lowerShadow <= 0.15 * (candle.open - candle.close)
             && (candle.high > secondCandle.high || candle.low < secondCandle.low)
         ){
-            SELL(candle); // Mazubozu
+            SELL(candle, true); // Mazubozu
         }
     }
 }
@@ -120,48 +117,13 @@ double GetLotSize(double stopLossDistance, MqlRates &candle){
 }
 
 void TrailingByProfitUSD(){
-    MqlTick last_tick;
-    if(!SymbolInfoTick(_Symbol, last_tick)) return;
-
-    double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
-    double tickSize  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
-
     for(int index = PositionsTotal() - 1; index >= 0; index--){
         ulong ticket = PositionGetTicket(index);
         if(PositionSelectByTicket(ticket)){
             double currentSL = PositionGetDouble(POSITION_SL);
             double priceOpen = PositionGetDouble(POSITION_PRICE_OPEN);
             double takeProfit = PositionGetDouble(POSITION_TP);
-            double volume = PositionGetDouble(POSITION_VOLUME);
             double profit = PositionGetDouble(POSITION_PROFIT);
-
-            if(takeProfit < 0.00001){
-                // --- XỬ LÝ LỆNH BUY ---
-                if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
-                    if(last_tick.bid - priceOpen >= TrailingStartPoint * _Point){
-                        double newSL = NormalizeDouble(last_tick.bid - TrailingStartPoint * _Point, _Digits);
-                            
-                        if(currentSL < priceOpen || currentSL == 0){
-                            Trade.PositionModify(ticket, priceOpen, 0);
-                        } else if(newSL > currentSL + _Point){
-                            Trade.PositionModify(ticket, newSL, 0);
-                        }
-                    }
-                }
-
-                // --- XỬ LÝ LỆNH SELL ---
-                if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL){
-                    if(priceOpen - last_tick.ask >= TrailingStartPoint * _Point){
-                        double newSL = NormalizeDouble(last_tick.ask + TrailingStartPoint * _Point, _Digits);
-                        
-                        if(currentSL > priceOpen || currentSL == 0){
-                            Trade.PositionModify(ticket, priceOpen, 0);
-                        } else if(newSL < currentSL - _Point){
-                            Trade.PositionModify(ticket, newSL, 0);
-                        }
-                    }
-                }
-            }
 
             if(profit >= ProfitBreakEvent && takeProfit > 0){
                 if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY && currentSL < priceOpen){
@@ -188,7 +150,7 @@ void BUY(MqlRates &candle, bool hasTakeProfit = false){
     double lotSize = GetLotSize(MathAbs(entry - sl), MqlRates());
 
     if(hasTakeProfit){
-        double takeProfit = entry + 2 * MathAbs(entry - sl);
+        double takeProfit = entry + 1.1 * MathAbs(entry - sl);
         if(!Trade.Buy(lotSize, _Symbol, entry, sl, takeProfit)){
             Print("Error placing Buy Order: ", Trade.ResultRetcode());
         }
@@ -205,7 +167,7 @@ void SELL(MqlRates &candle, bool hasTakeProfit = false){
     double lotSize = GetLotSize(MathAbs(entry - sl), MqlRates());
 
     if(hasTakeProfit){
-        double takeProfit = entry + 2 * MathAbs(entry - sl);
+        double takeProfit = entry - 1.1 * MathAbs(entry - sl);
         if(!Trade.Sell(lotSize, _Symbol, entry, sl, takeProfit)){
             Print("Error placing Sell Order: ", Trade.ResultRetcode());
         }

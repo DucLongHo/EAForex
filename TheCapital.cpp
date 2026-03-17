@@ -2,8 +2,6 @@
 
 CTrade Trade;
 
-// Constant data
-
 datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần 
 
 // Input parameters
@@ -36,17 +34,12 @@ void OnTimer(){
     
     if(isRunningEa) isRunningEa = false;
 
-    ManageBreakEven();
-}
+\}
 
 void OnTick(){
     if(PositionsTotal() > 0){
         TrailingByProfitUSD();
     }
-}
-
-void OnChartEvent(const int id, const long &lparam, const double &dparam, const string &sparam){
-
 }
 
 void OnDeinit(const int reason){
@@ -60,17 +53,6 @@ void RunningEA(){
     if(copied <= 0) return;
     
     Trading(rates);
-}
-void CloseAllPositions(){
-    for(int index = PositionsTotal() - 1; index >= 0 && !IsStopped(); index--){
-        ulong ticket = PositionGetTicket(index);
-        if(ticket <= 0) continue;
-        
-        if(PositionSelectByTicket(ticket)){
-            if(!Trade.PositionClose(ticket))
-                Print("Close failed #", ticket, " - Error: ", Trade.ResultComment());
-        }
-    }
 }
 
 void Trading(const MqlRates &rates[]){
@@ -137,34 +119,6 @@ double GetLotSize(double stopLossDistance, MqlRates &candle){
     return lotSize;
 }
 
-void ManageBreakEven(){
-    for(int index = PositionsTotal() - 1; index >= 0 && !IsStopped(); index--){
-        ulong ticket = PositionGetTicket(index);
-        if(ticket <= 0) continue;
-        
-        if(PositionSelectByTicket(ticket)){
-            double entryPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-            double takeProfit = PositionGetDouble(POSITION_TP);
-            double currentSL = PositionGetDouble(POSITION_SL);
-            double profit = PositionGetDouble(POSITION_PROFIT);
-
-            if(profit >= ProfitBreakEvent && takeProfit > 0){
-                if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY && currentSL < entryPrice){
-                    double newStopLoss = entryPrice + 100 * _Point; // Đặt stop loss về giá entry
-                    if(!Trade.PositionModify(ticket, newStopLoss, takeProfit)){
-                        Print("Error modifying Buy Order #", ticket, " - Error: ", Trade.ResultComment());
-                    }
-                } else if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL && currentSL > entryPrice){
-                    double newStopLoss = entryPrice - 100 * _Point; // Đặt stop loss về giá entry
-                    if(!Trade.PositionModify(ticket, newStopLoss, takeProfit)){
-                        Print("Error modifying Sell Order #", ticket, " - Error: ", Trade.ResultComment());
-                    }
-                }
-            }
-        }
-    }
-}
-
 void TrailingByProfitUSD(){
     MqlTick last_tick;
     if(!SymbolInfoTick(_Symbol, last_tick)) return;
@@ -179,7 +133,7 @@ void TrailingByProfitUSD(){
             double priceOpen = PositionGetDouble(POSITION_PRICE_OPEN);
             double takeProfit = PositionGetDouble(POSITION_TP);
             double volume = PositionGetDouble(POSITION_VOLUME);
-        
+            double profit = PositionGetDouble(POSITION_PROFIT);
 
             if(takeProfit < 0.00001){
                 // --- XỬ LÝ LỆNH BUY ---
@@ -208,7 +162,20 @@ void TrailingByProfitUSD(){
                     }
                 }
             }
-            
+
+            if(profit >= ProfitBreakEvent && takeProfit > 0){
+                if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY && currentSL < priceOpen){
+                    double newStopLoss = priceOpen + 100 * _Point; // Đặt stop loss về giá entry
+                    if(!Trade.PositionModify(ticket, newStopLoss, takeProfit)){
+                        Print("Error modifying Buy Order #", ticket, " - Error: ", Trade.ResultComment());
+                    }
+                } else if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL && currentSL > priceOpen){
+                    double newStopLoss = priceOpen - 100 * _Point; // Đặt stop loss về giá entry
+                    if(!Trade.PositionModify(ticket, newStopLoss, takeProfit)){
+                        Print("Error modifying Sell Order #", ticket, " - Error: ", Trade.ResultComment());
+                    }
+                }
+            }
         }
 
     }

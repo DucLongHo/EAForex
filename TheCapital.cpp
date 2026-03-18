@@ -6,7 +6,6 @@ datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần
 
 // Input parameters
 input double RiskTrade = 15; // Rủi ro long trade (USD)
-input double ProfitBreakEvent = 5; // Lợi nhuận để BE (USD)
 input double MinDistanceSL = 1000; // Stop loss tối thiểu (Points)
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -127,6 +126,7 @@ void TrailingByProfitUSD(){
         ulong ticket = PositionGetTicket(index);
         if(PositionSelectByTicket(ticket)){
             double currentSL = PositionGetDouble(POSITION_SL);
+            double currentTP = PositionGetDouble(POSITION_TP);
             double priceOpen = PositionGetDouble(POSITION_PRICE_OPEN);
             double newSL = 0;
 
@@ -135,7 +135,7 @@ void TrailingByProfitUSD(){
                 newSL = NormalizeDouble(last_tick.bid - (priceOpen - currentSL), _Digits);
 
                 if(newSL >= currentSL + trailingStep){
-                    Trade.PositionModify(ticket, newSL, 0);
+                    Trade.PositionModify(ticket, newSL, currentTP);
                 }
             }
 
@@ -144,7 +144,7 @@ void TrailingByProfitUSD(){
                 newSL = NormalizeDouble(last_tick.ask + (currentSL - priceOpen), _Digits);
                 
                 if(newSL <= currentSL - trailingStep) {
-                    Trade.PositionModify(ticket, newSL, 0);
+                    Trade.PositionModify(ticket, newSL, currentTP);
                 }
             }
         }

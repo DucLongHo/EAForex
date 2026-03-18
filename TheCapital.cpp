@@ -118,31 +118,36 @@ double GetLotSize(double stopLossDistance, MqlRates &candle){
 }
 
 void TrailingByProfitUSD(){
+    MqlTick last_tick;
+    if(!SymbolInfoTick(_Symbol, last_tick)) return;
+
     for(int index = PositionsTotal() - 1; index >= 0; index--){
         ulong ticket = PositionGetTicket(index);
         if(PositionSelectByTicket(ticket)){
             double currentSL = PositionGetDouble(POSITION_SL);
             double priceOpen = PositionGetDouble(POSITION_PRICE_OPEN);
-            double takeProfit = PositionGetDouble(POSITION_TP);
-            double profit = PositionGetDouble(POSITION_PROFIT);
 
-            if(profit >= ProfitBreakEvent && takeProfit > 0){
-                if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY && currentSL < priceOpen){
-                    double newStopLoss = priceOpen + 100 * _Point; // Đặt stop loss về giá entry
-                    if(!Trade.PositionModify(ticket, newStopLoss, takeProfit)){
-                        Print("Error modifying Buy Order #", ticket, " - Error: ", Trade.ResultComment());
-                    }
-                } else if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL && currentSL > priceOpen){
-                    double newStopLoss = priceOpen - 100 * _Point; // Đặt stop loss về giá entry
-                    if(!Trade.PositionModify(ticket, newStopLoss, takeProfit)){
-                        Print("Error modifying Sell Order #", ticket, " - Error: ", Trade.ResultComment());
-                    }
+            // --- XỬ LÝ LỆNH BUY ---
+            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
+                double newSL = NormalizeDouble(last_tick.bid - (priceOpen - currentSL), _Digits);
+                        
+                if(newSL > currentSL + _Point){
+                    Trade.PositionModify(ticket, newSL, 0);
                 }
             }
+
+            // --- XỬ LÝ LỆNH SELL ---
+            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL){
+                double newSL = NormalizeDouble(last_tick.ask + (currentSL - priceOpen), _Digits);
+                        
+                if(newSL < currentSL - _Point){
+                    Trade.PositionModify(ticket, newSL, 0);
+                }
+            }
+            
         }
 
     }
-    
 }
 
 void BUY(MqlRates &candle, bool hasTakeProfit = false){

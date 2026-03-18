@@ -133,7 +133,7 @@ void TrailingByProfitUSD(){
             // --- XỬ LÝ LỆNH BUY ---
             if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
                 newSL = NormalizeDouble(last_tick.bid - (priceOpen - currentSL), _Digits);
-                
+
                 if(newSL >= currentSL + trailingStep){
                     Trade.PositionModify(ticket, newSL, 0);
                 }
@@ -160,7 +160,7 @@ void BUY(MqlRates &candle, bool hasTakeProfit = false){
     double lotSize = GetLotSize(MathAbs(entry - sl), MqlRates());
 
     if(hasTakeProfit){
-        double takeProfit = entry + 1.1 * MathAbs(entry - sl);
+        double takeProfit = entry + 1.5 * MathAbs(entry - sl);
         if(!Trade.Buy(lotSize, _Symbol, entry, sl, takeProfit)){
             Print("Error placing Buy Order: ", Trade.ResultRetcode());
         }
@@ -179,7 +179,7 @@ void SELL(MqlRates &candle, bool hasTakeProfit = false){
         return;
     
     if(hasTakeProfit){
-        double takeProfit = entry - 1.1 * MathAbs(entry - sl);
+        double takeProfit = entry - 1.5 * MathAbs(entry - sl);
         if(!Trade.Sell(lotSize, _Symbol, entry, sl, takeProfit)){
             Print("Error placing Sell Order: ", Trade.ResultRetcode());
         }

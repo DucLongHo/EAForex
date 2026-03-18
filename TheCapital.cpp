@@ -121,32 +121,33 @@ void TrailingByProfitUSD(){
     MqlTick last_tick;
     if(!SymbolInfoTick(_Symbol, last_tick)) return;
 
+    double trailingStep = 10 * _Point; 
+
     for(int index = PositionsTotal() - 1; index >= 0; index--){
         ulong ticket = PositionGetTicket(index);
         if(PositionSelectByTicket(ticket)){
             double currentSL = PositionGetDouble(POSITION_SL);
             double priceOpen = PositionGetDouble(POSITION_PRICE_OPEN);
+            double newSL = 0;
 
             // --- XỬ LÝ LỆNH BUY ---
             if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
-                double newSL = NormalizeDouble(last_tick.bid - (priceOpen - currentSL), _Digits);
-                        
-                if(newSL > currentSL + _Point){
+                newSL = NormalizeDouble(last_tick.bid - (priceOpen - currentSL), _Digits);
+                
+                if(newSL >= currentSL + trailingStep){
                     Trade.PositionModify(ticket, newSL, 0);
                 }
             }
 
             // --- XỬ LÝ LỆNH SELL ---
             if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL){
-                double newSL = NormalizeDouble(last_tick.ask + (currentSL - priceOpen), _Digits);
-                        
-                if(newSL < currentSL - _Point){
+                newSL = NormalizeDouble(last_tick.ask + (currentSL - priceOpen), _Digits);
+                
+                if(newSL <= currentSL - trailingStep) {
                     Trade.PositionModify(ticket, newSL, 0);
                 }
             }
-            
         }
-
     }
 }
 

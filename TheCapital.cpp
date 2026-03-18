@@ -129,10 +129,11 @@ void TrailingByProfitUSD(){
             double currentTP = PositionGetDouble(POSITION_TP);
             double priceOpen = PositionGetDouble(POSITION_PRICE_OPEN);
             double newSL = 0;
+            double distanceFromOpen = MathAbs(currentTP - priceOpen)/1.5;
 
             // --- XỬ LÝ LỆNH BUY ---
             if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
-                newSL = NormalizeDouble(last_tick.bid - (priceOpen - currentSL), _Digits);
+                newSL = NormalizeDouble(last_tick.bid - distanceFromOpen, _Digits);
 
                 if(newSL >= currentSL + trailingStep){
                     Trade.PositionModify(ticket, newSL, currentTP);
@@ -141,7 +142,7 @@ void TrailingByProfitUSD(){
 
             // --- XỬ LÝ LỆNH SELL ---
             if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL){
-                newSL = NormalizeDouble(last_tick.ask + (currentSL - priceOpen), _Digits);
+                newSL = NormalizeDouble(last_tick.ask + distanceFromOpen, _Digits);
                 
                 if(newSL <= currentSL - trailingStep) {
                     Trade.PositionModify(ticket, newSL, currentTP);

@@ -7,6 +7,7 @@ datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần
 // Input parameters
 input double RiskTrade = 15; // Rủi ro long trade (USD)
 input double ProfitBreakEvent = 5; // Lợi nhuận để BE (USD)
+input double MinDistanceSL = 1000; // Stop loss tối thiểu (Points)
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -147,6 +148,9 @@ void TrailingByProfitUSD(){
 void BUY(MqlRates &candle, bool hasTakeProfit = false){
     double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
     double sl = candle.low - 200 * _Point;
+    if(!isOpenOrder(entry, sl))
+        return;
+
     double lotSize = GetLotSize(MathAbs(entry - sl), MqlRates());
 
     if(hasTakeProfit){
@@ -165,7 +169,9 @@ void SELL(MqlRates &candle, bool hasTakeProfit = false){
     double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
     double sl = candle.high + 200 * _Point;
     double lotSize = GetLotSize(MathAbs(entry - sl), MqlRates());
-
+    if(!isOpenOrder(entry, sl))
+        return;
+    
     if(hasTakeProfit){
         double takeProfit = entry - 1.1 * MathAbs(entry - sl);
         if(!Trade.Sell(lotSize, _Symbol, entry, sl, takeProfit)){
@@ -176,4 +182,9 @@ void SELL(MqlRates &candle, bool hasTakeProfit = false){
             Print("Error placing Sell Order: ", Trade.ResultRetcode());
         }
     }
+}
+
+bool isOpenOrder(double entry, double sl){
+    if(MathAbs(entry - sl) < MinDistanceSL * _Point) return false;
+    return true;
 }

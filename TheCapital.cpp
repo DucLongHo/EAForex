@@ -7,6 +7,7 @@ datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần
 // Input parameters
 input double RiskTrade = 15; // Rủi ro long trade (USD)
 input double MinDistanceSL = 1000; // Stop loss tối thiểu (Points)
+input int TimeLeniency = 2; // Độ trễ cho việc kiểm tra thời gian đóng nến (giây)
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -61,7 +62,7 @@ void Trading(const MqlRates &rates[]){
     if(candle.close > candle.open){
         if(secondCandle.close < secondCandle.open  
             && candle.close > secondCandle.open
-            && candle.open >= secondCandle.close
+            && MathAbs(candle.open - secondCandle.close) >= 100 * _Point
             && candle.high > secondCandle.high
             && candle.low < secondCandle.low
             && candle.low < thirdCandle.low
@@ -78,7 +79,7 @@ void Trading(const MqlRates &rates[]){
     } else if(candle.close < candle.open){
         if(secondCandle.close > secondCandle.open 
             && candle.close < secondCandle.open
-            && candle.open <= secondCandle.close 
+            && MathAbs(candle.open - secondCandle.close) >= 100 * _Point 
             && candle.low < secondCandle.low
             && candle.high > secondCandle.high
             && candle.high > thirdCandle.high

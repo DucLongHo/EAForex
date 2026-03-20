@@ -5,7 +5,7 @@ CTrade Trade;
 datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần 
 
 // Input parameters
-input double RiskTrade = 15; // Rủi ro long trade (USD)
+input double RiskTrade = 50; // Rủi ro long trade (USD)
 input double MinDistanceSL = 1000; // Stop loss tối thiểu (Points)
 input int TimeLeniency = 2; // Độ trễ cho việc kiểm tra thời gian đóng nến (giây)
 //+------------------------------------------------------------------+
@@ -18,9 +18,9 @@ int OnInit(){
 }
 
 void OnTimer(){
-    // Check current time and next M1 candle close time
+    // Check current time and next M5 candle close time
     datetime currentTime = TimeCurrent();
-    datetime currentCandleCloseTime = iTime(_Symbol, PERIOD_M1, 0) + PeriodSeconds(PERIOD_M1);
+    datetime currentCandleCloseTime = iTime(_Symbol, PERIOD_M5, 0) + PeriodSeconds(PERIOD_M5);
 
     bool isRunningEa = false;
     if(currentCandleCloseTime != CandleCloseTime && 
@@ -47,7 +47,7 @@ void OnDeinit(const int reason){
 void RunningEA(){
     MqlRates rates[];
     ArraySetAsSeries(rates, true);
-    int copied = CopyRates(_Symbol, _Period, 0, 10, rates);
+    int copied = CopyRates(_Symbol, PERIOD_M5, 0, 10, rates);
     if(copied <= 0) return;
     
     Trading(rates);
@@ -156,10 +156,15 @@ void TrailingByProfitUSD(){
 void BUY(MqlRates &candle, bool hasTakeProfit = false){
     double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
     double sl = candle.low - 200 * _Point;
+    double lotSize = GetLotSize(MathAbs(entry - sl), MqlRates());
+    
     if(!isOpenOrder(entry, sl))
         return;
-
-    double lotSize = GetLotSize(MathAbs(entry - sl), MqlRates());
+    
+    if(CountPositions("BUY") > 2){
+        double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+        lotSize = MathFloor(lotSize / lotStep) * lotStep;
+    }
 
     if(hasTakeProfit){
         double takeProfit = entry + 1.5 * MathAbs(entry - sl);
@@ -177,9 +182,15 @@ void SELL(MqlRates &candle, bool hasTakeProfit = false){
     double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
     double sl = candle.high + 200 * _Point;
     double lotSize = GetLotSize(MathAbs(entry - sl), MqlRates());
+    
     if(!isOpenOrder(entry, sl))
         return;
     
+    if(CountPositions("SELL") > 2){
+        double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+        lotSize = MathFloor(lotSize / lotStep) * lotStep;
+    }
+
     if(hasTakeProfit){
         double takeProfit = entry - 1.5 * MathAbs(entry - sl);
         if(!Trade.Sell(lotSize, _Symbol, entry, sl, takeProfit)){
@@ -195,4 +206,20 @@ void SELL(MqlRates &candle, bool hasTakeProfit = false){
 bool isOpenOrder(double entry, double sl){
     if(MathAbs(entry - sl) < MinDistanceSL * _Point) return false;
     return true;
+}
+
+int CountPositions(string type) {
+    int count = 0;
+   
+    for(int index = PositionsTotal() - 1; index >= 0; index--){
+        ulong ticket = PositionGetTicket(index);
+        if(PositionSelectByTicket(ticket)){
+            if(type == "BUY" && PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
+                count++;
+            } else if(type == "SELL" && PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL){
+                count++;
+            }
+        }
+    }
+    return count;
 }

@@ -163,7 +163,7 @@ void BUY(MqlRates &candle, bool hasTakeProfit = false){
     
     if(CountPositions("BUY") > 1){
         double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
-        lotSize = MathFloor(lotSize / lotStep) * lotStep;
+        lotSize = MathFloor((lotSize / lotStep) / 2.0) * lotStep;
     }
 
     if(hasTakeProfit){
@@ -188,7 +188,7 @@ void SELL(MqlRates &candle, bool hasTakeProfit = false){
     
     if(CountPositions("SELL") > 1){
         double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
-        lotSize = MathFloor(lotSize / lotStep) * lotStep;
+        lotSize = MathFloor((lotSize / lotStep) / 2.0) * lotStep;
     }
 
     if(hasTakeProfit){

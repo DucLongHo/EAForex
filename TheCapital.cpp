@@ -230,7 +230,7 @@ bool checkEmaConditions(string trend, double price){
     
     double ema[];
     ArraySetAsSeries(ema, true);
-    if(CopyBuffer(emaHandle, 0, 1, 0, ema) <= 0) return false;
+    if(CopyBuffer(emaHandle, 0, 0, 1, ema) <= 0) return false;
 
     if(trend == "BUY" && price < ema[0]) return true;
     if(trend == "SELL" && price > ema[0]) return true;

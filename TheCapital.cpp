@@ -161,7 +161,7 @@ void BUY(MqlRates &candle, bool hasTakeProfit = false){
     if(!isOpenOrder(entry, sl))
         return;
     
-    if(CountPositions("BUY") > 1){
+    if(CountPositions("BUY") > 1 || checkEmaConditions("BUY", entry)){
         double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
         lotSize = MathFloor((lotSize / lotStep) / 2.0) * lotStep;
     }
@@ -186,7 +186,7 @@ void SELL(MqlRates &candle, bool hasTakeProfit = false){
     if(!isOpenOrder(entry, sl))
         return;
     
-    if(CountPositions("SELL") > 1){
+    if(CountPositions("SELL") > 1 || checkEmaConditions("SELL", entry)){
         double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
         lotSize = MathFloor((lotSize / lotStep) / 2.0) * lotStep;
     }
@@ -222,4 +222,18 @@ int CountPositions(string type) {
         }
     }
     return count;
+}
+
+bool checkEmaConditions(string trend, double price){
+    int emaHandle = iMA(_Symbol, PERIOD_M5, 25, 0, MODE_EMA, PRICE_CLOSE);
+    if(emaHandle < 0) return false;
+    
+    double ema[];
+    ArraySetAsSeries(ema, true);
+    if(CopyBuffer(emaHandle, 0, 1, 0, ema) <= 0) return false;
+
+    if(trend == "BUY" && price < ema[0]) return true;
+    if(trend == "SELL" && price > ema[0]) return true;
+
+    return false;
 }

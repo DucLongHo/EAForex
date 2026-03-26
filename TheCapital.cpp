@@ -6,6 +6,7 @@ datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần
 
 // Input parameters
 input double RiskTrade = 50; // Rủi ro long trade (USD)
+input double RiskRewardRatio = 1.5; // Tỷ lệ Risk:Reward
 input double MinDistanceSL = 1000; // Stop loss tối thiểu (Points)
 input int TimeLeniency = 2; // Độ trễ cho việc kiểm tra thời gian đóng nến (giây)
 //+------------------------------------------------------------------+
@@ -62,7 +63,7 @@ void Trading(const MqlRates &rates[]){
     if(candle.close > candle.open){
         if(secondCandle.close < secondCandle.open  
             && candle.close > secondCandle.open
-            && MathAbs(candle.open - secondCandle.close) >= 100 * _Point
+            && MathAbs(candle.open - secondCandle.close) <= 100 * _Point
             && candle.high > secondCandle.high
             && candle.low < secondCandle.low
             && candle.low < thirdCandle.low
@@ -79,7 +80,7 @@ void Trading(const MqlRates &rates[]){
     } else if(candle.close < candle.open){
         if(secondCandle.close > secondCandle.open 
             && candle.close < secondCandle.open
-            && MathAbs(candle.open - secondCandle.close) >= 100 * _Point 
+            && MathAbs(candle.open - secondCandle.close) <= 100 * _Point 
             && candle.low < secondCandle.low
             && candle.high > secondCandle.high
             && candle.high > thirdCandle.high
@@ -167,7 +168,7 @@ void BUY(MqlRates &candle, bool hasTakeProfit = false){
     }
 
     if(hasTakeProfit){
-        double takeProfit = entry + 1.5 * MathAbs(entry - sl);
+        double takeProfit = entry + RiskRewardRatio * MathAbs(entry - sl);
         if(!Trade.Buy(lotSize, _Symbol, entry, sl, takeProfit)){
             Print("Error placing Buy Order: ", Trade.ResultRetcode());
         }
@@ -192,7 +193,7 @@ void SELL(MqlRates &candle, bool hasTakeProfit = false){
     }
 
     if(hasTakeProfit){
-        double takeProfit = entry - 1.5 * MathAbs(entry - sl);
+        double takeProfit = entry - RiskRewardRatio * MathAbs(entry - sl);
         if(!Trade.Sell(lotSize, _Symbol, entry, sl, takeProfit)){
             Print("Error placing Sell Order: ", Trade.ResultRetcode());
         }

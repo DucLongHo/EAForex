@@ -131,7 +131,7 @@ void TrailingByProfitUSD(){
             double currentTP = PositionGetDouble(POSITION_TP);
             double priceOpen = PositionGetDouble(POSITION_PRICE_OPEN);
             double newSL = 0;
-            double distanceFromOpen = MathAbs(currentTP - priceOpen)/1.5;
+            double distanceFromOpen = MathAbs(currentTP - priceOpen)/RiskRewardRatio;
 
             // --- XỬ LÝ LỆNH BUY ---
             if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){

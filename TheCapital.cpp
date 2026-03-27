@@ -8,6 +8,7 @@ datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần
 input double RiskTrade = 50; // Rủi ro long trade (USD)
 input double RiskRewardRatio = 1.5; // Tỷ lệ Risk:Reward
 input double MinDistanceSL = 1000; // Stop loss tối thiểu (Points)
+input int CandleCheckProfit = 3; // Số cây nến để kiểm tra lợi nhuận (M5)
 input int TimeLeniency = 2; // Độ trễ cho việc kiểm tra thời gian đóng nến (giây)
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -52,6 +53,7 @@ void RunningEA(){
     if(copied <= 0) return;
     
     Trading(rates);
+    CheckProfitAfterThreeCandles();
 }
 
 void Trading(const MqlRates &rates[]){
@@ -237,4 +239,28 @@ bool checkEmaConditions(string trend, double price){
     if(trend == "SELL" && price > ema[0]) return true;
 
     return false;
+}
+
+void CheckProfitAfterThreeCandles(){
+    for(int index = PositionsTotal() - 1; index >= 0; index--){
+        ulong ticket = PositionGetTicket(index);
+        if(PositionSelectByTicket(ticket)){
+            datetime openTime = (datetime)PositionGetInteger(POSITION_TIME);
+            int barsPassed = iBarShift(_Symbol, PERIOD_M5, openTime);
+            
+            double profitUSD = PositionGetDouble(POSITION_PROFIT);
+            double entry = PositionGetDouble(POSITION_PRICE_OPEN);
+            ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+
+            if(barsPassed >= CandleCheckProfit) {
+                if(profitUSD < 0) {
+                    Trade.PositionClose(ticket);
+                } else {
+                    double newTp = (type == POSITION_TYPE_BUY) ? entry + 100 * _Point : entry - 100 * _Point;
+                    
+                    Trade.PositionModify(ticket, PositionGetDouble(POSITION_SL), newTp);
+                }
+            }
+        }
+    }
 }

@@ -51,6 +51,7 @@ void OnTimer(){
 
         if(StartTimeBot + 30DAYSECONDS < TimeCurrent()) {
             Alert("Thời gian sử dụng bot đã hết hạn! Vui lòng liên hệ SĐT/Zalo: 0866797299");
+            ExpertRemove();
         } else {
             RunningEA();
         }

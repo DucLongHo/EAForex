@@ -254,11 +254,9 @@ void CheckProfitAfterThreeCandles(){
 
             if(barsPassed >= CandleCheckProfit) {
                 if(profitUSD < 0) {
-                    Trade.PositionClose(ticket);
-                } else {
                     double newTp = (type == POSITION_TYPE_BUY) ? entry + 100 * _Point : entry - 100 * _Point;
                     
-                    Trade.PositionModify(ticket, PositionGetDouble(POSITION_SL), newTp);
+                    Trade.PositionModify(ticket, PositionGetDouble(POSITION_SL), newTp);                
                 }
             }
         }

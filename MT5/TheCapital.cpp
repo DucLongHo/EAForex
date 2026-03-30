@@ -14,7 +14,9 @@ input double RiskRewardRatio = 0.5; // Tỷ lệ Risk:Reward
 //--- CẤU HÌNH GIAO DỊCH ---
 double MinDistanceSL = 1000; // Stop loss tối thiểu (Points)
 int TimeLeniency = 2; // Độ trễ cho việc kiểm tra thời gian đóng nến (giây)
-int TimeEndBot = 2592000; // 30 ngày tính bằng giây
+//--- CẤU HÌNH THỜI GIAN SỬ DỤNG BOT ---
+const int 30DAYSECONDS = 2592000; // 30 ngày tính bằng giây
+datetime StartTimeBot = 0; // Biến lưu thời điểm bắt đầu chạy bot
 
 // --- CẤU HÌNH BẢO MẬT ---
 string SecretSalt = "20042000";
@@ -47,7 +49,11 @@ void OnTimer(){
         CandleCloseTime = currentCandleCloseTime;
         isRunningEa = true;
 
-        RunningEA();
+        if(StartTimeBot + 30DAYSECONDS < TimeCurrent()) {
+            Alert("Thời gian sử dụng bot đã hết hạn! Vui lòng liên hệ SĐT/Zalo: 0866797299");
+        } else {
+            RunningEA();
+        }
     }
     
     if(isRunningEa) isRunningEa = false;
@@ -278,49 +284,30 @@ string HashEngine(string data) {
 
 bool CheckLicense() {
     long accID = AccountInfoInteger(ACCOUNT_LOGIN);
-    string gvName = "Bot_Activation_" + (string)accID; // Tên biến lưu dưới máy khách
-    
     datetime now = TimeCurrent();
-    datetime vnTime = now + (7 * 3600);
+    datetime vnTime = now + 7 * 3600; // Chuyển sang giờ Việt Nam (GMT+7)
+    MqlDateTime mqlNow;
+    TimeToStruct(now, mqlNow); // Lấy thông tin tháng/năm hiện tại
 
-    MqlDateTime mqlDt;
-    TimeToStruct(now, mqlDt);
-
-    // Key mã hóa
-    string timeData = IntegerToString(accID) + SecretSalt + IntegerToString(mqlDt.mon) + IntegerToString(mqlDt.year);
+    // Key này sẽ thay đổi ngay khi bước sang ngày 1 của tháng kế tiếp
+    string timeData = IntegerToString(accID) + SecretSalt + 
+                      IntegerToString(mqlNow.mon) + 
+                      IntegerToString(mqlNow.year);
     string expectedKey = HashEngine(timeData);
 
     if (Input_LicenseKey != expectedKey) {
-        static bool notified = false;
-        if (!notified) {
-            string msg = "🔔 CO NGUOI CAI BOT!%0A" + 
-             "ID Tai khoan: " + (string)accID + "%0A" +
-             "Vao luc (VN): " + TimeToString(vnTime) + "%0A" +
-             "Key: " + expectedKey;
-            
-            SendTelegram(msg);
-            notified = true;
-        }
+        Alert("Mã Key không đúng! Vui lòng liên hệ Admin để nhận Key mới. SĐT/Zalo: 0866797299");
+        
+        string msg = "🔑 YEU CAU KEY MOI!%0A" + 
+                     "ID: " + (string)accID + "%0A" +
+                     "Vào lúc: " + TimeToString(vnTime) + "%0A" +
+                     "Key: " + expectedKey;
 
-        Alert("Mã sai! Vui lòng liên hệ Admin để nhận Key. SĐT: 0866797299");
+        SendTelegram(msg);
         
         return false;
     }
-    
-    // Kiểm tra xem đã lưu ngày kích hoạt chưa
-    if (!GlobalVariableCheck(gvName)) {
-        // Lần đầu nhập đúng mã -> Bắt đầu tính 30 ngày từ hôm nay
-        GlobalVariableSet(gvName, (double)now);
-        
-        Alert("Kích hoạt thành công! Hạn dùng đến: ", TimeToString(now + TimeEndBot));
-        
-        return true;
-    } else {
-        datetime activationDate = (datetime)GlobalVariableGet(gvName);
-        if (now > activationDate + TimeEndBot) {
-            Alert("Đã hết hạn 1 tháng sử dụng. Vui lòng liên hệ Admin.");
-            return false;
-        }
-    }
+
+    StartTimeBot = now;
     return true;
 }

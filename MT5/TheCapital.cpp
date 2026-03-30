@@ -53,7 +53,6 @@ void RunningEA(){
     if(copied <= 0) return;
     
     Trading(rates);
-    CheckProfitAfterThreeCandles();
 }
 
 void Trading(const MqlRates &rates[]){
@@ -158,7 +157,9 @@ void TrailingByProfitUSD(){
 
 void BUY(MqlRates &candle, bool hasTakeProfit = false){
     double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-    double sl = candle.low - 200 * _Point;
+    double slDistance = (entry - candle.low) * 0.75;
+
+    double sl = entry - slDistance;
     double lotSize = GetLotSize(MathAbs(entry - sl), MqlRates());
     
     if(!isOpenOrder(entry, sl))
@@ -183,7 +184,8 @@ void BUY(MqlRates &candle, bool hasTakeProfit = false){
 
 void SELL(MqlRates &candle, bool hasTakeProfit = false){
     double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-    double sl = candle.high + 200 * _Point;
+    double slDistance = (candle.high - entry) * 0.75;
+    double sl = entry + slDistance;
     double lotSize = GetLotSize(MathAbs(entry - sl), MqlRates());
     
     if(!isOpenOrder(entry, sl))
@@ -239,26 +241,4 @@ bool checkEmaConditions(string trend, double price){
     if(trend == "SELL" && price > ema[0]) return true;
 
     return false;
-}
-
-void CheckProfitAfterThreeCandles(){
-    for(int index = PositionsTotal() - 1; index >= 0; index--){
-        ulong ticket = PositionGetTicket(index);
-        if(PositionSelectByTicket(ticket)){
-            datetime openTime = (datetime)PositionGetInteger(POSITION_TIME);
-            int barsPassed = iBarShift(_Symbol, PERIOD_M5, openTime);
-            
-            double profitUSD = PositionGetDouble(POSITION_PROFIT);
-            double entry = PositionGetDouble(POSITION_PRICE_OPEN);
-            ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
-
-            if(barsPassed >= CandleCheckProfit) {
-                if(profitUSD < 0) {
-                    double newTp = (type == POSITION_TYPE_BUY) ? entry + 100 * _Point : entry - 100 * _Point;
-                    
-                    Trade.PositionModify(ticket, PositionGetDouble(POSITION_SL), newTp);                
-                }
-            }
-        }
-    }
 }

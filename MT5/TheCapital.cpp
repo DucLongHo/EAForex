@@ -69,7 +69,7 @@ void Trading(const MqlRates &rates[]){
             && candle.high > secondCandle.high
             && candle.low < secondCandle.low
             && candle.low < thirdCandle.low
-            && candle.close - candle.open > upperShadow
+            && (candle.close - candle.open) * 0.3 > upperShadow
         ){
             BUY(candle, true); // NoSD
         }
@@ -86,7 +86,7 @@ void Trading(const MqlRates &rates[]){
             && candle.low < secondCandle.low
             && candle.high > secondCandle.high
             && candle.high > thirdCandle.high
-            && candle.open - candle.close > lowerShadow
+            && (candle.open - candle.close) * 0.3 > lowerShadow
         ){
             SELL(candle, true); // NoSD
         }

@@ -6,10 +6,10 @@ datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần
 
 // Input parameters
 sinput string separator0 = "------------------------------------------"; // === CÀI ĐẶT BẢN QUYỀN ===
-input string Input_LicenseKey = ""; // Nhập mã kích hoạt admin cung cấp
+input string Input_LicenseKey = ""; // NHẬP KEY ADMIN CUNG CẤP
 sinput string separator1 = "------------------------------------------"; // === QUẢN LÝ RỦI RO ===
-input double RiskTrade = 50; // Rủi ro long trade (USD)
-input double RiskRewardRatio = 1.5; // Tỷ lệ Risk:Reward
+input double RiskTrade = 100; // Rủi ro long trade (USD)
+input double RiskRewardRatio = 0.5; // Tỷ lệ Risk:Reward
 
 //--- CẤU HÌNH GIAO DỊCH ---
 double MinDistanceSL = 1000; // Stop loss tối thiểu (Points)

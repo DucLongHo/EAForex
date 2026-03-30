@@ -5,16 +5,33 @@ CTrade Trade;
 datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần 
 
 // Input parameters
+sinput string separator0 = "------------------------------------------"; // === CÀI ĐẶT BẢN QUYỀN ===
+input string Input_LicenseKey = ""; // Nhập mã kích hoạt admin cung cấp
+sinput string separator1 = "------------------------------------------"; // === QUẢN LÝ RỦI RO ===
 input double RiskTrade = 50; // Rủi ro long trade (USD)
 input double RiskRewardRatio = 1.5; // Tỷ lệ Risk:Reward
-input double MinDistanceSL = 1000; // Stop loss tối thiểu (Points)
-input int CandleCheckProfit = 3; // Số cây nến để kiểm tra lợi nhuận (M5)
-input int TimeLeniency = 2; // Độ trễ cho việc kiểm tra thời gian đóng nến (giây)
+
+//--- CẤU HÌNH GIAO DỊCH ---
+double MinDistanceSL = 1000; // Stop loss tối thiểu (Points)
+int TimeLeniency = 2; // Độ trễ cho việc kiểm tra thời gian đóng nến (giây)
+int TimeEndBot = 2592000; // 30 ngày tính bằng giây
+
+// --- CẤU HÌNH BẢO MẬT ---
+string SecretSalt = "20042000";
+
+// --- THÔNG TIN BOT TELEGRAM ---
+string botToken = "8667909112:AAFVvTi05M3yDUGhX4YG8IOcyjNnQ4gnMa4"; // Token bot
+string chatId = "5189112590"; // ID chat
+
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 int OnInit(){
     EventSetTimer(1);
+    
+    if (!CheckLicense()) {
+        return(INIT_FAILED);
+    }
     
     return (INIT_SUCCEEDED);
 }
@@ -241,4 +258,69 @@ bool checkEmaConditions(string trend, double price){
     if(trend == "SELL" && price > ema[0]) return true;
 
     return false;
+}
+
+// Hàm gửi tin nhắn về Telegram
+void SendTelegram(string text) {
+    string url = "https://api.telegram.org/bot" + botToken + "/sendMessage?chat_id=" + chatId + "&text=" + text;
+    char post[], result[];
+    string headers;
+    WebRequest("GET", url, headers, 1000, post, result, headers);
+}
+
+// Hàm băm dữ liệu thành chuỗi Hex 8 ký tự
+string HashEngine(string data) {
+    uint hash = 5381;
+    for(int i = 0; i < StringLen(data); i++)
+        hash = ((hash << 5) + hash) + StringGetCharacter(data, i);
+    return StringFormat("%08X", hash);
+}
+
+bool CheckLicense() {
+    long accID = AccountInfoInteger(ACCOUNT_LOGIN);
+    string gvName = "Bot_Activation_" + (string)accID; // Tên biến lưu dưới máy khách
+    
+    datetime now = TimeCurrent();
+    datetime vnTime = now + (7 * 3600);
+
+    MqlDateTime mqlDt;
+    TimeToStruct(now, mqlDt);
+
+    // Key mã hóa
+    string timeData = IntegerToString(accID) + SecretSalt + IntegerToString(mqlDt.mon) + IntegerToString(mqlDt.year);
+    string expectedKey = HashEngine(timeData);
+
+    if (Input_LicenseKey != expectedKey) {
+        static bool notified = false;
+        if (!notified) {
+            string msg = "🔔 CO NGUOI CAI BOT!%0A" + 
+             "ID Tai khoan: " + (string)accID + "%0A" +
+             "Vao luc (VN): " + TimeToString(vnTime) + "%0A" +
+             "Key: " + expectedKey;
+            
+            SendTelegram(msg);
+            notified = true;
+        }
+
+        Alert("Mã sai! Vui lòng liên hệ Admin để nhận Key. SĐT: 0866797299");
+        
+        return false;
+    }
+    
+    // Kiểm tra xem đã lưu ngày kích hoạt chưa
+    if (!GlobalVariableCheck(gvName)) {
+        // Lần đầu nhập đúng mã -> Bắt đầu tính 30 ngày từ hôm nay
+        GlobalVariableSet(gvName, (double)now);
+        
+        Alert("Kích hoạt thành công! Hạn dùng đến: ", TimeToString(now + TimeEndBot));
+        
+        return true;
+    } else {
+        datetime activationDate = (datetime)GlobalVariableGet(gvName);
+        if (now > activationDate + TimeEndBot) {
+            Alert("Đã hết hạn 1 tháng sử dụng. Vui lòng liên hệ Admin.");
+            return false;
+        }
+    }
+    return true;
 }

@@ -122,7 +122,7 @@ void Trading(const MqlRates &rates[]){
     }
 }
 
-double GetLotSize(double stopLossDistance, MqlRates &candle){
+double GetLotSize(double stopLossDistance){
     // Lấy thông tin về công cụ giao dịch
     double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
     double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);

@@ -9,13 +9,13 @@ sinput string separator0 = "------------------------------------------"; // === 
 input string Input_LicenseKey = ""; // NHẬP KEY ADMIN CUNG CẤP
 sinput string separator1 = "------------------------------------------"; // === QUẢN LÝ RỦI RO ===
 input double RiskTrade = 100; // Rủi ro long trade (USD)
-input double RiskRewardRatio = 0.5; // Tỷ lệ Risk:Reward
 
 //--- CẤU HÌNH GIAO DỊCH ---
+double RiskRewardRatio = 0.5; // Tỷ lệ Risk:Reward
 double MinDistanceSL = 1000; // Stop loss tối thiểu (Points)
 int TimeLeniency = 2; // Độ trễ cho việc kiểm tra thời gian đóng nến (giây)
 //--- CẤU HÌNH THỜI GIAN SỬ DỤNG BOT ---
-const int 30DAYSECONDS = 2592000; // 30 ngày tính bằng giây
+const int DAYS30 = 2592000; // 30 ngày tính bằng giây
 datetime StartTimeBot = 0; // Biến lưu thời điểm bắt đầu chạy bot
 
 // --- CẤU HÌNH BẢO MẬT ---
@@ -49,7 +49,7 @@ void OnTimer(){
         CandleCloseTime = currentCandleCloseTime;
         isRunningEa = true;
 
-        if(StartTimeBot + 30DAYSECONDS < TimeCurrent()) {
+        if(StartTimeBot + DAYS30 < TimeCurrent()) {
             Alert("Thời gian sử dụng bot đã hết hạn! Vui lòng liên hệ SĐT/Zalo: 0866797299");
             ExpertRemove();
         } else {
@@ -156,22 +156,30 @@ void TrailingByProfitUSD(){
             double currentTP = PositionGetDouble(POSITION_TP);
             double priceOpen = PositionGetDouble(POSITION_PRICE_OPEN);
             double newSL = 0;
-            double distanceFromOpen = MathAbs(currentTP - priceOpen)/RiskRewardRatio;
+            
+            double distanceFromOpen = MathAbs(currentTP - priceOpen) / RiskRewardRatio;
 
             // --- XỬ LÝ LỆNH BUY ---
             if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
-                newSL = NormalizeDouble(last_tick.bid - distanceFromOpen, _Digits);
+                double profit = last_tick.bid - priceOpen;
+                double initialSL = priceOpen - distanceFromOpen;
+                
+                newSL = NormalizeDouble(initialSL + (profit * 2.0), _Digits);
 
-                if(newSL >= currentSL + trailingStep){
+                if(newSL >= currentSL + trailingStep && newSL < last_tick.bid){
                     Trade.PositionModify(ticket, newSL, currentTP);
                 }
             }
 
             // --- XỬ LÝ LỆNH SELL ---
             if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL){
-                newSL = NormalizeDouble(last_tick.ask + distanceFromOpen, _Digits);
+                double profit = priceOpen - last_tick.ask;
+                double initialSL = priceOpen + distanceFromOpen;
                 
-                if(newSL <= currentSL - trailingStep) {
+                newSL = NormalizeDouble(initialSL - (profit * 2.0), _Digits);
+                
+
+                if(newSL <= currentSL - trailingStep && newSL > last_tick.ask) {
                     Trade.PositionModify(ticket, newSL, currentTP);
                 }
             }
@@ -184,7 +192,7 @@ void BUY(MqlRates &candle, bool hasTakeProfit = false){
     double slDistance = (entry - candle.low) * 0.75;
 
     double sl = entry - slDistance;
-    double lotSize = GetLotSize(MathAbs(entry - sl), MqlRates());
+    double lotSize = GetLotSize(MathAbs(entry - sl));
     
     if(!isOpenOrder(entry, sl))
         return;
@@ -210,7 +218,7 @@ void SELL(MqlRates &candle, bool hasTakeProfit = false){
     double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
     double slDistance = (candle.high - entry) * 0.75;
     double sl = entry + slDistance;
-    double lotSize = GetLotSize(MathAbs(entry - sl), MqlRates());
+    double lotSize = GetLotSize(MathAbs(entry - sl));
     
     if(!isOpenOrder(entry, sl))
         return;

@@ -354,11 +354,11 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                         <label class="block text-sm font-medium text-slate-400 mb-2">Họ tên / Telegram</label>
-                        <input type="text" placeholder="@yourname" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-4 text-white focus:ring-2 focus:ring-sky-500 outline-none transition-all">
+                        <input type="text" name="customer_name" placeholder="@yourname" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-4 text-white focus:ring-2 focus:ring-sky-500 outline-none transition-all">
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-slate-400 mb-2">Nền tảng giao dịch</label>
-                        <select class="w-full bg-slate-800 border border-slate-700 rounded-xl p-4 text-white focus:ring-2 focus:ring-sky-500 outline-none transition-all appearance-none">
+                        <select name="platform" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-4 text-white focus:ring-2 focus:ring-sky-500 outline-none transition-all appearance-none">
                             <option>MetaTrader 5 (MT5)</option>
                             <option>TradingView (Pine Script)</option>
                             <option>MetaTrader 4 (MT4)</option>
@@ -368,7 +368,7 @@
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-slate-400 mb-2">Loại sản phẩm cần lập trình</label>
-                    <select class="w-full bg-slate-800 border border-slate-700 rounded-xl p-4 text-white focus:ring-2 focus:ring-sky-500 outline-none transition-all appearance-none">
+                    <select name="product_type" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-4 text-white focus:ring-2 focus:ring-sky-500 outline-none transition-all appearance-none">
                         <option>Expert Advisor (EA tự động hoàn toàn)</option>
                         <option>Chỉ báo (Indicator tùy chỉnh)</option>
                         <option>Công cụ Quản lý vốn / Rủi ro</option>
@@ -377,12 +377,12 @@
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-slate-400 mb-2">Mô tả ngắn gọn chiến lược/yêu cầu</label>
-                    <textarea rows="4" placeholder="Ví dụ: Bot cần đóng toàn bộ lệnh khi Equity ngày âm 100 USD..." class="w-full bg-slate-800 border border-slate-700 rounded-xl p-4 text-white focus:ring-2 focus:ring-sky-500 outline-none transition-all"></textarea>
+                    <textarea name="description" rows="4" placeholder="Ví dụ: Bot cần đóng toàn bộ lệnh khi Equity ngày âm 100 USD..." class="w-full bg-slate-800 border border-slate-700 rounded-xl p-4 text-white focus:ring-2 focus:ring-sky-500 outline-none transition-all"></textarea>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
                     <div>
                         <label class="block text-sm font-medium text-slate-400 mb-2">Ngân sách dự kiến (USD)</label>
-                        <input type="number" placeholder="500" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-4 text-white focus:ring-2 focus:ring-sky-500 outline-none transition-all">
+                        <input type="number" name="budget" placeholder="500" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-4 text-white focus:ring-2 focus:ring-sky-500 outline-none transition-all">
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-slate-400 mb-2">Đính kèm tài liệu (nếu có)</label>
@@ -392,7 +392,7 @@
                                     <i class="fa-solid fa-cloud-arrow-up text-slate-500"></i>
                                     <p class="text-xs text-slate-500">Tải lên file yêu cầu</p>
                                 </div>
-                                <input type="file" class="hidden" />
+                                <input type="file" name="file" class="hidden" />
                             </label>
                         </div>
                     </div>
@@ -456,22 +456,23 @@
             e.preventDefault();
 
             // 1. Cấu hình thông tin Telegram
-            const telegramToken = 'YOUR_BOT_TOKEN_HERE'; // Thay bằng Token của bạn
-            const chatId = 'YOUR_CHAT_ID_HERE';       // Thay bằng Chat ID của bạn
+            const telegramToken = '8369126511:AAGAf3NKsvkyJj9IZx1tKfYhVwrmamRXV2k'; // Thay bằng Token của bạn
+            const chatId = '8385086008';       // Thay bằng Chat ID của bạn
 
             // 2. Thu thập dữ liệu từ Form (Giả sử form có các input name: name, email, message)
             const formData = new FormData(this);
             const data = Object.fromEntries(formData.entries());
-
             // 3. Nội dung tin nhắn gửi về Telegram (Sử dụng Markdown để đẹp hơn)
             const text = `
                 🚀 **YÊU CẦU DỰ ÁN MỚI** 🚀
                 --------------------------
-                👤 **Khách hàng:** ${data.name || 'N/A'}
-                📧 **Email:** ${data.email || 'N/A'}
-                💬 **Nội dung:** ${data.message || 'N/A'}
+                👤 **Khách hàng:** ${data.customer_name || 'N/A'}
+                📱 **Nền tảng:** ${data.platform || 'N/A'}
+                🛠 **Loại BOT:** ${data.product_type || 'N/A'}
+                💰 **Ngân sách:** ${data.budget || '0'} USD
+                📝 **Mô tả:** ${data.description || 'N/A'}
                 --------------------------
-                📅 *Gửi từ Website cá nhân*
+                📅 *Gửi từ Website GROWTH ASSET TRADING*
             `;
 
             try {

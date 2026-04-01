@@ -22,8 +22,8 @@ datetime StartTimeBot = 0; // Biến lưu thời điểm bắt đầu chạy bot
 string SecretSalt = "20042000";
 
 // --- THÔNG TIN BOT TELEGRAM ---
-string botToken = "8667909112:AAFVvTi05M3yDUGhX4YG8IOcyjNnQ4gnMa4"; // Token bot
-string chatId = "5189112590"; // ID chat
+string botToken = "8520319257:AAEEh_J2dEUtd-S7CVhf9BIsA_9CFhPu0Kk"; // Token bot
+string chatId = "8385086008"; // ID chat
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -199,7 +199,7 @@ void BUY(MqlRates &candle, bool hasTakeProfit = false){
     
     if(CountPositions("BUY") > 1 || checkEmaConditions("BUY", entry)){
         double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
-        lotSize = MathFloor((lotSize / lotStep) / 2.0) * lotStep;
+        lotSize = MathFloor((lotSize / lotStep) / 1.5) * lotStep;
     }
 
     if(hasTakeProfit){
@@ -225,7 +225,7 @@ void SELL(MqlRates &candle, bool hasTakeProfit = false){
     
     if(CountPositions("SELL") > 1 || checkEmaConditions("SELL", entry)){
         double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
-        lotSize = MathFloor((lotSize / lotStep) / 2.0) * lotStep;
+        lotSize = MathFloor((lotSize / lotStep) / 1.5) * lotStep;
     }
 
     if(hasTakeProfit){
@@ -310,6 +310,7 @@ bool CheckLicense() {
         string msg = "🔑 YEU CAU KEY MOI!%0A" + 
                      "ID: " + (string)accID + "%0A" +
                      "Vào lúc: " + TimeToString(vnTime) + "%0A" +
+                     "Đến ngày: " + TimeToString(now + DAYS30) + "%0A" +
                      "Key: " + expectedKey;
 
         SendTelegram(msg);

@@ -43,6 +43,36 @@
         section {
             padding: 80px 20px;
         }
+
+        /* Hiệu ứng tia sáng chạy ngang cho màn hình máy tính */
+        @keyframes beam-horizontal {
+            0% { left: -20%; opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { left: 100%; opacity: 0; }
+        }
+        .animate-beam-horizontal {
+            position: absolute;
+            top: 0; bottom: 0;
+            width: 25%;
+            background: linear-gradient(90deg, transparent, #0ea5e9, transparent);
+            animation: beam-horizontal 3s linear infinite;
+        }
+
+        /* Hiệu ứng tia sáng chạy dọc cho điện thoại */
+        @keyframes beam-vertical {
+            0% { top: -20%; opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { top: 100%; opacity: 0; }
+        }
+        .animate-beam-vertical {
+            position: absolute;
+            left: 0; right: 0;
+            height: 25%;
+            background: linear-gradient(180deg, transparent, #0ea5e9, transparent);
+            animation: beam-vertical 3s linear infinite;
+        }
     </style>
 </head>
 <body>
@@ -52,7 +82,7 @@
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex justify-between h-16 items-center">
                 <div class="flex-shrink-0 flex items-center gap-2">
-                    <i class="fa-solid fa-microchip text-sky-400 text-2xl"></i>
+                    <i class="fa-solid fa-arrow-trend-up text-sky-400 text-2xl"></i>
                     <span class="font-bold text-xl tracking-tight">GROWTH ASSET<span class="text-sky-400"> TRADING</span></span>
                 </div>
                 <div class="hidden md:block">
@@ -214,38 +244,103 @@
     </section>
 
     <!-- Workflow Section -->
-    <section id="workflow" class="bg-slate-900/50">
-        <div class="max-w-5xl mx-auto px-4 text-center">
-            <h2 class="text-3xl md:text-5xl font-bold mb-16">Quy Trình Làm Việc</h2>
+    <section id="workflow" class="relative w-full py-24 overflow-hidden">
+        
+        <!-- Background Ambient Effects (Ánh sáng mờ phía sau) -->
+        <div class="absolute inset-0 pointer-events-none z-0">
+            <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[500px] bg-sky-900/20 blur-[120px] rounded-full"></div>
+        </div>
+
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 text-center">
+            
+            <!-- Title -->
+            <div class="mb-20">
+                <h2 class="text-4xl md:text-5xl font-extrabold tracking-tight mb-4 text-transparent bg-clip-text bg-gradient-to-r from-white via-sky-300 to-white">
+                    Quy Trình Làm Việc
+                </h2>
+                <p class="text-slate-400 max-w-2xl mx-auto text-sm md:text-base">
+                    5 bước tiêu chuẩn hóa giúp biến ý tưởng giao dịch của bạn thành một hệ thống tự động hoàn chỉnh, an toàn và tối ưu nhất.
+                </p>
+            </div>
+
             <div class="relative">
-                <!-- Line background for desktop -->
-                <div class="hidden md:block absolute top-1/2 left-0 w-full h-0.5 bg-slate-800 -translate-y-1/2 z-0"></div>
-                <div class="grid grid-cols-1 md:grid-cols-5 gap-8">
-                    <div class="relative z-10">
-                        <div class="w-12 h-12 bg-sky-500 rounded-full flex items-center justify-center mx-auto mb-4 font-bold shadow-lg shadow-sky-500/20">1</div>
-                        <h4 class="font-bold text-sm mb-2">Thu thập</h4>
-                        <p class="text-slate-400 text-[11px]">Cung cấp quy tắc vào/thoát lệnh.</p>
+                
+                <!-- Desktop Connecting Line (Chỉ hiện trên màn hình lớn) -->
+                <!-- top-[32px] vì vòng tròn cao 64px (h-16), tâm của nó là 32px -->
+                <div class="hidden lg:block absolute top-[32px] left-[10%] right-[10%] h-[2px] bg-slate-800 rounded-full z-0 overflow-hidden">
+                    <div class="animate-beam-horizontal shadow-[0_0_10px_#0ea5e9]"></div>
+                </div>
+
+                <!-- Mobile Connecting Line (Chỉ hiện trên điện thoại/tablet) -->
+                <div class="lg:hidden absolute top-[32px] bottom-[32px] left-1/2 w-[2px] bg-slate-800 -translate-x-1/2 rounded-full z-0 overflow-hidden">
+                    <div class="animate-beam-vertical shadow-[0_0_10px_#0ea5e9]"></div>
+                </div>
+
+                <!-- Grid chứa các bước -->
+                <div class="grid grid-cols-1 lg:grid-cols-5 gap-12 lg:gap-6 relative z-10">
+                    
+                    <!-- Bước 1 -->
+                    <div class="group relative flex flex-col items-center cursor-default">
+                        <!-- Vòng tròn -->
+                        <div class="w-16 h-16 rounded-full bg-slate-900 border-2 border-slate-700 shadow-lg flex items-center justify-center text-2xl font-bold text-slate-400 transition-all duration-500 group-hover:bg-gradient-to-tr group-hover:from-sky-600 group-hover:to-sky-400 group-hover:border-transparent group-hover:text-white group-hover:shadow-[0_0_25px_rgba(14,165,233,0.5)] group-hover:scale-110 mb-6 relative z-10">
+                            1
+                        </div>
+                        <!-- Thẻ nội dung -->
+                        <div class="bg-slate-900/60 border border-slate-800 backdrop-blur-md rounded-2xl p-6 w-full max-w-[280px] lg:max-w-full relative overflow-hidden transition-all duration-500 group-hover:-translate-y-2 group-hover:bg-slate-800/80 group-hover:border-sky-500/30 group-hover:shadow-xl group-hover:shadow-sky-900/20">
+                            <div class="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-sky-500 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                            <h4 class="font-bold text-lg mb-3 text-slate-200 group-hover:text-sky-400 transition-colors">Thu thập</h4>
+                            <p class="text-slate-400 text-sm leading-relaxed group-hover:text-slate-300 transition-colors">Cung cấp quy tắc vào/thoát lệnh rõ ràng.</p>
+                        </div>
                     </div>
-                    <div class="relative z-10">
-                        <div class="w-12 h-12 bg-sky-500 rounded-full flex items-center justify-center mx-auto mb-4 font-bold">2</div>
-                        <h4 class="font-bold text-sm mb-2">Đánh giá</h4>
-                        <p class="text-slate-400 text-[11px]">Kiểm tra tính khả thi & báo giá.</p>
+
+                    <!-- Bước 2 -->
+                    <div class="group relative flex flex-col items-center cursor-default lg:mt-0">
+                        <div class="w-16 h-16 rounded-full bg-slate-900 border-2 border-slate-700 shadow-lg flex items-center justify-center text-2xl font-bold text-slate-400 transition-all duration-500 group-hover:bg-gradient-to-tr group-hover:from-sky-600 group-hover:to-sky-400 group-hover:border-transparent group-hover:text-white group-hover:shadow-[0_0_25px_rgba(14,165,233,0.5)] group-hover:scale-110 mb-6 relative z-10">
+                            2
+                        </div>
+                        <div class="bg-slate-900/60 border border-slate-800 backdrop-blur-md rounded-2xl p-6 w-full max-w-[280px] lg:max-w-full relative overflow-hidden transition-all duration-500 group-hover:-translate-y-2 group-hover:bg-slate-800/80 group-hover:border-sky-500/30 group-hover:shadow-xl group-hover:shadow-sky-900/20">
+                            <div class="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-sky-500 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                            <h4 class="font-bold text-lg mb-3 text-slate-200 group-hover:text-sky-400 transition-colors">Đánh giá</h4>
+                            <p class="text-slate-400 text-sm leading-relaxed group-hover:text-slate-300 transition-colors">Kiểm tra tính khả thi & báo giá chi tiết.</p>
+                        </div>
                     </div>
-                    <div class="relative z-10">
-                        <div class="w-12 h-12 bg-sky-500 rounded-full flex items-center justify-center mx-auto mb-4 font-bold">3</div>
-                        <h4 class="font-bold text-sm mb-2">Lập trình</h4>
-                        <p class="text-slate-400 text-[11px]">Viết code & tối ưu thuật toán.</p>
+
+                    <!-- Bước 3 -->
+                    <div class="group relative flex flex-col items-center cursor-default lg:mt-0">
+                        <div class="w-16 h-16 rounded-full bg-slate-900 border-2 border-slate-700 shadow-lg flex items-center justify-center text-2xl font-bold text-slate-400 transition-all duration-500 group-hover:bg-gradient-to-tr group-hover:from-sky-600 group-hover:to-sky-400 group-hover:border-transparent group-hover:text-white group-hover:shadow-[0_0_25px_rgba(14,165,233,0.5)] group-hover:scale-110 mb-6 relative z-10">
+                            3
+                        </div>
+                        <div class="bg-slate-900/60 border border-slate-800 backdrop-blur-md rounded-2xl p-6 w-full max-w-[280px] lg:max-w-full relative overflow-hidden transition-all duration-500 group-hover:-translate-y-2 group-hover:bg-slate-800/80 group-hover:border-sky-500/30 group-hover:shadow-xl group-hover:shadow-sky-900/20">
+                            <div class="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-sky-500 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                            <h4 class="font-bold text-lg mb-3 text-slate-200 group-hover:text-sky-400 transition-colors">Lập trình</h4>
+                            <p class="text-slate-400 text-sm leading-relaxed group-hover:text-slate-300 transition-colors">Viết mã code & tối ưu hóa thuật toán.</p>
+                        </div>
                     </div>
-                    <div class="relative z-10">
-                        <div class="w-12 h-12 bg-sky-500 rounded-full flex items-center justify-center mx-auto mb-4 font-bold">4</div>
-                        <h4 class="font-bold text-sm mb-2">Kiểm thử</h4>
-                        <p class="text-slate-400 text-[11px]">Backtest & Debugging kỹ lưỡng.</p>
+
+                    <!-- Bước 4 -->
+                    <div class="group relative flex flex-col items-center cursor-default lg:mt-0">
+                        <div class="w-16 h-16 rounded-full bg-slate-900 border-2 border-slate-700 shadow-lg flex items-center justify-center text-2xl font-bold text-slate-400 transition-all duration-500 group-hover:bg-gradient-to-tr group-hover:from-sky-600 group-hover:to-sky-400 group-hover:border-transparent group-hover:text-white group-hover:shadow-[0_0_25px_rgba(14,165,233,0.5)] group-hover:scale-110 mb-6 relative z-10">
+                            4
+                        </div>
+                        <div class="bg-slate-900/60 border border-slate-800 backdrop-blur-md rounded-2xl p-6 w-full max-w-[280px] lg:max-w-full relative overflow-hidden transition-all duration-500 group-hover:-translate-y-2 group-hover:bg-slate-800/80 group-hover:border-sky-500/30 group-hover:shadow-xl group-hover:shadow-sky-900/20">
+                            <div class="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-sky-500 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                            <h4 class="font-bold text-lg mb-3 text-slate-200 group-hover:text-sky-400 transition-colors">Kiểm thử</h4>
+                            <p class="text-slate-400 text-sm leading-relaxed group-hover:text-slate-300 transition-colors">Backtest & Debugging kỹ lưỡng rủi ro.</p>
+                        </div>
                     </div>
-                    <div class="relative z-10">
-                        <div class="w-12 h-12 bg-sky-500 rounded-full flex items-center justify-center mx-auto mb-4 font-bold">5</div>
-                        <h4 class="font-bold text-sm mb-2">Bàn giao</h4>
-                        <p class="text-slate-400 text-[11px]">Hướng dẫn cài đặt & Hỗ trợ.</p>
+
+                    <!-- Bước 5 -->
+                    <div class="group relative flex flex-col items-center cursor-default lg:mt-0">
+                        <div class="w-16 h-16 rounded-full bg-slate-900 border-2 border-slate-700 shadow-lg flex items-center justify-center text-2xl font-bold text-slate-400 transition-all duration-500 group-hover:bg-gradient-to-tr group-hover:from-sky-600 group-hover:to-sky-400 group-hover:border-transparent group-hover:text-white group-hover:shadow-[0_0_25px_rgba(14,165,233,0.5)] group-hover:scale-110 mb-6 relative z-10">
+                            5
+                        </div>
+                        <div class="bg-slate-900/60 border border-slate-800 backdrop-blur-md rounded-2xl p-6 w-full max-w-[280px] lg:max-w-full relative overflow-hidden transition-all duration-500 group-hover:-translate-y-2 group-hover:bg-slate-800/80 group-hover:border-sky-500/30 group-hover:shadow-xl group-hover:shadow-sky-900/20">
+                            <div class="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-sky-500 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+                            <h4 class="font-bold text-lg mb-3 text-slate-200 group-hover:text-sky-400 transition-colors">Bàn giao</h4>
+                            <p class="text-slate-400 text-sm leading-relaxed group-hover:text-slate-300 transition-colors">Hướng dẫn cài đặt & Hỗ trợ trọn đời.</p>
+                        </div>
                     </div>
+
                 </div>
             </div>
         </div>
@@ -353,22 +448,63 @@
             <div class="flex justify-center gap-6 mb-8 text-2xl">
                 <a href="#" class="text-slate-500 hover:text-sky-400 transition-colors"><i class="fa-brands fa-telegram"></i></a>
                 <a href="#" class="text-slate-500 hover:text-sky-400 transition-colors"><i class="fa-brands fa-github"></i></a>
-                <a href="#" class="text-slate-500 hover:text-sky-400 transition-colors"><i class="fa-brands fa-linkedin"></i></a>
+                <a href="#" class="text-slate-500 hover:text-sky-400 transition-colors"><i class="fa-brands fa-facebook"></i></a>
             </div>
             <p class="text-slate-600 text-sm">© 2026 TraderDev. Tất cả quyền được bảo lưu. Rủi ro giao dịch CFDs là có thật, hãy đầu tư có trách nhiệm.</p>
         </div>
     </footer>
 
     <script>
-        // Form submission prevention for demo
-        document.getElementById('projectForm').addEventListener('submit', function(e) {
+        // Form submission
+        document.getElementById('projectForm').addEventListener('submit', async function(e) {
             e.preventDefault();
-            const message = document.createElement('div');
-            message.className = 'fixed bottom-10 right-10 bg-emerald-500 text-white p-4 rounded-xl shadow-2xl z-[100] animate-bounce';
-            message.innerHTML = 'Yêu cầu của bạn đã được gửi đi! Tôi sẽ liên hệ sớm nhất.';
-            document.body.appendChild(message);
-            setTimeout(() => message.remove(), 3000);
-            this.reset();
+
+            // 1. Cấu hình thông tin Telegram
+            const telegramToken = 'YOUR_BOT_TOKEN_HERE'; // Thay bằng Token của bạn
+            const chatId = 'YOUR_CHAT_ID_HERE';       // Thay bằng Chat ID của bạn
+
+            // 2. Thu thập dữ liệu từ Form (Giả sử form có các input name: name, email, message)
+            const formData = new FormData(this);
+            const data = Object.fromEntries(formData.entries());
+
+            // 3. Nội dung tin nhắn gửi về Telegram (Sử dụng Markdown để đẹp hơn)
+            const text = `
+                🚀 **YÊU CẦU DỰ ÁN MỚI** 🚀
+                --------------------------
+                👤 **Khách hàng:** ${data.name || 'N/A'}
+                📧 **Email:** ${data.email || 'N/A'}
+                💬 **Nội dung:** ${data.message || 'N/A'}
+                --------------------------
+                📅 *Gửi từ Website cá nhân*
+            `;
+
+            try {
+                // 4. Gửi yêu cầu đến Telegram API
+                const response = await fetch(`https://api.telegram.org/bot${telegramToken}/sendMessage`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        chat_id: chatId,
+                        text: text,
+                        parse_mode: 'Markdown'
+                    })
+                });
+
+                if (response.ok) {
+                    // Hiển thị thông báo thành công
+                    const successMsg = document.createElement('div');
+                    successMsg.className = 'fixed bottom-10 right-10 bg-emerald-500 text-white p-4 rounded-xl shadow-2xl z-[100] animate-bounce';
+                    successMsg.innerHTML = '✅ Yêu cầu của bạn đã được gửi đi! Tôi sẽ liên hệ sớm nhất.';
+                    document.body.appendChild(successMsg);
+                    
+                    setTimeout(() => successMsg.remove(), 3000);
+                    this.reset();
+                } else {
+                    throw new Error('Gửi tin nhắn thất bại');
+                }
+            } catch (error) {
+                alert('Có lỗi xảy ra: ' + error.message);
+            }
         });
     </script>
 </body>

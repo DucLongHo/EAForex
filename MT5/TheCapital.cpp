@@ -166,7 +166,7 @@ void TrailingByProfitUSD(){
                 double profit = last_tick.bid - priceOpen;
                 double initialSL = priceOpen - distanceFromOpen;
                 
-                newSL = NormalizeDouble(initialSL + (profit * 2.0), _Digits);
+                newSL = NormalizeDouble(initialSL + (profit * 1.5), _Digits);
 
                 if(newSL >= currentSL + trailingStep && newSL < last_tick.bid){
                     Trade.PositionModify(ticket, newSL, currentTP);
@@ -178,7 +178,7 @@ void TrailingByProfitUSD(){
                 double profit = priceOpen - last_tick.ask;
                 double initialSL = priceOpen + distanceFromOpen;
                 
-                newSL = NormalizeDouble(initialSL - (profit * 2.0), _Digits);
+                newSL = NormalizeDouble(initialSL - (profit * 1.5), _Digits);
                 
 
                 if(newSL <= currentSL - trailingStep && newSL > last_tick.ask) {
@@ -201,7 +201,7 @@ void BUY(MqlRates &candle, bool hasTakeProfit = false){
     
     if(CountPositions("BUY") > 1 || checkEmaConditions("BUY", entry)){
         double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
-        lotSize = MathFloor((lotSize / lotStep) / 1.5) * lotStep;
+        lotSize = MathFloor((lotSize / lotStep) / 2) * lotStep;
     }
 
     if(hasTakeProfit){
@@ -227,7 +227,7 @@ void SELL(MqlRates &candle, bool hasTakeProfit = false){
     
     if(CountPositions("SELL") > 1 || checkEmaConditions("SELL", entry)){
         double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
-        lotSize = MathFloor((lotSize / lotStep) / 1.5) * lotStep;
+        lotSize = MathFloor((lotSize / lotStep) / 2) * lotStep;
     }
 
     if(hasTakeProfit){

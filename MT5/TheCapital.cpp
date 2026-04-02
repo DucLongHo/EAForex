@@ -12,8 +12,10 @@ input double RiskTrade = 100; // Rủi ro long trade (USD)
 
 //--- CẤU HÌNH GIAO DỊCH ---
 double RiskRewardRatio = 0.5; // Tỷ lệ Risk:Reward
-double MinDistanceSL = 1000; // Stop loss tối thiểu (Points)
-int TimeLeniency = 2; // Độ trễ cho việc kiểm tra thời gian đóng nến (giây)
+double MinDistanceSL = 2500; // Stop loss tối thiểu (Points)
+double RatioSLDistance = 0.5; // Tỷ lệ khoảng cách SL so với điểm vào lệnh
+
+int TimeLeniency = 1; // Độ trễ cho việc kiểm tra thời gian đóng nến (giây)
 //--- CẤU HÌNH THỜI GIAN SỬ DỤNG BOT ---
 const int DAYS30 = 2592000; // 30 ngày tính bằng giây
 datetime StartTimeBot = 0; // Biến lưu thời điểm bắt đầu chạy bot
@@ -189,7 +191,7 @@ void TrailingByProfitUSD(){
 
 void BUY(MqlRates &candle, bool hasTakeProfit = false){
     double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-    double slDistance = (entry - candle.low) * 0.75;
+    double slDistance = (entry - candle.low) * RatioSLDistance;
 
     double sl = entry - slDistance;
     double lotSize = GetLotSize(MathAbs(entry - sl));
@@ -216,7 +218,7 @@ void BUY(MqlRates &candle, bool hasTakeProfit = false){
 
 void SELL(MqlRates &candle, bool hasTakeProfit = false){
     double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-    double slDistance = (candle.high - entry) * 0.75;
+    double slDistance = (candle.high - entry) * RatioSLDistance;
     double sl = entry + slDistance;
     double lotSize = GetLotSize(MathAbs(entry - sl));
     

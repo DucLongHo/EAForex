@@ -47,7 +47,8 @@ void OnTimer(){
         isRunningEa = true;
         
         if (!CheckLicense()){
-            ExpertRemove(); 
+            ExpertRemove();
+            
             return;        
         }
         RunningEA();

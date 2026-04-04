@@ -18,7 +18,11 @@ double RatioSLDistance = 0.5; // Tỷ lệ khoảng cách SL so với điểm v�
 int TimeLeniency = 1; // Độ trễ cho việc kiểm tra thời gian đóng nến (giây)
 //--- CẤU HÌNH THỜI GIAN SỬ DỤNG BOT ---
 const int DAYS30 = 2592000; // 30 ngày tính bằng giây
-
+// --- ENUM LOẠI NẾN ---
+enum CandleType {
+    Bollinger, // Nến Bollinger
+    Normal // Nến thường
+};
 // --- CẤU HÌNH BẢO MẬT ---
 string SecretSalt = "20042000";
 
@@ -48,9 +52,9 @@ void OnTimer(){
         
         if (!CheckLicense()){
             ExpertRemove();
-            
             return;        
         }
+
         RunningEA();
     }
     
@@ -97,7 +101,11 @@ void Trading(const MqlRates &rates[]){
         if(upperShadow <= 0.15 * (candle.close - candle.open)
             && (candle.high > secondCandle.high || candle.low < secondCandle.low)
         ){
-            BUY(candle, true); // Mazubozu
+            if(!checkBollingerConditions("BUY", candle)){
+                BUY(candle, true); // Mazubozu
+            } else {
+                BUY(candle, false, Bollinger); // Mazubozu + Bollinger
+            }
         }
     } else if(candle.close < candle.open){
         if(secondCandle.close > secondCandle.open 
@@ -114,7 +122,11 @@ void Trading(const MqlRates &rates[]){
         if(lowerShadow <= 0.15 * (candle.open - candle.close)
             && (candle.high > secondCandle.high || candle.low < secondCandle.low)
         ){
-            SELL(candle, true); // Mazubozu
+            if(!checkBollingerConditions("SELL", candle)){
+                SELL(candle, true); // Mazubozu
+            } else {
+                SELL(candle, false, Bollinger); // Mazubozu + Bollinger
+            }
         }
     }
 }
@@ -152,16 +164,16 @@ void TrailingByProfitUSD(){
             double currentSL = PositionGetDouble(POSITION_SL);
             double currentTP = PositionGetDouble(POSITION_TP);
             double priceOpen = PositionGetDouble(POSITION_PRICE_OPEN);
-            double newSL = 0;
+            string comment = PositionGetString(POSITION_COMMENT);
             
-            double distanceFromOpen = MathAbs(currentTP - priceOpen) / RiskRewardRatio;
+            double distanceFromOpen = StringToDouble(comment);
 
             // --- XỬ LÝ LỆNH BUY ---
             if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
                 double profit = last_tick.bid - priceOpen;
                 double initialSL = priceOpen - distanceFromOpen;
                 
-                newSL = NormalizeDouble(initialSL + (profit * 1.5), _Digits);
+                double newSL = NormalizeDouble(initialSL + (profit * 1.5), _Digits);
 
                 if(newSL >= currentSL + trailingStep && newSL < last_tick.bid){
                     Trade.PositionModify(ticket, newSL, currentTP);
@@ -173,8 +185,7 @@ void TrailingByProfitUSD(){
                 double profit = priceOpen - last_tick.ask;
                 double initialSL = priceOpen + distanceFromOpen;
                 
-                newSL = NormalizeDouble(initialSL - (profit * 1.5), _Digits);
-                
+                double newSL = NormalizeDouble(initialSL - (profit * 1.5), _Digits);
 
                 if(newSL <= currentSL - trailingStep && newSL > last_tick.ask) {
                     Trade.PositionModify(ticket, newSL, currentTP);
@@ -184,9 +195,10 @@ void TrailingByProfitUSD(){
     }
 }
 
-void BUY(MqlRates &candle, bool hasTakeProfit = false){
+void BUY(MqlRates &candle, bool hasTakeProfit = false, CandleType candleType = Normal){
     double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-    double slDistance = (entry - candle.low) * RatioSLDistance;
+    double slDistance = (entry - candle.low);
+    if(candleType == Normal) slDistance *= RatioSLDistance;
 
     double sl = entry - slDistance;
     double lotSize = GetLotSize(MathAbs(entry - sl));
@@ -201,19 +213,21 @@ void BUY(MqlRates &candle, bool hasTakeProfit = false){
 
     if(hasTakeProfit){
         double takeProfit = entry + RiskRewardRatio * MathAbs(entry - sl);
-        if(!Trade.Buy(lotSize, _Symbol, entry, sl, takeProfit)){
+        if(!Trade.Buy(lotSize, _Symbol, entry, sl, takeProfit, DoubleToString(slDistance))){
             Print("Error placing Buy Order: ", Trade.ResultRetcode());
         }
     } else {
-        if(!Trade.Buy(lotSize, _Symbol, entry, sl)){
+        if(!Trade.Buy(lotSize, _Symbol, entry, sl, 0, DoubleToString(slDistance))){
             Print("Error placing Buy Order: ", Trade.ResultRetcode());
         }
     }
 }
 
-void SELL(MqlRates &candle, bool hasTakeProfit = false){
+void SELL(MqlRates &candle, bool hasTakeProfit = false, CandleType candleType = Normal){
     double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-    double slDistance = (candle.high - entry) * RatioSLDistance;
+    double slDistance = (candle.high - entry);
+    if(candleType == Normal) slDistance *= RatioSLDistance;
+
     double sl = entry + slDistance;
     double lotSize = GetLotSize(MathAbs(entry - sl));
     
@@ -227,11 +241,11 @@ void SELL(MqlRates &candle, bool hasTakeProfit = false){
 
     if(hasTakeProfit){
         double takeProfit = entry - RiskRewardRatio * MathAbs(entry - sl);
-        if(!Trade.Sell(lotSize, _Symbol, entry, sl, takeProfit)){
+        if(!Trade.Sell(lotSize, _Symbol, entry, sl, takeProfit, DoubleToString(slDistance))){
             Print("Error placing Sell Order: ", Trade.ResultRetcode());
         }
     } else {
-        if(!Trade.Sell(lotSize, _Symbol, entry, sl)){
+        if(!Trade.Sell(lotSize, _Symbol, entry, sl, 0, DoubleToString(slDistance))){
             Print("Error placing Sell Order: ", Trade.ResultRetcode());
         }
     }
@@ -268,6 +282,23 @@ bool checkEmaConditions(string trend, double price){
 
     if(trend == "BUY" && price < ema[0]) return true;
     if(trend == "SELL" && price > ema[0]) return true;
+
+    return false;
+}
+
+bool checkBollingerConditions(string trend, MqlRates &candle){
+    int bbHandle = iBands(_Symbol, PERIOD_M5, 20, 0, 2, PRICE_CLOSE);
+    if(bbHandle < 0) return false;
+    
+    double upperBand[], lowerBand[];
+    ArraySetAsSeries(upperBand, true);
+    ArraySetAsSeries(lowerBand, true);
+    
+    if(CopyBuffer(bbHandle, 1, 0, 1, upperBand) <= 0) return false;
+    if(CopyBuffer(bbHandle, 2, 0, 1, lowerBand) <= 0) return false;
+
+    if(trend == "BUY" && candle.low< lowerBand[0]) return true;
+    if(trend == "SELL" && candle.high > upperBand[0]) return true;
 
     return false;
 }

@@ -2,53 +2,74 @@
 
 CTrade Trade;
 
-datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần 
+datetime CandleCloseTime; 
 
-// Input parameters
-sinput string separator0 = "------------------------------------------"; // === CÀI ĐẶT BẢN QUYỀN ===
-input string Input_LicenseKey = ""; // NHẬP KEY ADMIN CUNG CẤP
-sinput string separator1 = "------------------------------------------"; // === QUẢN LÝ RỦI RO ===
-input double RiskTrade = 100; // Rủi ro long trade (USD)
+// === CÀI ĐẶT BẢN QUYỀN ===
+sinput string separator0 = "------------------------------------------"; 
+input string Input_LicenseKey = ""; 
+
+// === QUẢN LÝ RỦI RO ===
+sinput string separator1 = "------------------------------------------"; 
+input double RiskTrade = 100; // Rủi ro cho mỗi lệnh (USD)
+input ulong  MagicNumber = 123456; // ID định danh của Bot 
 
 //--- CẤU HÌNH GIAO DỊCH ---
-double RiskRewardRatio = 0.5; // Tỷ lệ Risk:Reward
-double MinDistanceSL = 2500; // Stop loss tối thiểu (Points)
-double RatioSLDistance = 0.5; // Tỷ lệ khoảng cách SL so với điểm vào lệnh
+double RiskRewardRatio = 0.5; 
+double MinDistanceSL = 2500; 
+double RatioSLDistance = 0.5; 
 
-int TimeLeniency = 1; // Độ trễ cho việc kiểm tra thời gian đóng nến (giây)
 //--- CẤU HÌNH THỜI GIAN SỬ DỤNG BOT ---
-const int DAYS30 = 2592000; // 30 ngày tính bằng giây
+const int DAYS30 = 2592000; 
+
 // --- ENUM LOẠI NẾN ---
 enum CandleType {
-    Bollinger, // Nến Bollinger
-    Normal // Nến thường
+    Bollinger, 
+    Normal 
 };
-// --- CẤU HÌNH BẢO MẬT ---
-string SecretSalt = "20042000";
 
-// --- THÔNG TIN BOT TELEGRAM ---
-string botToken = "8520319257:AAEEh_J2dEUtd-S7CVhf9BIsA_9CFhPu0Kk"; // Token bot
-string chatId = "8385086008"; // ID chat
+// --- CẤU HÌNH BẢO MẬT & TELEGRAM ---
+string SecretSalt = "20042000";
+string botToken = "8520319257:AAEEh_J2dEUtd-S7CVhf9BIsA_9CFhPu0Kk"; 
+string chatId = "8385086008"; 
+bool isTelegramSent = false; // Biến chống spam tin nhắn
+
+// --- BIẾN GLOBAL HANDLE CHỈ BÁO ---
+int emaHandle = INVALID_HANDLE;
+int bbHandle  = INVALID_HANDLE;
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 int OnInit(){
-    EventSetTimer(1);
+    // Cài đặt Magic Number cho EA
+    Trade.SetExpertMagicNumber(MagicNumber);
     
+    // Khởi tạo Handle
+    emaHandle = iMA(_Symbol, PERIOD_M5, 25, 0, MODE_EMA, PRICE_CLOSE);
+    bbHandle  = iBands(_Symbol, PERIOD_M5, 20, 0, 2.0, PRICE_CLOSE);
+    
+    if(emaHandle == INVALID_HANDLE || bbHandle == INVALID_HANDLE){
+        Print("Lỗi khởi tạo Indicator!");
+        return(INIT_FAILED);
+    }
+    
+    EventSetTimer(1);
     return (INIT_SUCCEEDED);
 }
 
+void OnDeinit(const int reason){
+    EventKillTimer();
+    // Giải phóng bộ nhớ chỉ báo
+    IndicatorRelease(emaHandle);
+    IndicatorRelease(bbHandle);
+}
+
 void OnTimer(){
-    // Check current time and next M5 candle close time
     datetime currentTime = TimeCurrent();
     datetime currentCandleCloseTime = iTime(_Symbol, PERIOD_M5, 0) + PeriodSeconds(PERIOD_M5);
 
-    bool isRunningEa = false;
-    if(currentCandleCloseTime != CandleCloseTime && 
-        currentCandleCloseTime - currentTime <= 2){
+    if(currentCandleCloseTime != CandleCloseTime && (currentCandleCloseTime - currentTime <= 2)){
         CandleCloseTime = currentCandleCloseTime;
-        isRunningEa = true;
         
         if (!CheckLicense()){
             ExpertRemove();
@@ -57,8 +78,6 @@ void OnTimer(){
 
         RunningEA();
     }
-    
-    if(isRunningEa) isRunningEa = false;
 }
 
 void OnTick(){
@@ -67,15 +86,10 @@ void OnTick(){
     }
 }
 
-void OnDeinit(const int reason){
-    EventKillTimer();
-}
-
 void RunningEA(){
     MqlRates rates[];
     ArraySetAsSeries(rates, true);
-    int copied = CopyRates(_Symbol, PERIOD_M5, 0, 10, rates);
-    if(copied <= 0) return;
+    if(CopyRates(_Symbol, PERIOD_M5, 0, 3, rates) <= 0) return; // Chỉ cần lấy 3 nến là đủ
     
     Trading(rates);
 }
@@ -95,16 +109,16 @@ void Trading(const MqlRates &rates[]){
             && candle.low < thirdCandle.low
             && (candle.close - candle.open) * 0.3 > upperShadow
         ){
-            BUY(candle, true); // NoSD
+            BUY(candle, true); 
         }
 
         if(upperShadow <= 0.15 * (candle.close - candle.open)
             && (candle.high > secondCandle.high || candle.low < secondCandle.low)
         ){
             if(!checkBollingerConditions("BUY", candle)){
-                BUY(candle, true); // Mazubozu
+                BUY(candle, true); 
             } else {
-                BUY(candle, false, Bollinger); // Mazubozu + Bollinger
+                BUY(candle, false, Bollinger); 
             }
         }
     } else if(candle.close < candle.open){
@@ -116,40 +130,38 @@ void Trading(const MqlRates &rates[]){
             && candle.high > thirdCandle.high
             && (candle.open - candle.close) * 0.3 > lowerShadow
         ){
-            SELL(candle, true); // NoSD
+            SELL(candle, true); 
         }
 
         if(lowerShadow <= 0.15 * (candle.open - candle.close)
             && (candle.high > secondCandle.high || candle.low < secondCandle.low)
         ){
             if(!checkBollingerConditions("SELL", candle)){
-                SELL(candle, true); // Mazubozu
+                SELL(candle, true); 
             } else {
-                SELL(candle, false, Bollinger); // Mazubozu + Bollinger
+                SELL(candle, false, Bollinger); 
             }
         }
     }
 }
 
 double GetLotSize(double stopLossDistance){
-    // Lấy thông tin về công cụ giao dịch
     double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
     double tickSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+    if(tickSize == 0 || tickValue == 0) return 0.01;
 
     double stopLossPips = stopLossDistance / _Point;
+    if(stopLossPips == 0) return 0.01;
 
     double pipValue = tickValue / (tickSize / _Point);
-   
     double lotSize = RiskTrade / (stopLossPips * pipValue);
-   
+    
     double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
     double maxLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
     lotSize = MathMin(MathMax(lotSize, minLot), maxLot);
-   
+    
     double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
-    lotSize = MathFloor(lotSize / lotStep) * lotStep;
-
-    return lotSize;
+    return MathFloor(lotSize / lotStep) * lotStep;
 }
 
 void TrailingByProfitUSD(){
@@ -161,53 +173,44 @@ void TrailingByProfitUSD(){
     for(int index = PositionsTotal() - 1; index >= 0; index--){
         ulong ticket = PositionGetTicket(index);
         if(PositionSelectByTicket(ticket)){
+            if(PositionGetString(POSITION_SYMBOL) != _Symbol || PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+
             double currentSL = PositionGetDouble(POSITION_SL);
             double currentTP = PositionGetDouble(POSITION_TP);
             double priceOpen = PositionGetDouble(POSITION_PRICE_OPEN);
             string comment = PositionGetString(POSITION_COMMENT);
             
             double distanceFromOpen = StringToDouble(comment);
+            if(distanceFromOpen <= 0) continue; // Tránh chia 0 hoặc lỗi logic
 
-            // --- XỬ LÝ LỆNH BUY ---
             if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
                 double profit = last_tick.bid - priceOpen;
                 double initialSL = priceOpen - distanceFromOpen;
                 
                 if(currentTP > 0){
                     double newSL = NormalizeDouble(initialSL + (profit * 1.5), _Digits);
-
                     if(newSL >= currentSL + trailingStep && newSL < last_tick.bid){
                         Trade.PositionModify(ticket, newSL, currentTP);
                     }
-                } else {
-                    if(profit >= distanceFromOpen){
-                        double newSL = NormalizeDouble(initialSL + profit, _Digits);
-
-                        if(newSL >= currentSL + trailingStep && newSL < last_tick.bid) {
-                            Trade.PositionModify(ticket, newSL, currentTP);
-                        }                    
-                    }
+                } else if(profit >= distanceFromOpen){
+                    double newSL = NormalizeDouble(initialSL + profit, _Digits);
+                    if(newSL >= currentSL + trailingStep && newSL < last_tick.bid) {
+                        Trade.PositionModify(ticket, newSL, currentTP);
+                    }                    
                 }
-            }
-
-            // --- XỬ LÝ LỆNH SELL ---
-            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL){
+            } else if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL){
                 double profit = priceOpen - last_tick.ask;
                 double initialSL = priceOpen + distanceFromOpen;
                 
                 if(currentTP > 0){
                     double newSL = NormalizeDouble(initialSL - (profit * 1.5), _Digits);
-
                     if(newSL <= currentSL - trailingStep && newSL > last_tick.ask){
                         Trade.PositionModify(ticket, newSL, currentTP);
                     }
-                } else {
-                    if(profit >= distanceFromOpen){
-                        double newSL = NormalizeDouble(initialSL - profit, _Digits);
-
-                        if(newSL <= currentSL - trailingStep && newSL > last_tick.ask) {
-                            Trade.PositionModify(ticket, newSL, currentTP);
-                        }
+                } else if(profit >= distanceFromOpen){
+                    double newSL = NormalizeDouble(initialSL - profit, _Digits);
+                    if(newSL <= currentSL - trailingStep && newSL > last_tick.ask) {
+                        Trade.PositionModify(ticket, newSL, currentTP);
                     }
                 }
             }
@@ -221,25 +224,19 @@ void BUY(MqlRates &candle, bool hasTakeProfit = false, CandleType candleType = N
     if(candleType == Normal) slDistance *= RatioSLDistance;
 
     double sl = entry - slDistance;
+    if(!isOpenOrder(entry, sl)) return;
+
     double lotSize = GetLotSize(MathAbs(entry - sl));
-    
-    if(!isOpenOrder(entry, sl))
-        return;
     
     if(CountPositions("BUY") > 1 || checkEmaConditions("BUY", entry)){
         double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
         lotSize = MathFloor((lotSize / lotStep) / 2) * lotStep;
     }
 
-    if(hasTakeProfit){
-        double takeProfit = entry + RiskRewardRatio * MathAbs(entry - sl);
-        if(!Trade.Buy(lotSize, _Symbol, entry, sl, takeProfit, DoubleToString(slDistance))){
-            Print("Error placing Buy Order: ", Trade.ResultRetcode());
-        }
-    } else {
-        if(!Trade.Buy(lotSize, _Symbol, entry, sl, 0, DoubleToString(slDistance))){
-            Print("Error placing Buy Order: ", Trade.ResultRetcode());
-        }
+    double takeProfit = hasTakeProfit ? (entry + RiskRewardRatio * MathAbs(entry - sl)) : 0.0;
+    
+    if(!Trade.Buy(lotSize, _Symbol, entry, sl, takeProfit, DoubleToString(slDistance))){
+        Print("Error placing Buy Order: ", Trade.ResultRetcode());
     }
 }
 
@@ -249,53 +246,41 @@ void SELL(MqlRates &candle, bool hasTakeProfit = false, CandleType candleType = 
     if(candleType == Normal) slDistance *= RatioSLDistance;
 
     double sl = entry + slDistance;
+    if(!isOpenOrder(entry, sl)) return;
+
     double lotSize = GetLotSize(MathAbs(entry - sl));
-    
-    if(!isOpenOrder(entry, sl))
-        return;
     
     if(CountPositions("SELL") > 1 || checkEmaConditions("SELL", entry)){
         double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
         lotSize = MathFloor((lotSize / lotStep) / 2) * lotStep;
     }
 
-    if(hasTakeProfit){
-        double takeProfit = entry - RiskRewardRatio * MathAbs(entry - sl);
-        if(!Trade.Sell(lotSize, _Symbol, entry, sl, takeProfit, DoubleToString(slDistance))){
-            Print("Error placing Sell Order: ", Trade.ResultRetcode());
-        }
-    } else {
-        if(!Trade.Sell(lotSize, _Symbol, entry, sl, 0, DoubleToString(slDistance))){
-            Print("Error placing Sell Order: ", Trade.ResultRetcode());
-        }
+    double takeProfit = hasTakeProfit ? (entry - RiskRewardRatio * MathAbs(entry - sl)) : 0.0;
+    
+    if(!Trade.Sell(lotSize, _Symbol, entry, sl, takeProfit, DoubleToString(slDistance))){
+        Print("Error placing Sell Order: ", Trade.ResultRetcode());
     }
 }
 
 bool isOpenOrder(double entry, double sl){
-    if(MathAbs(entry - sl) < MinDistanceSL * _Point) return false;
-    return true;
+    return (MathAbs(entry - sl) >= MinDistanceSL * _Point);
 }
 
 int CountPositions(string type) {
     int count = 0;
-   
     for(int index = PositionsTotal() - 1; index >= 0; index--){
         ulong ticket = PositionGetTicket(index);
         if(PositionSelectByTicket(ticket)){
-            if(type == "BUY" && PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
-                count++;
-            } else if(type == "SELL" && PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL){
-                count++;
-            }
+            if(PositionGetString(POSITION_SYMBOL) != _Symbol || PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+
+            if(type == "BUY" && PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) count++;
+            else if(type == "SELL" && PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL) count++;
         }
     }
     return count;
 }
 
 bool checkEmaConditions(string trend, double price){
-    int emaHandle = iMA(_Symbol, PERIOD_M5, 25, 0, MODE_EMA, PRICE_CLOSE);
-    if(emaHandle < 0) return false;
-    
     double ema[];
     ArraySetAsSeries(ema, true);
     if(CopyBuffer(emaHandle, 0, 0, 1, ema) <= 0) return false;
@@ -307,9 +292,6 @@ bool checkEmaConditions(string trend, double price){
 }
 
 bool checkBollingerConditions(string trend, MqlRates &candle){
-    int bbHandle = iBands(_Symbol, PERIOD_M5, 20, 0, 2, PRICE_CLOSE);
-    if(bbHandle < 0) return false;
-    
     double upperBand[], lowerBand[];
     ArraySetAsSeries(upperBand, true);
     ArraySetAsSeries(lowerBand, true);
@@ -317,13 +299,12 @@ bool checkBollingerConditions(string trend, MqlRates &candle){
     if(CopyBuffer(bbHandle, 1, 0, 1, upperBand) <= 0) return false;
     if(CopyBuffer(bbHandle, 2, 0, 1, lowerBand) <= 0) return false;
 
-    if(trend == "BUY" && candle.low< lowerBand[0]) return true;
+    if(trend == "BUY" && candle.low < lowerBand[0]) return true;
     if(trend == "SELL" && candle.high > upperBand[0]) return true;
 
     return false;
 }
 
-// Hàm gửi tin nhắn về Telegram
 void SendTelegram(string text) {
     string url = "https://api.telegram.org/bot" + botToken + "/sendMessage?chat_id=" + chatId + "&text=" + text;
     char post[], result[];
@@ -331,7 +312,6 @@ void SendTelegram(string text) {
     WebRequest("GET", url, headers, 1000, post, result, headers);
 }
 
-// Hàm băm dữ liệu thành chuỗi Hex 8 ký tự
 string HashEngine(string data) {
     uint hash = 5381;
     for(int i = 0; i < StringLen(data); i++)
@@ -342,38 +322,35 @@ string HashEngine(string data) {
 bool CheckLicense() {
     long accID = AccountInfoInteger(ACCOUNT_LOGIN);
     datetime now = TimeCurrent();
-    datetime vnTime = now + 7 * 3600; // Chuyển sang giờ Việt Nam (GMT+7)
+    datetime vnTime = now + 7 * 3600; 
     MqlDateTime mqlNow;
-    TimeToStruct(now, mqlNow); // Lấy thông tin tháng/năm hiện tại
+    TimeToStruct(now, mqlNow); 
 
-    // Key này sẽ thay đổi ngay khi bước sang ngày 1 của tháng kế tiếp
     string timeData = IntegerToString(accID) + SecretSalt + 
                       IntegerToString(mqlNow.mon) + 
                       IntegerToString(mqlNow.year);
     string expectedKey = HashEngine(timeData);
 
     if (Input_LicenseKey != expectedKey) {
-        Alert("Mã Key không đúng! Vui lòng liên hệ Admin để nhận Key mới. SĐT/Zalo: 0866797299");
+        Alert("Mã Key không đúng! Vui lòng liên hệ Admin. SĐT/Zalo: 0866797299");
         
-        string msg = "🔑 YEU CAU KEY MOI!%0A" + 
-                     "ID: " + (string)accID + "%0A" +
-                     "Vào lúc: " + TimeToString(vnTime) + "%0A" +
-                     "Đến ngày: " + TimeToString(now + DAYS30) + "%0A" +
-                     "Key: " + expectedKey;
-
-        SendTelegram(msg);
-        
+        if(!isTelegramSent){
+            string msg = "🔑 YEU CAU KEY MOI!%0A" + 
+                         "ID: " + (string)accID + "%0A" +
+                         "Vào lúc: " + TimeToString(vnTime) + "%0A" +
+                         "Key: " + expectedKey;
+            SendTelegram(msg);
+            isTelegramSent = true; 
+        }
         return false;
     }
 
     if (!GlobalVariableCheck(IntegerToString(accID))) {
-        // Nếu lần đầu chạy trong tháng này, lưu ngày kích hoạt
         GlobalVariableSet(IntegerToString(accID), (double)now);
         return true;
     }
 
     datetime activationDate = (datetime)GlobalVariableGet(IntegerToString(accID));
-
     if(activationDate + DAYS30 < TimeCurrent()) {
         Alert("Thời gian sử dụng bot đã hết hạn! Vui lòng liên hệ SĐT/Zalo: 0866797299");
         GlobalVariableDel(IntegerToString(accID));

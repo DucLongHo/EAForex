@@ -173,10 +173,20 @@ void TrailingByProfitUSD(){
                 double profit = last_tick.bid - priceOpen;
                 double initialSL = priceOpen - distanceFromOpen;
                 
-                double newSL = NormalizeDouble(initialSL + (profit * 1.5), _Digits);
+                if(currentTP > 0){
+                    double newSL = NormalizeDouble(initialSL + (profit * 1.5), _Digits);
 
-                if(newSL >= currentSL + trailingStep && newSL < last_tick.bid){
-                    Trade.PositionModify(ticket, newSL, currentTP);
+                    if(newSL >= currentSL + trailingStep && newSL < last_tick.bid){
+                        Trade.PositionModify(ticket, newSL, currentTP);
+                    }
+                } else {
+                    if(profit >= distanceFromOpen){
+                        double newSL = NormalizeDouble(initialSL + profit, _Digits);
+
+                        if(newSL >= currentSL + trailingStep && newSL < last_tick.bid) {
+                            Trade.PositionModify(ticket, newSL, currentTP);
+                        }                    
+                    }
                 }
             }
 
@@ -185,10 +195,20 @@ void TrailingByProfitUSD(){
                 double profit = priceOpen - last_tick.ask;
                 double initialSL = priceOpen + distanceFromOpen;
                 
-                double newSL = NormalizeDouble(initialSL - (profit * 1.5), _Digits);
+                if(currentTP > 0){
+                    double newSL = NormalizeDouble(initialSL - (profit * 1.5), _Digits);
 
-                if(newSL <= currentSL - trailingStep && newSL > last_tick.ask) {
-                    Trade.PositionModify(ticket, newSL, currentTP);
+                    if(newSL <= currentSL - trailingStep && newSL > last_tick.ask){
+                        Trade.PositionModify(ticket, newSL, currentTP);
+                    }
+                } else {
+                    if(profit >= distanceFromOpen){
+                        double newSL = NormalizeDouble(initialSL - profit, _Digits);
+
+                        if(newSL <= currentSL - trailingStep && newSL > last_tick.ask) {
+                            Trade.PositionModify(ticket, newSL, currentTP);
+                        }
+                    }
                 }
             }
         }

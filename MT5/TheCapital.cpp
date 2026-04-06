@@ -8,7 +8,7 @@ sinput string separator0 = "------------------------------------------"; // === 
 input string Input_LicenseKey = ""; // NHẬP KEY ADMIN CUNG CẤP
 sinput string separator1 = "------------------------------------------"; // === QUẢN LÝ RỦI RO ===
 input double RiskTrade = 100; // Rủi ro cho mỗi lệnh (USD)
-input ulong  MagicNumber = 123456; // ID định danh của Bot 
+ulong  MagicNumber = 123456; // ID định danh của Bot 
 
 //--- CẤU HÌNH GIAO DỊCH ---
 double RiskRewardRatio = 0.5; 

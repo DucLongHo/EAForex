@@ -322,7 +322,6 @@ string HashEngine(string data) {
 bool CheckLicense() {
     long accID = AccountInfoInteger(ACCOUNT_LOGIN);
     datetime now = TimeCurrent();
-    datetime vnTime = now + 7 * 3600; 
     MqlDateTime mqlNow;
     TimeToStruct(now, mqlNow); 
 
@@ -337,7 +336,6 @@ bool CheckLicense() {
         if(!isTelegramSent){
             string msg = "🔑 YEU CAU KEY MOI!%0A" + 
                          "ID: " + (string)accID + "%0A" +
-                         "Vào lúc: " + TimeToString(vnTime) + "%0A" +
                          "Key: " + expectedKey;
             SendTelegram(msg);
             isTelegramSent = true; 

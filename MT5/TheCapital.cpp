@@ -107,9 +107,7 @@ void Trading(const MqlRates &rates[]){
             && (candle.close - candle.open) * 0.3 > upperShadow
         ){
             BUY(candle, true); 
-        }
-
-        if(upperShadow <= 0.15 * (candle.close - candle.open)
+        } else if(upperShadow <= 0.15 * (candle.close - candle.open)
             && (candle.high > secondCandle.high || candle.low < secondCandle.low)
         ){
             if(!checkBollingerConditions("BUY", candle)){
@@ -128,9 +126,7 @@ void Trading(const MqlRates &rates[]){
             && (candle.open - candle.close) * 0.3 > lowerShadow
         ){
             SELL(candle, true); 
-        }
-
-        if(lowerShadow <= 0.15 * (candle.open - candle.close)
+        } else if(lowerShadow <= 0.15 * (candle.open - candle.close)
             && (candle.high > secondCandle.high || candle.low < secondCandle.low)
         ){
             if(!checkBollingerConditions("SELL", candle)){

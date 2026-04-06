@@ -4,12 +4,9 @@ CTrade Trade;
 
 datetime CandleCloseTime; 
 
-// === CÀI ĐẶT BẢN QUYỀN ===
-sinput string separator0 = "------------------------------------------"; 
-input string Input_LicenseKey = "";  // Key bản quyền (Liên hệ Admin để lấy Key mới)
-
-// === QUẢN LÝ RỦI RO ===
-sinput string separator1 = "------------------------------------------"; 
+sinput string separator0 = "------------------------------------------"; // === CÀI ĐẶT BẢN QUYỀN ===
+input string Input_LicenseKey = ""; // NHẬP KEY ADMIN CUNG CẤP
+sinput string separator1 = "------------------------------------------"; // === QUẢN LÝ RỦI RO ===
 input double RiskTrade = 100; // Rủi ro cho mỗi lệnh (USD)
 input ulong  MagicNumber = 123456; // ID định danh của Bot 
 

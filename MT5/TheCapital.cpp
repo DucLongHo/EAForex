@@ -6,7 +6,7 @@ datetime CandleCloseTime;
 
 // === CÀI ĐẶT BẢN QUYỀN ===
 sinput string separator0 = "------------------------------------------"; 
-input string Input_LicenseKey = ""; 
+input string Input_LicenseKey = "";  // Key bản quyền (Liên hệ Admin để lấy Key mới)
 
 // === QUẢN LÝ RỦI RO ===
 sinput string separator1 = "------------------------------------------"; 

@@ -103,14 +103,14 @@ void Trading(const MqlRates &rates[]){
             && candle.low < thirdCandle.low
             && (candle.close - candle.open) * 0.3 > upperShadow
         ){
-            BUY(candle); 
+            BUY(candle, true); 
         } else if(upperShadow <= 0.15 * (candle.close - candle.open)
             && (candle.high > secondCandle.high || candle.low < secondCandle.low)
         ){
             if(!checkBollingerConditions("BUY", candle)){
-                BUY(candle); 
+                BUY(candle, true); 
             } else {
-                BUY(candle, Bollinger); 
+                BUY(candle, false, Bollinger); 
             }
         }
     } else if(candle.close < candle.open){
@@ -122,14 +122,14 @@ void Trading(const MqlRates &rates[]){
             && candle.high > thirdCandle.high
             && (candle.open - candle.close) * 0.3 > lowerShadow
         ){
-            SELL(candle); 
+            SELL(candle, true); 
         } else if(lowerShadow <= 0.15 * (candle.open - candle.close)
             && (candle.high > secondCandle.high || candle.low < secondCandle.low)
         ){
             if(!checkBollingerConditions("SELL", candle)){
-                SELL(candle); 
+                SELL(candle, true); 
             } else {
-                SELL(candle, Bollinger); 
+                SELL(candle, false, Bollinger); 
             }
         }
     }
@@ -166,6 +166,7 @@ void TrailingByProfitUSD(){
             if(PositionGetString(POSITION_SYMBOL) != _Symbol || PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
 
             double currentSL = PositionGetDouble(POSITION_SL);
+            double currentTP = PositionGetDouble(POSITION_TP);
             double priceOpen = PositionGetDouble(POSITION_PRICE_OPEN);
             string comment = PositionGetString(POSITION_COMMENT);
             
@@ -175,40 +176,31 @@ void TrailingByProfitUSD(){
             if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
                 double profit = last_tick.bid - priceOpen;
                 double initialSL = priceOpen - distanceFromOpen;
-
-                // Nếu lãi được 0.5R thì BE
-                if(profit >= distanceFromOpen/2 && currentSL < priceOpen){
-                    double newSL = priceOpen + 50 * _Point;
-                    Trade.PositionModify(ticket, newSL);                
-                }
-                // Nếu lãi được 1R thì chốt một nửa và giữ phần còn lại chạy tiếp
-                if(profit >= distanceFromOpen && currentSL > priceOpen){
-                    CloseHalfVolume(ticket, currentSL, last_tick.bid);
-                }
-                // Sau khi chốt một nửa thì bắt đầu trailing stop với khoảng cách 0.5R
-                if(profit >= distanceFromOpen && currentSL > priceOpen){
-                    double newSL = last_tick.bid - distanceFromOpen/2;
-                    if(newSL > currentSL + trailingStep && newSL < last_tick.bid){
-                        Trade.PositionModify(ticket, newSL);
+                
+                if(currentTP > 0){
+                    double newSL = NormalizeDouble(initialSL + profit, _Digits);
+                    if(newSL >= currentSL + trailingStep && newSL < last_tick.bid){
+                        Trade.PositionModify(ticket, newSL, currentTP);
                     }
+                } else if(profit >= distanceFromOpen){
+                    double newSL = NormalizeDouble(initialSL + profit, _Digits);
+                    if(newSL >= currentSL + trailingStep && newSL < last_tick.bid) {
+                        Trade.PositionModify(ticket, newSL, currentTP);
+                    }                    
                 }
             } else if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL){
                 double profit = priceOpen - last_tick.ask;
                 double initialSL = priceOpen + distanceFromOpen;
-                // Nếu lãi được 0.5R thì BE
-                if(profit >= distanceFromOpen/2 && currentSL > priceOpen){
-                    double newSL = priceOpen - 50 * _Point;
-                    Trade.PositionModify(ticket, newSL);
-                }
-                // Nếu lãi được 1R thì chốt một nửa và giữ phần còn lại chạy tiếp
-                if(profit >= distanceFromOpen && currentSL < priceOpen){
-                    CloseHalfVolume(ticket, currentSL, last_tick.ask);
-                }
-                // Sau khi chốt một nửa thì bắt đầu trailing stop với khoảng cách 0.5R
-                if(profit >= distanceFromOpen && currentSL < priceOpen){
-                    double newSL = last_tick.ask + distanceFromOpen/2;
-                    if(newSL < currentSL - trailingStep && newSL > last_tick.ask){
-                        Trade.PositionModify(ticket, newSL);
+                
+                if(currentTP > 0){
+                    double newSL = NormalizeDouble(initialSL - profit, _Digits);
+                    if(newSL <= currentSL - trailingStep && newSL > last_tick.ask){
+                        Trade.PositionModify(ticket, newSL, currentTP);
+                    }
+                } else if(profit >= distanceFromOpen){
+                    double newSL = NormalizeDouble(initialSL - profit, _Digits);
+                    if(newSL <= currentSL - trailingStep && newSL > last_tick.ask) {
+                        Trade.PositionModify(ticket, newSL, currentTP);
                     }
                 }
             }
@@ -216,7 +208,7 @@ void TrailingByProfitUSD(){
     }
 }
 
-void BUY(MqlRates &candle, CandleType candleType = Normal){
+void BUY(MqlRates &candle, bool hasTakeProfit = false, CandleType candleType = Normal){
     double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
     double slDistance = (entry - candle.low);
     if(candleType == Normal) slDistance *= RatioSLDistance;
@@ -231,13 +223,14 @@ void BUY(MqlRates &candle, CandleType candleType = Normal){
         lotSize = MathFloor((lotSize / lotStep) / 2) * lotStep;
     }
 
+    double takeProfit = hasTakeProfit ? (entry + RiskRewardRatio * MathAbs(entry - sl)) : 0.0;
     
-    if(!Trade.Buy(lotSize, _Symbol, entry, sl, 0, DoubleToString(slDistance))){
+    if(!Trade.Buy(lotSize, _Symbol, entry, sl, takeProfit, DoubleToString(slDistance))){
         Print("Error placing Buy Order: ", Trade.ResultRetcode());
     }
 }
 
-void SELL(MqlRates &candle, CandleType candleType = Normal){
+void SELL(MqlRates &candle, bool hasTakeProfit = false, CandleType candleType = Normal){
     double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
     double slDistance = (candle.high - entry);
     if(candleType == Normal) slDistance *= RatioSLDistance;
@@ -251,8 +244,10 @@ void SELL(MqlRates &candle, CandleType candleType = Normal){
         double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
         lotSize = MathFloor((lotSize / lotStep) / 2) * lotStep;
     }
+
+    double takeProfit = hasTakeProfit ? (entry - RiskRewardRatio * MathAbs(entry - sl)) : 0.0;
     
-    if(!Trade.Sell(lotSize, _Symbol, entry, sl, 0, DoubleToString(slDistance))){
+    if(!Trade.Sell(lotSize, _Symbol, entry, sl, takeProfit, DoubleToString(slDistance))){
         Print("Error placing Sell Order: ", Trade.ResultRetcode());
     }
 }
@@ -342,44 +337,4 @@ bool CheckLicense() {
     }
 
     return true;
-}
-
-void CloseHalfVolume(long ticket, double stoploss, double price) {
-    if(PositionSelectByTicket(ticket)){
-        double currentVolume = PositionGetDouble(POSITION_VOLUME);
-        
-        double halfVolume = NormalizeDouble(currentVolume / 2.0, 2);
-        
-        MqlTradeRequest request = {};
-        MqlTradeResult result = {};
-            
-        request.action = TRADE_ACTION_DEAL;
-        request.symbol = _Symbol;
-        request.volume = halfVolume;
-        request.type = (PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) ? ORDER_TYPE_SELL : ORDER_TYPE_BUY;
-        request.price = price;
-        request.position = ticket;
-        request.deviation = 10;
-        
-        if(!OrderSend(request, result)) {
-            Print("Failed to close half position. Error: ", GetLastError());
-        } else if(!Trade.PositionModify(ticket, stoploss)) {
-                Print("Failed to modify position #", ticket, ". Error: ", GetLastError());
-        }
-    }
-}
-
-bool IsPartiallyClosed(ulong position_id) {
-    if(HistorySelectByPosition(position_id)) {
-        int deals = HistoryDealsTotal();
-        for(int i = 0; i < deals; i++) {
-            ulong deal_ticket = HistoryDealGetTicket(i);
-            long entry_type = HistoryDealGetInteger(deal_ticket, DEAL_ENTRY);
-            
-            if(entry_type == DEAL_ENTRY_OUT || entry_type == DEAL_ENTRY_INOUT) {
-                return true;
-            }
-        }
-    }
-    return false;
 }

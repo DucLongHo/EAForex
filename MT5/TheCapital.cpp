@@ -11,7 +11,7 @@ input double RiskTrade = 100; // Rủi ro cho mỗi lệnh (USD)
 ulong  MagicNumber = 123456; // ID định danh của Bot 
 
 //--- CẤU HÌNH GIAO DỊCH ---
-double RiskRewardRatio = 1; 
+double RiskRewardRatio = 0.5; 
 double MinDistanceSL = 2500; 
 double MaxDistanceSL = 5000;
 
@@ -59,9 +59,9 @@ void OnDeinit(const int reason){
 
 void OnTimer(){
     datetime currentTime = TimeCurrent();
-    datetime currentCandleCloseTime = iTime(_Symbol, PERIOD_M5, 1) + PeriodSeconds(PERIOD_M5);
+    datetime currentCandleCloseTime = iTime(_Symbol, PERIOD_M5, 0) + PeriodSeconds(PERIOD_M5);
 
-    if(currentCandleCloseTime != CandleCloseTime && currentCandleCloseTime <= currentTime){
+    if(currentCandleCloseTime != CandleCloseTime && (currentCandleCloseTime - currentTime <= 1)){
         CandleCloseTime = currentCandleCloseTime;
         
         if (!CheckLicense()){
@@ -82,13 +82,13 @@ void OnTick(){
 void RunningEA(){
     MqlRates rates[];
     ArraySetAsSeries(rates, true);
-    if(CopyRates(_Symbol, PERIOD_M5, 0, 4, rates) <= 0) return; // Chỉ cần lấy 4 nến là đủ
+    if(CopyRates(_Symbol, PERIOD_M5, 0, 3, rates) <= 0) return; // Chỉ cần lấy 3 nến là đủ
     
     Trading(rates);
 }
 
 void Trading(const MqlRates &rates[]){
-    MqlRates candle = rates[1], secondCandle = rates[2], thirdCandle = rates[3];
+    MqlRates candle = rates[0], secondCandle = rates[1], thirdCandle = rates[2];
     
     double upperShadow = candle.high - MathMax(candle.open, candle.close);
     double lowerShadow = MathMin(candle.open, candle.close) - candle.low;
@@ -252,7 +252,7 @@ void SELL(MqlRates &candle, bool hasTakeProfit = false, CandleType candleType = 
 }
 
 bool isOpenOrder(double entry, double sl){
-    return (MathAbs(entry - sl) >= MinDistanceSL * _Point) ;
+    return (MathAbs(entry - sl) >= MinDistanceSL * _Point) && (MathAbs(entry - sl) <= MaxDistanceSL * _Point);
 }
 
 int CountPositions(string type) {

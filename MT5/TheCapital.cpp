@@ -24,11 +24,8 @@ enum CandleType {
     Normal 
 };
 
-// --- CẤU HÌNH BẢO MẬT & TELEGRAM ---
+// --- CẤU HÌNH BẢO MẬT ---
 string SecretSalt = "20042000";
-string botToken = "8520319257:AAEEh_J2dEUtd-S7CVhf9BIsA_9CFhPu0Kk"; 
-string chatId = "8385086008"; 
-bool isTelegramSent = false; // Biến chống spam tin nhắn
 
 // --- BIẾN GLOBAL HANDLE CHỈ BÁO ---
 int bbHandle = INVALID_HANDLE;
@@ -286,13 +283,6 @@ bool checkBollingerConditions(string trend, MqlRates &candle){
     return false;
 }
 
-void SendTelegram(string text) {
-    string url = "https://api.telegram.org/bot" + botToken + "/sendMessage?chat_id=" + chatId + "&text=" + text;
-    char post[], result[];
-    string headers;
-    WebRequest("GET", url, headers, 1000, post, result, headers);
-}
-
 string HashEngine(string data) {
     uint hash = 5381;
     for(int i = 0; i < StringLen(data); i++)
@@ -313,14 +303,6 @@ bool CheckLicense() {
 
     if (Input_LicenseKey != expectedKey) {
         Alert("Mã Key không đúng! Vui lòng liên hệ Admin. SĐT/Zalo: 0866797299");
-        
-        if(!isTelegramSent){
-            string msg = "🔑 YEU CAU KEY MOI!%0A" + 
-                         "ID: " + (string)accID + "%0A" +
-                         "Key: " + expectedKey;
-            SendTelegram(msg);
-            isTelegramSent = true; 
-        }
         return false;
     }
 

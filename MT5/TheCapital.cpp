@@ -11,7 +11,7 @@ input double RiskTrade = 100; // Rủi ro cho mỗi lệnh (USD)
 ulong  MagicNumber = 123456; // ID định danh của Bot 
 
 //--- CẤU HÌNH GIAO DỊCH ---
-double RiskRewardRatio = 0.5; 
+double RiskRewardRatio = 1; 
 double MinDistanceSL = 2500; 
 double RatioSLDistance = 0.5; 
 
@@ -31,8 +31,7 @@ string chatId = "8385086008";
 bool isTelegramSent = false; // Biến chống spam tin nhắn
 
 // --- BIẾN GLOBAL HANDLE CHỈ BÁO ---
-int emaHandle = INVALID_HANDLE;
-int bbHandle  = INVALID_HANDLE;
+int bbHandle = INVALID_HANDLE;
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -42,10 +41,9 @@ int OnInit(){
     Trade.SetExpertMagicNumber(MagicNumber);
     
     // Khởi tạo Handle
-    emaHandle = iMA(_Symbol, PERIOD_M5, 25, 0, MODE_EMA, PRICE_CLOSE);
     bbHandle  = iBands(_Symbol, PERIOD_M5, 20, 0, 2.0, PRICE_CLOSE);
     
-    if(emaHandle == INVALID_HANDLE || bbHandle == INVALID_HANDLE){
+    if(bbHandle == INVALID_HANDLE){
         Print("Lỗi khởi tạo Indicator!");
         return(INIT_FAILED);
     }
@@ -57,15 +55,14 @@ int OnInit(){
 void OnDeinit(const int reason){
     EventKillTimer();
     // Giải phóng bộ nhớ chỉ báo
-    IndicatorRelease(emaHandle);
     IndicatorRelease(bbHandle);
 }
 
 void OnTimer(){
     datetime currentTime = TimeCurrent();
-    datetime currentCandleCloseTime = iTime(_Symbol, PERIOD_M5, 0) + PeriodSeconds(PERIOD_M5);
+    datetime currentCandleCloseTime = iTime(_Symbol, PERIOD_M5, 1) + PeriodSeconds(PERIOD_M5);
 
-    if(currentCandleCloseTime != CandleCloseTime && (currentCandleCloseTime - currentTime <= 2)){
+    if(currentCandleCloseTime != CandleCloseTime && currentCandleCloseTime <= currentTime){
         CandleCloseTime = currentCandleCloseTime;
         
         if (!CheckLicense()){
@@ -86,13 +83,13 @@ void OnTick(){
 void RunningEA(){
     MqlRates rates[];
     ArraySetAsSeries(rates, true);
-    if(CopyRates(_Symbol, PERIOD_M5, 0, 3, rates) <= 0) return; // Chỉ cần lấy 3 nến là đủ
+    if(CopyRates(_Symbol, PERIOD_M5, 0, 4, rates) <= 0) return; // Chỉ cần lấy 4 nến là đủ
     
     Trading(rates);
 }
 
 void Trading(const MqlRates &rates[]){
-    MqlRates candle = rates[0], secondCandle = rates[1], thirdCandle = rates[2];
+    MqlRates candle = rates[1], secondCandle = rates[2], thirdCandle = rates[3];
     
     double upperShadow = candle.high - MathMax(candle.open, candle.close);
     double lowerShadow = MathMin(candle.open, candle.close) - candle.low;
@@ -181,7 +178,7 @@ void TrailingByProfitUSD(){
                 double initialSL = priceOpen - distanceFromOpen;
                 
                 if(currentTP > 0){
-                    double newSL = NormalizeDouble(initialSL + (profit * 1.5), _Digits);
+                    double newSL = NormalizeDouble(initialSL + profit, _Digits);
                     if(newSL >= currentSL + trailingStep && newSL < last_tick.bid){
                         Trade.PositionModify(ticket, newSL, currentTP);
                     }
@@ -196,7 +193,7 @@ void TrailingByProfitUSD(){
                 double initialSL = priceOpen + distanceFromOpen;
                 
                 if(currentTP > 0){
-                    double newSL = NormalizeDouble(initialSL - (profit * 1.5), _Digits);
+                    double newSL = NormalizeDouble(initialSL - profit, _Digits);
                     if(newSL <= currentSL - trailingStep && newSL > last_tick.ask){
                         Trade.PositionModify(ticket, newSL, currentTP);
                     }
@@ -221,7 +218,7 @@ void BUY(MqlRates &candle, bool hasTakeProfit = false, CandleType candleType = N
 
     double lotSize = GetLotSize(MathAbs(entry - sl));
     
-    if(CountPositions("BUY") > 1 || checkEmaConditions("BUY", entry)){
+    if(CountPositions("BUY") > 1){
         double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
         lotSize = MathFloor((lotSize / lotStep) / 2) * lotStep;
     }
@@ -243,7 +240,7 @@ void SELL(MqlRates &candle, bool hasTakeProfit = false, CandleType candleType = 
 
     double lotSize = GetLotSize(MathAbs(entry - sl));
     
-    if(CountPositions("SELL") > 1 || checkEmaConditions("SELL", entry)){
+    if(CountPositions("SELL") > 1){
         double lotStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
         lotSize = MathFloor((lotSize / lotStep) / 2) * lotStep;
     }
@@ -273,27 +270,18 @@ int CountPositions(string type) {
     return count;
 }
 
-bool checkEmaConditions(string trend, double price){
-    double ema[];
-    ArraySetAsSeries(ema, true);
-    if(CopyBuffer(emaHandle, 0, 0, 1, ema) <= 0) return false;
-
-    if(trend == "BUY" && price < ema[0]) return true;
-    if(trend == "SELL" && price > ema[0]) return true;
-
-    return false;
-}
-
 bool checkBollingerConditions(string trend, MqlRates &candle){
-    double upperBand[], lowerBand[];
+    double upperBand[], lowerBand[], middleBand[];
     ArraySetAsSeries(upperBand, true);
     ArraySetAsSeries(lowerBand, true);
-    
+    ArraySetAsSeries(middleBand, true);
+
     if(CopyBuffer(bbHandle, 1, 0, 1, upperBand) <= 0) return false;
     if(CopyBuffer(bbHandle, 2, 0, 1, lowerBand) <= 0) return false;
+    if(CopyBuffer(bbHandle, 0, 0, 1, middleBand) <= 0) return false;
 
-    if(trend == "BUY" && candle.low < lowerBand[0]) return true;
-    if(trend == "SELL" && candle.high > upperBand[0]) return true;
+    if(trend == "BUY" && candle.low < lowerBand[0] && candle.high < middleBand[0]) return true;
+    if(trend == "SELL" && candle.high > upperBand[0] && candle.low > middleBand[0]) return true;
 
     return false;
 }

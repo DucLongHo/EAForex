@@ -13,6 +13,8 @@ ulong  MagicNumber = 123456; // ID định danh của Bot
 //--- CẤU HÌNH GIAO DỊCH ---
 double RiskRewardRatio = 1; 
 double MinDistanceSL = 2500; 
+double MaxDistanceSL = 5000;
+
 double RatioSLDistance = 0.5; 
 
 //--- CẤU HÌNH THỜI GIAN SỬ DỤNG BOT ---
@@ -250,7 +252,7 @@ void SELL(MqlRates &candle, bool hasTakeProfit = false, CandleType candleType = 
 }
 
 bool isOpenOrder(double entry, double sl){
-    return (MathAbs(entry - sl) >= MinDistanceSL * _Point);
+    return (MathAbs(entry - sl) >= MinDistanceSL * _Point) ;
 }
 
 int CountPositions(string type) {

@@ -178,7 +178,7 @@ void TrailingByProfitUSD(){
                 double initialSL = priceOpen - distanceFromOpen;
                 
                 if(currentTP > 0){
-                    double newSL = NormalizeDouble(initialSL + profit, _Digits);
+                    double newSL = NormalizeDouble(initialSL + (profit * 1.5), _Digits);
                     if(newSL >= currentSL + trailingStep && newSL < last_tick.bid){
                         Trade.PositionModify(ticket, newSL, currentTP);
                     }
@@ -193,7 +193,7 @@ void TrailingByProfitUSD(){
                 double initialSL = priceOpen + distanceFromOpen;
                 
                 if(currentTP > 0){
-                    double newSL = NormalizeDouble(initialSL - profit, _Digits);
+                    double newSL = NormalizeDouble(initialSL - (profit * 1.5), _Digits);
                     if(newSL <= currentSL - trailingStep && newSL > last_tick.ask){
                         Trade.PositionModify(ticket, newSL, currentTP);
                     }

@@ -192,15 +192,15 @@ void Draw(){
 
 void CalculateLable(){
    datetime currentTime = TimeCurrent();
-   datetime nextCandleTime = iTime(_Symbol, PERIOD_M1, 0) + PeriodSeconds(PERIOD_M1);
+   datetime nextCandleTime = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds(PERIOD_CURRENT);
    int secondsToNextCandle = (int)(nextCandleTime - currentTime - 1);
    
    lblTimeCountDown.Description("Countdown: " + IntegerToString(secondsToNextCandle) + " s");
 
-   double high = iHigh(_Symbol, PERIOD_M1, 0);
-   double low = iLow(_Symbol, PERIOD_M1, 0);
-   double open = iOpen(_Symbol, PERIOD_M1, 0);
-   double close = iClose(_Symbol, PERIOD_M1, 0);
+   double high = iHigh(_Symbol, PERIOD_CURRENT, 0);
+   double low = iLow(_Symbol, PERIOD_CURRENT, 0);
+   double open = iOpen(_Symbol, PERIOD_CURRENT, 0);
+   double close = iClose(_Symbol, PERIOD_CURRENT, 0);
 
    if(open > close){
       lblLengthCandle.Description("Length: " + DoubleToString(high - close, 2) + " pips");

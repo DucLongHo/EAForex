@@ -3,13 +3,14 @@
 CTrade Trade;
 
 datetime CandleCloseTime; 
+double BreakevenLock = 50;
 
-sinput string separator1 = "------------------------------------------"; // === QUẢN LÝ RỦI RO ===
+sinput string separator1 = "------------------------------------------"; // === THÔNG SỐ VỊ THẾ ===
 input double LotSize = 0.01; // Khối lượng giao dịch cố định
 input double StopLossPips = 3000; // Khoảng cách Stop Loss (points)
 input double TakeProfitPips = 1500; // Khoảng cách Take Profit (points)
+sinput string separator2 = "------------------------------------------"; // === QUẢN LÝ RỦI RO ===
 input double TrailingStepPips = 2000;  // Bước giá để tiếp tục dời SL (points)
-double BreakevenLock = 50;       // Số points khóa lãi điểm hòa vốn
 
 int OnInit(){
     EventSetTimer(1);

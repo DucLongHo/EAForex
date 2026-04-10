@@ -3,7 +3,7 @@
 CTrade Trade;
 
 datetime CandleCloseTime; 
-double BreakevenLock = 50;
+double BreakevenLock = 100;
 
 sinput string separator1 = "------------------------------------------"; // === THÔNG SỐ VỊ THẾ ===
 input double LotSize = 0.01; // Khối lượng giao dịch cố định

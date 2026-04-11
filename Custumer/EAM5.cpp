@@ -4,16 +4,19 @@ CTrade Trade;
 
 datetime CandleCloseTime; 
 double BreakevenLock = 100;
+datetime LastStopDate = 0; // Ngày dừng bot do drawdown
 
 sinput string separator1 = "------------------------------------------"; // === THÔNG SỐ VỊ THẾ ===
 input double LotSize = 0.01; // Khối lượng giao dịch cố định
 input double StopLossPips = 3000; // Khoảng cách Stop Loss (points)
-input double TakeProfitPips = 1500; // Khoảng cách Take Profit (points)
+input double TakeProfitPips = 6000; // Khoảng cách Take Profit (points)
 sinput string separator2 = "------------------------------------------"; // === QUẢN LÝ RỦI RO ===
 input double TrailingStepPips = 2000;  // Bước giá để tiếp tục dời SL (points)
+input double MaxDrawdownAccount = 500; // Mức giảm tối đa của tài khoản (USD)
 
 int OnInit(){
     EventSetTimer(1);
+    CandleCloseTime = 0;
     return (INIT_SUCCEEDED);
 }
 
@@ -23,25 +26,32 @@ void OnDeinit(const int reason){
 
 void OnTimer(){
     datetime currentTime = TimeCurrent();
-    datetime currentCandleCloseTime = iTime(_Symbol, PERIOD_M5, 0) + PeriodSeconds(PERIOD_M5);
+    datetime currentCandleCloseTime = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds(PERIOD_CURRENT);
 
     if(currentCandleCloseTime != CandleCloseTime && (currentCandleCloseTime - currentTime <= 2)){
         CandleCloseTime = currentCandleCloseTime;
         if(PositionsTotal() == 0){
-            RunningEA();
+            if(LastStopDate == 0 || LastStopDate < iTime(_Symbol, PERIOD_D1, 0)){
+                RunningEA();
+            } else {
+                Print("Bot is paused due to drawdown. Will resume tomorrow.");
+            }
         }
+        
+        CheckReversalNextCandle();
     }
 }
 
 void OnTick(){
     if(PositionsTotal() > 0){
         ManagePositions();
+        CheckDrawdown();
     }
 }
 
 void RunningEA(){
-    double iClosePrice = iClose(_Symbol, PERIOD_M5, 0);
-    double iOpenPrice = iOpen(_Symbol, PERIOD_M5, 0);
+    double iClosePrice = iClose(_Symbol, PERIOD_CURRENT, 0);
+    double iOpenPrice = iOpen(_Symbol, PERIOD_CURRENT, 0);
     
     if(iClosePrice > iOpenPrice){
         double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
@@ -64,7 +74,7 @@ void RunningEA(){
 
 void ManagePositions(){
     MqlTick last_tick;
-    if(!SymbolInfoTick(_Symbol, last_tick)) return; // Cần gọi dòng này để lấy bid/ask hiện tại
+    if(!SymbolInfoTick(_Symbol, last_tick)) return;
 
     for(int index = PositionsTotal() - 1; index >= 0; index--){
         ulong ticket = PositionGetTicket(index);
@@ -103,6 +113,78 @@ void ManagePositions(){
                         
                         if(currentSL >= newSL + TrailingStepPips * _Point){ 
                             Trade.PositionModify(ticket, newSL, currentTP);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+void CheckDrawdown(){
+    double equity = AccountInfoDouble(ACCOUNT_EQUITY);
+    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+    double drawdown = balance - equity;
+
+    if(drawdown >= MaxDrawdownAccount){        
+        CloseAllOrders(); 
+        
+        // Lưu lại ngày hôm nay (dưới dạng 00:00 của ngày hiện tại)
+        LastStopDate = iTime(_Symbol, PERIOD_D1, 0); 
+    }
+}
+
+void CloseAllOrders(){
+    for(int index = PositionsTotal() - 1; index >= 0 && !IsStopped(); index--){
+        ulong ticket = PositionGetTicket(index);
+        if(ticket <= 0) continue;
+        
+        if(PositionSelectByTicket(ticket)){
+            if(Trade.PositionClose(ticket)){
+                Print("Closed position #", ticket);
+            } else Print("Close failed #", ticket, " - Error: ", Trade.ResultComment());
+        }
+    }
+}
+
+void CheckReversalNextCandle(){
+    double openNext = iOpen(_Symbol, PERIOD_CURRENT, 0);
+    double closeNext = iClose(_Symbol, PERIOD_CURRENT, 0);
+    datetime timeNext = iTime(_Symbol, PERIOD_CURRENT, 0);
+
+    for(int i = PositionsTotal() - 1; i >= 0; i--) {
+        ulong ticket = PositionGetTicket(i);
+        
+        if(PositionSelectByTicket(ticket)) {
+            if(PositionGetString(POSITION_SYMBOL) == _Symbol){        
+                long type = PositionGetInteger(POSITION_TYPE); // Loại lệnh (BUY/SELL)
+                datetime openTime = (datetime)PositionGetInteger(POSITION_TIME);
+                
+                if(timeNext - openTime <= PeriodSeconds(PERIOD_CURRENT)) {
+                    
+                    if(type == POSITION_TYPE_BUY && closeNext < openNext) {
+                        // Đóng vị thế BUY hiện tại
+                        if(Trade.PositionClose(ticket)) {
+                            double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+                            double sl = NormalizeDouble(entry + StopLossPips * _Point, _Digits);
+                            double tp = NormalizeDouble(entry - TakeProfitPips * _Point, _Digits);
+
+                            if(!Trade.Sell(LotSize, _Symbol, entry, sl, tp)){
+                                Print("Error placing Sell Order: ", Trade.ResultRetcode());
+                            }
+                        }
+                    }
+                    
+                    else if(type == POSITION_TYPE_SELL && closeNext > openNext) {
+                        // Đóng vị thế SELL hiện tại
+                        if(Trade.PositionClose(ticket)) {
+                            double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+                            double sl = NormalizeDouble(entry - StopLossPips * _Point, _Digits);
+                            double tp = NormalizeDouble(entry + TakeProfitPips * _Point, _Digits);
+
+                            if(!Trade.Buy(LotSize, _Symbol, entry, sl, tp)){
+                                Print("Error placing Buy Order: ", Trade.ResultRetcode());
+                            }
                         }
                     }
                 }

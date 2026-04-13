@@ -13,6 +13,8 @@ input double TakeProfitPips = 6000; // Khoảng cách Take Profit (points)
 sinput string separator2 = "------------------------------------------"; // === QUẢN LÝ RỦI RO ===
 input double TrailingStepPips = 2000;  // Bước giá để tiếp tục dời SL (points)
 input double MaxDrawdownAccount = 500; // Mức giảm tối đa của tài khoản (USD)
+sinput string separator3 = "------------------------------------------"; // === QUẢN LÝ VẬN HÀNH ===
+input int TimeCheckCandleClose = 3; // Thời gian (giây) trước khi đóng nến để kiểm tra và mở lệnh mới 
 
 int OnInit(){
     EventSetTimer(1);
@@ -28,17 +30,21 @@ void OnTimer(){
     datetime currentTime = TimeCurrent();
     datetime currentCandleCloseTime = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds(PERIOD_CURRENT);
 
-    if(currentCandleCloseTime != CandleCloseTime && (currentCandleCloseTime - currentTime <= 2)){
+    if(currentCandleCloseTime != CandleCloseTime && (currentCandleCloseTime - currentTime <= TimeCheckCandleClose)){
         CandleCloseTime = currentCandleCloseTime;
+        MqlRates rates[];
+        ArraySetAsSeries(rates, true);
+        if(CopyRates(_Symbol, PERIOD_M5, 0, 2, rates) <= 0) return; 
+
+        MqlRates candle = rates[0];
+
         if(PositionsTotal() == 0){
             if(LastStopDate == 0 || LastStopDate < iTime(_Symbol, PERIOD_D1, 0)){
-                RunningEA();
+                RunningEA(candle);
             } else {
                 Print("Bot is paused due to drawdown. Will resume tomorrow.");
             }
         }
-        
-        CheckReversalNextCandle();
     }
 }
 
@@ -49,9 +55,10 @@ void OnTick(){
     }
 }
 
-void RunningEA(){
-    double iClosePrice = iClose(_Symbol, PERIOD_CURRENT, 0);
-    double iOpenPrice = iOpen(_Symbol, PERIOD_CURRENT, 0);
+void RunningEA(MqlRates &candle){
+    
+    double iClosePrice = candle.close;
+    double iOpenPrice = candle.open;
     
     if(iClosePrice > iOpenPrice){
         double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
@@ -143,52 +150,6 @@ void CloseAllOrders(){
             if(Trade.PositionClose(ticket)){
                 Print("Closed position #", ticket);
             } else Print("Close failed #", ticket, " - Error: ", Trade.ResultComment());
-        }
-    }
-}
-
-void CheckReversalNextCandle(){
-    double openNext = iOpen(_Symbol, PERIOD_CURRENT, 0);
-    double closeNext = iClose(_Symbol, PERIOD_CURRENT, 0);
-    datetime timeNext = iTime(_Symbol, PERIOD_CURRENT, 0);
-
-    for(int i = PositionsTotal() - 1; i >= 0; i--) {
-        ulong ticket = PositionGetTicket(i);
-        
-        if(PositionSelectByTicket(ticket)) {
-            if(PositionGetString(POSITION_SYMBOL) == _Symbol){        
-                long type = PositionGetInteger(POSITION_TYPE); // Loại lệnh (BUY/SELL)
-                datetime openTime = (datetime)PositionGetInteger(POSITION_TIME);
-                
-                if(timeNext - openTime <= PeriodSeconds(PERIOD_CURRENT)) {
-                    
-                    if(type == POSITION_TYPE_BUY && closeNext < openNext) {
-                        // Đóng vị thế BUY hiện tại
-                        if(Trade.PositionClose(ticket)) {
-                            double entry = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-                            double sl = NormalizeDouble(entry + StopLossPips * _Point, _Digits);
-                            double tp = NormalizeDouble(entry - TakeProfitPips * _Point, _Digits);
-
-                            if(!Trade.Sell(LotSize, _Symbol, entry, sl, tp)){
-                                Print("Error placing Sell Order: ", Trade.ResultRetcode());
-                            }
-                        }
-                    }
-                    
-                    else if(type == POSITION_TYPE_SELL && closeNext > openNext) {
-                        // Đóng vị thế SELL hiện tại
-                        if(Trade.PositionClose(ticket)) {
-                            double entry = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-                            double sl = NormalizeDouble(entry - StopLossPips * _Point, _Digits);
-                            double tp = NormalizeDouble(entry + TakeProfitPips * _Point, _Digits);
-
-                            if(!Trade.Buy(LotSize, _Symbol, entry, sl, tp)){
-                                Print("Error placing Buy Order: ", Trade.ResultRetcode());
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 }

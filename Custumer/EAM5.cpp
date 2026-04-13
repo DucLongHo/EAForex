@@ -24,6 +24,14 @@ input bool EnablePause = true; // Bật tính năng tạm dừng khi kết thúc
 input int PauseBeforeCloseMin = 30; // Đóng lệnh & tắt EA trước khi nến đóng (Phút)
 input int ResumeAfterOpenMin = 60;  // Mở lại EA sau khi nến mới mở (Phút)
 
+sinput string separator5 = "------------------------------------------"; // === HỆ THỐNG ĐẢO CHIỀU ===
+input bool EnableReverse = true;          // Bật tính năng lệnh đảo chiều
+input double ReverseTriggerPoints = 1500; // Số Point âm để kích hoạt mở lệnh đảo chiều (VD: 1500)
+input double ReverseLotSize = 0.02;       // Khối lượng lệnh đảo chiều
+input double ReverseSLPoints = 3000;      // Stop Loss lệnh đảo chiều (points)
+input double ReverseTPPoints = 6000;      // Take Profit lệnh đảo chiều (points)
+input double TargetBasketProfit = 5.0;    // Tổng lợi nhuận dương (USD) để chốt đóng toàn bộ lệnh
+
 int OnInit(){
     EventSetTimer(1);
     CandleCloseTime = 0;
@@ -103,8 +111,9 @@ void OnTimer(){
 
 void OnTick(){
     if(PositionsTotal() > 0){
-        ManagePositions();
-        CheckDrawdown();
+        CheckReverseAndBasketExit(); // Kiểm tra nhồi lệnh đảo chiều & chốt lời tổng trước
+        ManagePositions();           // Quản lý SL/TP trailing
+        CheckDrawdown();             // Quản lý cắt lỗ toàn tài khoản
     }
 }
 
@@ -127,6 +136,83 @@ void RunningEA(MqlRates &candle){
 
         if(!Trade.Sell(LotSize, _Symbol, entry, sl, tp)){
             Print("Error placing Sell Order: ", Trade.ResultRetcode());
+        }
+    }
+}
+
+void CheckReverseAndBasketExit() {
+    if (!EnableReverse) return;
+
+    int eaPositions = 0;
+    double totalProfit = 0.0;
+    
+    // Đếm số lệnh của EA và tính tổng lợi nhuận (bao gồm cả Swap)
+    for(int i = PositionsTotal() - 1; i >= 0; i--) {
+        ulong ticket = PositionGetTicket(i);
+        if(PositionSelectByTicket(ticket)) {
+            if(PositionGetInteger(POSITION_MAGIC) == MagicNumber && PositionGetString(POSITION_SYMBOL) == _Symbol) {
+                eaPositions++;
+                totalProfit += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+            }
+        }
+    }
+
+    // 1. CHỐT LỜI TỔNG (Basket Close) khi có từ 2 lệnh trở lên
+    if(eaPositions >= 2) {
+        if(totalProfit >= TargetBasketProfit) {
+            Print("Đã đạt Target Tổng: ", totalProfit, " USD. Đóng toàn bộ lệnh!");
+            CloseAllOrders();
+        }
+        return; // Đã có lệnh nhồi thì ngưng xét tiếp để tránh mở thêm lệnh liên tục
+    }
+
+    // 2. KÍCH HOẠT LỆNH ĐẢO CHIỀU khi chỉ có đúng 1 lệnh đang chạy
+    if(eaPositions == 1) {
+        for(int i = PositionsTotal() - 1; i >= 0; i--) {
+            ulong ticket = PositionGetTicket(i);
+            if(PositionSelectByTicket(ticket)) {
+                if(PositionGetInteger(POSITION_MAGIC) == MagicNumber && PositionGetString(POSITION_SYMBOL) == _Symbol) {
+                    
+                    double priceOpen = PositionGetDouble(POSITION_PRICE_OPEN);
+                    long type = PositionGetInteger(POSITION_TYPE);
+                    
+                    MqlTick last_tick;
+                    if(!SymbolInfoTick(_Symbol, last_tick)) return;
+
+                    double currentProfitPoints = 0;
+
+                    // Lệnh ban đầu là BUY
+                    if(type == POSITION_TYPE_BUY) {
+                        currentProfitPoints = (last_tick.bid - priceOpen) / _Point; // Lợi nhuận = âm thì giá trị sẽ < 0
+                        
+                        // Nếu âm vượt mức cho phép -> Mở SELL
+                        if(currentProfitPoints <= -ReverseTriggerPoints) {
+                            double entry = last_tick.bid;
+                            double sl = NormalizeDouble(entry + ReverseSLPoints * _Point, _Digits);
+                            double tp = NormalizeDouble(entry - ReverseTPPoints * _Point, _Digits);
+                            
+                            if(Trade.Sell(ReverseLotSize, _Symbol, entry, sl, tp)) {
+                                Print("Đã mở Sell đảo chiều do lệnh Buy âm ", currentProfitPoints, " points.");
+                            }
+                        }
+                    } 
+                    // Lệnh ban đầu là SELL
+                    else if(type == POSITION_TYPE_SELL) {
+                        currentProfitPoints = (priceOpen - last_tick.ask) / _Point; 
+                        
+                        // Nếu âm vượt mức cho phép -> Mở BUY
+                        if(currentProfitPoints <= -ReverseTriggerPoints) {
+                            double entry = last_tick.ask;
+                            double sl = NormalizeDouble(entry - ReverseSLPoints * _Point, _Digits);
+                            double tp = NormalizeDouble(entry + ReverseTPPoints * _Point, _Digits);
+                            
+                            if(Trade.Buy(ReverseLotSize, _Symbol, entry, sl, tp)) {
+                                Print("Đã mở Buy đảo chiều do lệnh Sell âm ", currentProfitPoints, " points.");
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -217,18 +303,16 @@ double GetDailyTradedLots() {
     
     // Yêu cầu tải lịch sử giao dịch từ đầu ngày đến hiện tại
     if(HistorySelect(startOfDay, currentTime)) {
-        int dealsTotal = HistoryDealsTotal(); // Tổng số deal trong khoảng thời gian này
+        int dealsTotal = HistoryDealsTotal(); 
         
         for(int i = 0; i < dealsTotal; i++) {
             ulong dealTicket = HistoryDealGetTicket(i);
             
             if(dealTicket > 0) {
-                // Chỉ lấy các deal do chính EA này đánh (cùng MagicNumber) và cùng cặp tiền
                 long dealMagic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
                 string dealSymbol = HistoryDealGetString(dealTicket, DEAL_SYMBOL);
                 
                 if(dealMagic == MagicNumber && dealSymbol == _Symbol) {
-                    // Chỉ cộng dồn volume của các deal MỞ vị thế (tránh tính đúp khi lệnh đóng)
                     long dealEntry = HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
                     if(dealEntry == DEAL_ENTRY_IN) {
                         double volume = HistoryDealGetDouble(dealTicket, DEAL_VOLUME);

@@ -5,6 +5,7 @@ CTrade Trade;
 datetime CandleCloseTime; 
 double BreakevenLock = 100;
 datetime LastStopDate = 0; // Ngày dừng bot do drawdown
+ulong MagicNumber = 123456; // Mã riêng của EA để phân biệt với lệnh tay
 
 sinput string separator1 = "------------------------------------------"; // === THÔNG SỐ VỊ THẾ ===
 input double LotSize = 0.01; // Khối lượng giao dịch cố định
@@ -13,7 +14,7 @@ input double TakeProfitPips = 6000; // Khoảng cách Take Profit (points)
 
 sinput string separator2 = "------------------------------------------"; // === QUẢN LÝ RỦI RO ===
 input double TrailingStepPips = 2000;  // Bước giá để tiếp tục dời SL (points)
-input double MaxDrawdownAccount = 500; // Mức giảm tối đa của tài khoản (USD)
+input double MaxDrawdownAccount = 500; // Mức giảm tối đa của EA (USD)
 
 sinput string separator3 = "------------------------------------------"; // === QUẢN LÝ VẬN HÀNH ===
 input int TimeCheckCandleClose = 3; // Thời gian (giây) trước khi đóng nến để kiểm tra và mở lệnh mới 
@@ -26,6 +27,10 @@ input int ResumeAfterOpenMin = 60;  // Mở lại EA sau khi nến mới mở (P
 int OnInit(){
     EventSetTimer(1);
     CandleCloseTime = 0;
+    
+    // Gán Magic Number cho class CTrade để mỗi lệnh mở ra đều có mã này
+    Trade.SetExpertMagicNumber(MagicNumber);
+    
     return (INIT_SUCCEEDED);
 }
 
@@ -60,9 +65,9 @@ void OnTimer(){
     static bool lastPauseState = false;
     bool isCurrentlyPaused = IsInPauseTime();
 
-    // Nếu vừa chạm mốc thời gian nghỉ -> Đóng toàn bộ lệnh
+    // Nếu vừa chạm mốc thời gian nghỉ -> Đóng toàn bộ lệnh của EA
     if(isCurrentlyPaused && !lastPauseState) {
-        Print("Đã đến giờ nghỉ (", PauseBeforeCloseMin, " phút trước khi đóng nến). Đóng toàn bộ lệnh!");
+        Print("Đã đến giờ nghỉ (", PauseBeforeCloseMin, " phút trước khi đóng nến). Đóng toàn bộ lệnh EA!");
         CloseAllOrders();
     } 
     // Nếu vừa qua mốc thời gian nghỉ -> Hoạt động lại
@@ -94,7 +99,6 @@ void OnTimer(){
 }
 
 void OnTick(){
-    // Nếu đang trong giờ nghỉ, chúng ta đã đóng hết lệnh nên đoạn này có thể chạy bình thường
     if(PositionsTotal() > 0){
         ManagePositions();
         CheckDrawdown();
@@ -131,6 +135,8 @@ void ManagePositions(){
     for(int index = PositionsTotal() - 1; index >= 0; index--){
         ulong ticket = PositionGetTicket(index);
         if(PositionSelectByTicket(ticket)){
+            // CHỈ QUẢN LÝ LỆNH CỦA EA VÀ ĐÚNG CẶP TIỀN
+            if(PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
             if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue; 
 
             double currentSL = PositionGetDouble(POSITION_SL);
@@ -187,8 +193,12 @@ void CloseAllOrders(){
         if(ticket <= 0) continue;
         
         if(PositionSelectByTicket(ticket)){
+            // CHỈ ĐÓNG LỆNH CỦA EA VÀ ĐÚNG CẶP TIỀN
+            if(PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+            if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+            
             if(Trade.PositionClose(ticket)){
-                Print("Closed position #", ticket);
+                Print("Closed EA position #", ticket);
             } else Print("Close failed #", ticket, " - Error: ", Trade.ResultComment());
         }
     }

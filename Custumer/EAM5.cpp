@@ -95,6 +95,9 @@ void OnTimer(){
                 }
             }
         }
+
+        Comment("Ngày: ", TimeToString(TimeCurrent(), TIME_DATE),
+            "\nSố Lot EA đã chạy hôm nay: ", GetDailyTradedLots());
     }
 }
 
@@ -202,4 +205,39 @@ void CloseAllOrders(){
             } else Print("Close failed #", ticket, " - Error: ", Trade.ResultComment());
         }
     }
+}
+
+// Hàm tính tổng số Lot EA đã mở trong ngày hiện tại
+double GetDailyTradedLots() {
+    double totalLots = 0.0;
+    
+    // Lấy thời điểm bắt đầu của ngày hôm nay
+    datetime startOfDay = iTime(_Symbol, PERIOD_D1, 0);
+    datetime currentTime = TimeCurrent();
+    
+    // Yêu cầu tải lịch sử giao dịch từ đầu ngày đến hiện tại
+    if(HistorySelect(startOfDay, currentTime)) {
+        int dealsTotal = HistoryDealsTotal(); // Tổng số deal trong khoảng thời gian này
+        
+        for(int i = 0; i < dealsTotal; i++) {
+            ulong dealTicket = HistoryDealGetTicket(i);
+            
+            if(dealTicket > 0) {
+                // Chỉ lấy các deal do chính EA này đánh (cùng MagicNumber) và cùng cặp tiền
+                long dealMagic = HistoryDealGetInteger(dealTicket, DEAL_MAGIC);
+                string dealSymbol = HistoryDealGetString(dealTicket, DEAL_SYMBOL);
+                
+                if(dealMagic == MagicNumber && dealSymbol == _Symbol) {
+                    // Chỉ cộng dồn volume của các deal MỞ vị thế (tránh tính đúp khi lệnh đóng)
+                    long dealEntry = HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
+                    if(dealEntry == DEAL_ENTRY_IN) {
+                        double volume = HistoryDealGetDouble(dealTicket, DEAL_VOLUME);
+                        totalLots += volume;
+                    }
+                }
+            }
+        }
+    }
+    
+    return NormalizeDouble(totalLots, 3);
 }

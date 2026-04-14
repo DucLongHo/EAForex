@@ -6,6 +6,8 @@ datetime CandleCloseTime;
 double BreakevenLock = 100;
 datetime LastStopDate = 0; // Ngày dừng bot do drawdown
 ulong MagicNumber = 123456; // Mã riêng của EA để phân biệt với lệnh tay
+double StartDayBalance = 0;
+int    LastDay = -1; // Lưu ngày gần nhất để kiểm tra chuyển giao ngày mới
 
 sinput string separator1 = "------------------------------------------"; // === THÔNG SỐ VỊ THẾ ===
 input double LotSize = 0.01; // Khối lượng giao dịch cố định
@@ -23,14 +25,6 @@ sinput string separator4 = "------------------------------------------"; // === 
 input bool EnablePause = true; // Bật tính năng tạm dừng khi kết thúc ngày
 input int PauseBeforeCloseMin = 30; // Đóng lệnh & tắt EA trước khi nến đóng (Phút)
 input int ResumeAfterOpenMin = 60;  // Mở lại EA sau khi nến mới mở (Phút)
-
-sinput string separator5 = "------------------------------------------"; // === HỆ THỐNG ĐẢO CHIỀU ===
-input bool EnableReverse = true;          // Bật tính năng lệnh đảo chiều
-input double ReverseTriggerPoints = 1500; // Số Point âm để kích hoạt mở lệnh đảo chiều (VD: 1500)
-input double ReverseLotSize = 0.02;       // Khối lượng lệnh đảo chiều
-input double ReverseSLPoints = 3000;      // Stop Loss lệnh đảo chiều (points)
-input double ReverseTPPoints = 6000;      // Take Profit lệnh đảo chiều (points)
-input double TargetBasketProfit = 5.0;    // Tổng lợi nhuận dương (USD) để chốt đóng toàn bộ lệnh
 
 int OnInit(){
     EventSetTimer(1);
@@ -110,12 +104,27 @@ void OnTimer(){
 }
 
 void OnTick(){
+    // Tự động Reset khi sang ngày mới
+    MqlDateTime dt;
+    TimeCurrent(dt);
+    if(dt.day != LastDay){
+        ResetDailyStats();
+        Print("--- Ngày mới: Cập nhật Balance mốc: ", StartDayBalance);
+    }
+
     if(PositionsTotal() > 0){
-        CheckReverseAndBasketExit(); // Kiểm tra nhồi lệnh đảo chiều & chốt lời tổng trước
         ManagePositions();           // Quản lý SL/TP trailing
         CheckDrawdown();             // Quản lý cắt lỗ toàn tài khoản
     }
 }
+
+void ResetDailyStats(){
+    MqlDateTime dt;
+    TimeCurrent(dt);
+    LastDay = dt.day;
+    StartDayBalance = AccountInfoDouble(ACCOUNT_BALANCE);
+}
+
 
 void RunningEA(MqlRates &candle){
     double iClosePrice = candle.close;
@@ -136,83 +145,6 @@ void RunningEA(MqlRates &candle){
 
         if(!Trade.Sell(LotSize, _Symbol, entry, sl, tp)){
             Print("Error placing Sell Order: ", Trade.ResultRetcode());
-        }
-    }
-}
-
-void CheckReverseAndBasketExit() {
-    if (!EnableReverse) return;
-
-    int eaPositions = 0;
-    double totalProfit = 0.0;
-    
-    // Đếm số lệnh của EA và tính tổng lợi nhuận (bao gồm cả Swap)
-    for(int i = PositionsTotal() - 1; i >= 0; i--) {
-        ulong ticket = PositionGetTicket(i);
-        if(PositionSelectByTicket(ticket)) {
-            if(PositionGetInteger(POSITION_MAGIC) == MagicNumber && PositionGetString(POSITION_SYMBOL) == _Symbol) {
-                eaPositions++;
-                totalProfit += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
-            }
-        }
-    }
-
-    // 1. CHỐT LỜI TỔNG (Basket Close) khi có từ 2 lệnh trở lên
-    if(eaPositions >= 2) {
-        if(totalProfit >= TargetBasketProfit) {
-            Print("Đã đạt Target Tổng: ", totalProfit, " USD. Đóng toàn bộ lệnh!");
-            CloseAllOrders();
-        }
-        return; // Đã có lệnh nhồi thì ngưng xét tiếp để tránh mở thêm lệnh liên tục
-    }
-
-    // 2. KÍCH HOẠT LỆNH ĐẢO CHIỀU khi chỉ có đúng 1 lệnh đang chạy
-    if(eaPositions == 1) {
-        for(int i = PositionsTotal() - 1; i >= 0; i--) {
-            ulong ticket = PositionGetTicket(i);
-            if(PositionSelectByTicket(ticket)) {
-                if(PositionGetInteger(POSITION_MAGIC) == MagicNumber && PositionGetString(POSITION_SYMBOL) == _Symbol) {
-                    
-                    double priceOpen = PositionGetDouble(POSITION_PRICE_OPEN);
-                    long type = PositionGetInteger(POSITION_TYPE);
-                    
-                    MqlTick last_tick;
-                    if(!SymbolInfoTick(_Symbol, last_tick)) return;
-
-                    double currentProfitPoints = 0;
-
-                    // Lệnh ban đầu là BUY
-                    if(type == POSITION_TYPE_BUY) {
-                        currentProfitPoints = (last_tick.bid - priceOpen) / _Point; // Lợi nhuận = âm thì giá trị sẽ < 0
-                        
-                        // Nếu âm vượt mức cho phép -> Mở SELL
-                        if(currentProfitPoints <= -ReverseTriggerPoints) {
-                            double entry = last_tick.bid;
-                            double sl = NormalizeDouble(entry + ReverseSLPoints * _Point, _Digits);
-                            double tp = NormalizeDouble(entry - ReverseTPPoints * _Point, _Digits);
-                            
-                            if(Trade.Sell(ReverseLotSize, _Symbol, entry, sl, tp)) {
-                                Print("Đã mở Sell đảo chiều do lệnh Buy âm ", currentProfitPoints, " points.");
-                            }
-                        }
-                    } 
-                    // Lệnh ban đầu là SELL
-                    else if(type == POSITION_TYPE_SELL) {
-                        currentProfitPoints = (priceOpen - last_tick.ask) / _Point; 
-                        
-                        // Nếu âm vượt mức cho phép -> Mở BUY
-                        if(currentProfitPoints <= -ReverseTriggerPoints) {
-                            double entry = last_tick.ask;
-                            double sl = NormalizeDouble(entry - ReverseSLPoints * _Point, _Digits);
-                            double tp = NormalizeDouble(entry + ReverseTPPoints * _Point, _Digits);
-                            
-                            if(Trade.Buy(ReverseLotSize, _Symbol, entry, sl, tp)) {
-                                Print("Đã mở Buy đảo chiều do lệnh Sell âm ", currentProfitPoints, " points.");
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 }
@@ -282,10 +214,6 @@ void CloseAllOrders(){
         if(ticket <= 0) continue;
         
         if(PositionSelectByTicket(ticket)){
-            // CHỈ ĐÓNG LỆNH CỦA EA VÀ ĐÚNG CẶP TIỀN
-            if(PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
-            if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-            
             if(Trade.PositionClose(ticket)){
                 Print("Closed EA position #", ticket);
             } else Print("Close failed #", ticket, " - Error: ", Trade.ResultComment());

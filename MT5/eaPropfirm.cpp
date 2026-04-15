@@ -5,7 +5,8 @@ CTrade Trade;
 
 CChartObjectButton SLBE;// Nút dời SL về điểm hòa vốn
 
-CChartObjectLabel lblTotalSL, lblTotalTP, lblLengthCandle, lblTimeCountDown;
+CChartObjectLabel lblTotalSL, lblTotalTP, lblLengthCandle;
+CChartObjectText txtTimeCountDown;
 
 // Input parameters
 input double   InpMaxLossAmount  = 15.0;    // Số tiền rủi ro tối đa trên mỗi lệnh (Ví dụ: 100$)
@@ -46,7 +47,7 @@ int OnInit(){
    if(!CreateLable(lblLengthCandle, "LengthCandle", "Length: ", x, 90))
       return(INIT_FAILED);
    
-   if(!CreateLable(lblTimeCountDown, "TimeCountDown", "Countdown:  s", x, 120))
+   if(!CreateText(txtTimeCountDown, "TimeCountDown", "Countdown:  s"))
       return(INIT_FAILED);
     
     ChartRedraw(0);
@@ -152,6 +153,19 @@ bool CreateLable(CChartObjectLabel &lable, string name, string des, int x, int y
    return true;
 }
 
+bool CreateText(CChartObjectText &txtObj, string name, string des){
+   // Khởi tạo ở thời gian 0, giá 0. Sau đó sẽ di chuyển sau.
+   if(!txtObj.Create(0, name, 0, 0, 0.0))
+      return false;
+
+   txtObj.Description(des);
+   txtObj.Color(clrWhite);
+   txtObj.Font("Calibri");
+   txtObj.FontSize(12);
+   txtObj.Anchor(ANCHOR_LEFT); // Canh lề trái để chữ nằm ngay bên phải nến
+   
+   return true;
+}
 
 void DrawMarkerPrice(ENUM_TIMEFRAMES timeframe, color lineColor){
    double emaValue[];
@@ -183,8 +197,8 @@ void DrawMarkerPrice(ENUM_TIMEFRAMES timeframe, color lineColor){
 }
 
 void Draw(){
-   ObjectsDeleteAll(0, -1, OBJ_TREND);
-   ObjectsDeleteAll(0, -1, OBJ_TEXT);
+   ObjectsDeleteAll(0, "Price ", -1, OBJ_TREND);
+   ObjectsDeleteAll(0, "TimeframeLabel_", -1, OBJ_TEXT);
 
    DrawMarkerPrice(PERIOD_H1, clrGray);
    DrawMarkerPrice(PERIOD_M15, clrTeal);
@@ -194,8 +208,13 @@ void CalculateLable(){
    datetime currentTime = TimeCurrent();
    datetime nextCandleTime = iTime(_Symbol, PERIOD_CURRENT, 0) + PeriodSeconds(PERIOD_CURRENT);
    int secondsToNextCandle = (int)(nextCandleTime - currentTime - 1);
+
+   txtTimeCountDown.Description("    " + IntegerToString(secondsToNextCandle) + "s");
    
-   lblTimeCountDown.Description("Countdown: " + IntegerToString(secondsToNextCandle) + " s");
+   double currentPrice = iClose(_Symbol, PERIOD_CURRENT, 0);
+   
+   txtTimeCountDown.Time(0,nextCandleTime);
+   txtTimeCountDown.Price(0,currentPrice); 
 
    double high = iHigh(_Symbol, PERIOD_CURRENT, 0);
    double low = iLow(_Symbol, PERIOD_CURRENT, 0);

@@ -43,7 +43,7 @@ void OnTimer(){
 
         TradeCom();
 
-        lblTotalLots.Description("Total Lots: "  + DoubleToString(GetTotalLots(), 2));
+        lblTotalLots.Description("Total Lots: "  + DoubleToString(GetDailyTradedLots(), 2));
     }
     
     CalculateLable();

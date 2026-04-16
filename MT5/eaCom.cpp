@@ -2,14 +2,14 @@
 #include <ChartObjects\ChartObjectsTxtControls.mqh>
 
 CTrade Trade;
-CChartObjectLabel lblTotalBuyLot, lblTotalSellLot;
+CChartObjectLabel lblTotalBuyLot, lblTotalSellLot, lblTotalLots;
 
 datetime CandleCloseTime; // Biến kiểm tra giá chạy 1p một lần 
 
 // Input parameters
 input double LotSize = 0.01; // Khối lượng từng lệnh
 input double TakeProfitUSD = 1.5; // Mức lợi nhuận mục tiêu để đóng lệnh (đơn vị: USD)
-
+input double MaxDrawdownUSD = 50.0; // Mức thua lỗ tối đa để đóng lệnh (đơn vị: USD)
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
@@ -23,6 +23,9 @@ int OnInit(){
       return(INIT_FAILED);
 
     if(!CreateLable(lblTotalSellLot, "TotalSellLot", "Total Sell Lots: 0.00", x, 60))
+      return(INIT_FAILED);
+    
+    if(!CreateLable(lblTotalLots, "TotalLots", "Total Lots: 0.00", x, 90))
       return(INIT_FAILED);
 
     ChartRedraw(0);
@@ -39,6 +42,8 @@ void OnTimer(){
         CandleCloseTime = currentCandleCloseTime;
 
         TradeCom();
+
+        lblTotalLots.Description("Total Lots: "  + DoubleToString(GetTotalLots(), 2));
     }
     
     CalculateLable();
@@ -47,6 +52,10 @@ void OnTimer(){
 
 void OnTick(){
     if(GetTotalBuyProfit() + GetTotalSellProfit() >= TakeProfitUSD){
+        CloseAllPositions();
+    }
+
+    if(GetTotalBuyProfit() + GetTotalSellProfit() <= -MaxDrawdownUSD){
         CloseAllPositions();
     }
 
@@ -72,12 +81,17 @@ bool CreateLable(CChartObjectLabel &lable, string name, string des, int x, int y
 
 void TradeCom(){
     if(PositionsTotal() == 0){
-        if(!Trade.Sell(LotSize, _Symbol)){
-            Print("Error placing Sell Order: ", Trade.ResultRetcode());
-        }
-
-        if(!Trade.Buy(LotSize, _Symbol)){
-            Print("Error placing Buy Order: ", Trade.ResultRetcode());
+        double preCandleOpen = iOpen(_Symbol, PERIOD_M1, 1);
+        double preCandleClose = iClose(_Symbol, PERIOD_M1, 1);
+        
+        if(preCandleClose < preCandleOpen) {
+            if(!Trade.Sell(LotSize, _Symbol)){
+                Print("Error placing Sell Order: ", Trade.ResultRetcode());
+            }
+        } else {
+            if(!Trade.Buy(LotSize, _Symbol)){
+                Print("Error placing Buy Order: ", Trade.ResultRetcode());
+            }
         }
     } else {
         if(GetTotalBuyProfit() >= GetTotalSellProfit()){
@@ -200,4 +214,36 @@ void CalculateLable(){
     }
     lblTotalBuyLot.Description("Total Buy Lots: " + DoubleToString(totalBuyLots, 2));
     lblTotalSellLot.Description("Total Sell Lots: " + DoubleToString(totalSellLots, 2));
+}
+
+// Hàm tính tổng số Lot EA đã mở trong ngày hiện tại
+double GetDailyTradedLots() {
+    double totalLots = 0.0;
+    
+    // Lấy thời điểm bắt đầu của ngày hôm nay
+    datetime startOfDay = iTime(_Symbol, PERIOD_D1, 0);
+    datetime currentTime = TimeCurrent();
+    
+    // Yêu cầu tải lịch sử giao dịch từ đầu ngày đến hiện tại
+    if(HistorySelect(startOfDay, currentTime)) {
+        int dealsTotal = HistoryDealsTotal(); 
+        
+        for(int i = 0; i < dealsTotal; i++) {
+            ulong dealTicket = HistoryDealGetTicket(i);
+            
+            if(dealTicket > 0) {
+                string dealSymbol = HistoryDealGetString(dealTicket, DEAL_SYMBOL);
+                
+                if(dealSymbol == _Symbol) {
+                    long dealEntry = HistoryDealGetInteger(dealTicket, DEAL_ENTRY);
+                    if(dealEntry == DEAL_ENTRY_IN) {
+                        double volume = HistoryDealGetDouble(dealTicket, DEAL_VOLUME);
+                        totalLots += volume;
+                    }
+                }
+            }
+        }
+    }
+    
+    return NormalizeDouble(totalLots, 3);
 }

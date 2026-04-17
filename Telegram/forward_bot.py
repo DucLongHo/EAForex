@@ -2,6 +2,7 @@ import asyncio
 import pandas as pd
 import sys
 from telethon import TelegramClient, events, errors
+from deep_translator import GoogleTranslator
 
 # --- HÀM ĐỌC CẤU HÌNH ---
 def load_config(file_path='Data.xlsx'):
@@ -30,21 +31,40 @@ client = TelegramClient('my_session', cfg['api_id'], cfg['api_hash'],
                         connection_retries=None, # Thử lại vô hạn khi mất mạng
                         auto_reconnect=True)
 
+# --- HÀM DỊCH THUẬT ---
+def translate_text(text):
+    try:
+        if not text or len(text.strip()) == 0:
+            return text
+        # Dịch từ Tiếng Việt (vi) sang Tiếng Anh (en)
+        translated = GoogleTranslator(source='auto', target='en').translate(text)
+        return translated
+    except Exception as e:
+        print(f"⚠️ Lỗi dịch thuật: {e}")
+        return text  # Nếu lỗi thì gửi tin gốc để không bị gián đoạn
+    
 # --- XỬ LÝ CHUYỂN TIẾP ---
 @client.on(events.NewMessage(chats=cfg['source_id']))
 async def handler(event):
     print(f"\n📩 Tin nhắn mới.")
 
+    original_text = event.raw_text
+    
+    if original_text:
+        translated_text = translate_text(original_text)
+    else:
+        translated_text = ""
+    
     # Tối ưu: Gửi song song đến tất cả các nhóm đích cùng lúc
     tasks = []
     for out_id in cfg['dest_ids']:
-        tasks.append(send_to_group(out_id, event.message))
+        tasks.append(send_to_group(out_id, translated_text, event.media))
     
     await asyncio.gather(*tasks)
 
-async def send_to_group(chat_id, message):
+async def send_to_group(chat_id, message, media):
     try:
-        await client.send_message(chat_id, message)
+        await client.send_message(chat_id, message, file=media)
         print(f" ✅ Gửi thành công -> {chat_id}")
     except errors.FloodWaitError as e:
         print(f" ⏳ Bị giới hạn tốc độ. Chờ {e.seconds} giây...")

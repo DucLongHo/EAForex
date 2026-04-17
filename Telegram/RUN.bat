@@ -12,8 +12,6 @@ if exist requirements.txt (
     echo Dang cai dat thu vien tu requirements.txt...
     pip install -r requirements.txt --quiet --upgrade
 ) else (
-    echo Dang kiem tra va cai dat cac thu vien co ban...
-    :: Thay the 'telethon' hoac 'pyrogram' bang thu vien bot ban dang dung
     pip install telethon PySocks --quiet --upgrade
 )
 

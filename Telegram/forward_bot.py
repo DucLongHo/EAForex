@@ -12,7 +12,10 @@ def load_config(file_path='Data.xlsx'):
             'api_id': int(df['Mã_API'].iloc[0]),
             'api_hash': str(df['Chuỗi_API'].iloc[0]).strip(),
             'source_id': int(df['ID_Nguồn'].iloc[0]),
-            'dest_ids': [int(x.strip()) for x in str(df['Danh_Sách_ID_Nhận'].iloc[0]).split(',')]
+            'dest_ids': [int(x.strip()) for x in str(df['Danh_Sách_ID_Nhận'].iloc[0]).split(',')],
+            # Lấy mã ngôn ngữ từ Excel
+            'src_lang': str(df['Ngon_Nguu_Goc'].iloc[0]).strip().lower(),
+            'tgt_lang': str(df['Ngon_Nguu_Dich'].iloc[0]).strip().lower()
         }
         return config
     except FileNotFoundError:
@@ -32,16 +35,16 @@ client = TelegramClient('my_session', cfg['api_id'], cfg['api_hash'],
                         auto_reconnect=True)
 
 # --- HÀM DỊCH THUẬT ---
-def translate_text(text):
+def translate_text(text, src, tgt):
     try:
         if not text or len(text.strip()) == 0:
             return text
-        # Dịch từ Tiếng Việt (vi) sang Tiếng Anh (en)
-        translated = GoogleTranslator(source='auto', target='en').translate(text)
+        # Sử dụng ngôn ngữ cấu hình từ Excel
+        translated = GoogleTranslator(source=src, target=tgt).translate(text)
         return translated
     except Exception as e:
         print(f"⚠️ Lỗi dịch thuật: {e}")
-        return text  # Nếu lỗi thì gửi tin gốc để không bị gián đoạn
+        return text
     
 # --- XỬ LÝ CHUYỂN TIẾP ---
 @client.on(events.NewMessage(chats=cfg['source_id']))
@@ -51,7 +54,8 @@ async def handler(event):
     original_text = event.raw_text
     
     if original_text:
-        translated_text = translate_text(original_text)
+        translated_text = translate_text(original_text, cfg['src_lang'], cfg['tgt_lang'])
+        print(f"🔄 Đã dịch [{cfg['src_lang']} -> {cfg['tgt_lang']}]: {translated_text[:30]}...")
     else:
         translated_text = ""
     

@@ -8,10 +8,10 @@ def load_config(file_path='Data.xlsx'):
     try:
         df = pd.read_excel(file_path)
         config = {
-            'api_id': int(df['api_id'].iloc[0]),
-            'api_hash': str(df['api_hash'].iloc[0]).strip(),
-            'source_id': int(df['source_id'].iloc[0]),
-            'dest_ids': [int(x.strip()) for x in str(df['destination_ids'].iloc[0]).split(',')]
+            'api_id': int(df['Mã_API'].iloc[0]),
+            'api_hash': str(df['Chuỗi_API'].iloc[0]).strip(),
+            'source_id': int(df['ID_Nguồn'].iloc[0]),
+            'dest_ids': [int(x.strip()) for x in str(df['Danh_Sách_ID_Nhận'].iloc[0]).split(',')]
         }
         return config
     except FileNotFoundError:
@@ -33,8 +33,7 @@ client = TelegramClient('my_session', cfg['api_id'], cfg['api_hash'],
 # --- XỬ LÝ CHUYỂN TIẾP ---
 @client.on(events.NewMessage(chats=cfg['source_id']))
 async def handler(event):
-    content = event.raw_text[:50].replace('\n', ' ')
-    print(f"\n📩 Tin nhắn mới: {content}...")
+    print(f"\n📩 Tin nhắn mới.")
 
     # Tối ưu: Gửi song song đến tất cả các nhóm đích cùng lúc
     tasks = []
@@ -60,11 +59,11 @@ async def main():
         await client.start()
         
         me = await client.get_me()
-        print("\n" + "="*50)
+        print("\n" + "="*48)
         print(f"✅ BOT ĐANG CHẠY DƯỚI TÊN: {me.first_name}")
         print(f"📢 Nguồn gửi: {cfg['source_id']}")
         print(f"🎯 Đích đến: {len(cfg['dest_ids'])} nhóm")
-        print("="*50)
+        print("="*48)
         
         await client.run_until_disconnected()
     except Exception as e:

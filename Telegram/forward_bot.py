@@ -1,37 +1,59 @@
 import asyncio
+import pandas as pd
 from telethon import TelegramClient, events
 
-# --- CẤU HÌNH ---
-api_id = '26845740'          # api_id của bạn
-api_hash = 'a6e00e485b0c1ddf905b13f7d9fe1b3e' # api_hash của bạn
+print("Reading file Excel...")
 
-# ID của nhóm nguồn (nơi lấy tin) và nhóm đích (nơi gửi đến)
-# Mẹo: Để lấy ID, bạn có thể forward 1 tin nhắn vào bot @userinfobot
-input_chat_id = -1003844825335   # ID nhóm nguồn (phải có dấu -100 ở đầu nếu là Supergroup)
-output_chat_id = -1003836056810   # ID nhóm đích
-# ----------------
+# --- ĐỌC DỮ LIỆU TỪ EXCEL ---
+try:
+    # Đọc file config.xlsx
+    df = pd.read_excel('Data.xlsx')
+    
+    # Lấy dữ liệu từ dòng đầu tiên chứa dữ liệu (index 0)
+    api_id = int(df['api_id'].iloc[0])
+    api_hash = str(df['api_hash'].iloc[0])
+    input_chat_id = int(df['source_id'].iloc[0])
+    
+    # Xử lý danh sách nhóm nhận (tách bằng dấu phẩy và loại bỏ khoảng trắng)
+    dest_str = str(df['destination_ids'].iloc[0])
+    output_chat_ids = [int(x.strip()) for x in dest_str.split(',')]
+    
+except FileNotFoundError:
+    print("LỖI: Không tìm thấy file 'Data.xlsx'. Vui lòng tạo file này trong cùng thư mục.")
+    exit()
+except Exception as e:
+    print(f"LỖI KHI ĐỌC EXCEL: {e}")
+    print("Vui lòng kiểm tra lại tên cột (api_id, api_hash, source_id, destination_ids) và định dạng dữ liệu.")
+    exit()
+# -----------------------------
 
+# Khởi tạo Client
 client = TelegramClient('my_session', api_id, api_hash)
 
 @client.on(events.NewMessage(chats=input_chat_id))
 async def handler(event):
-    try:
-        # Gửi tin nhắn sang nhóm đích (dạng copy, không nhãn Forward)
-        await client.send_message(output_chat_id, event.message)
-        print(f"Đã copy tin nhắn mới: {event.raw_text[:30]}...")
-    except Exception as e:
-        print(f"Lỗi khi gửi: {e}")
+    print(f"\n[+] Có tin nhắn mới: {event.raw_text[:30]}...")
+    
+    # Lặp qua từng ID trong danh sách nhóm nhận để gửi tin
+    for out_id in output_chat_ids:
+        try:
+            await client.send_message(out_id, event.message)
+            print(f"  -> Đã chuyển tiếp đến: {out_id}")
+        except Exception as e:
+            print(f"  -> LỖI khi gửi đến {out_id}: {e}")
 
 async def main():
-    # Khởi động client và đăng nhập nếu cần
     await client.start()
-    print("Bot đã kết nối thành công và đang lắng nghe...")
-    # Giữ cho script chạy liên tục
+    print("\n==================================================")
+    print("BOT ĐÃ KẾT NỐI VÀ ĐANG LẮNG NGHE...")
+    print(f"- Nhóm nguồn: {input_chat_id}")
+    print(f"- Số nhóm nhận: {len(output_chat_ids)} nhóm")
+    print(f"- Danh sách nhóm nhận: {output_chat_ids}")
+    print("==================================================")
     await client.run_until_disconnected()
 
 if __name__ == '__main__':
     try:
-        # Cách chạy hiện đại để tránh lỗi 'no current event loop'
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\nĐã dừng bot.")
+        print("\nĐã dừng bot an toàn.")

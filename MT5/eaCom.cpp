@@ -59,6 +59,10 @@ void OnTick(){
         CloseAllPositions();
     }
 
+    if(GetTotalBuyProfit() + GetTotalSellProfit() <= -20){
+        Alert("Cảnh báo: Lỗ đã đạt -20 USD! Hãy kiểm tra lại chiến lược giao dịch của bạn.");
+    }
+
     HedgePositions();
 }
 
@@ -181,12 +185,25 @@ void HedgePositions() {
     for(int i = PositionsTotal() - 1; i >= 0; i--) {
         ulong ticket = PositionGetTicket(i);
         if(PositionSelectByTicket(ticket)){
+            ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+            double vol = PositionGetDouble(POSITION_VOLUME);
+            double profit = PositionGetDouble(POSITION_PROFIT);
+
             totalProfit += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
-            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) 
+            
+            if(type == POSITION_TYPE_BUY) 
                 buyLots += PositionGetDouble(POSITION_VOLUME);
 
-            if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL) 
+            if(type == POSITION_TYPE_SELL) 
                 sellLots += PositionGetDouble(POSITION_VOLUME);
+    
+            if(vol > LotSize && profit >= 10){
+                double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+                double newSl = openPrice + (type == POSITION_TYPE_BUY ? 1 : -1) * 50 * _Point;
+                
+                if(!Trade.PositionModify(ticket, newSl, 0))
+                    Print("Error modifying position #", ticket, " - Error: ", Trade.ResultComment());
+            }
         }
     }
 
@@ -198,6 +215,12 @@ void HedgePositions() {
             if(PositionGetDouble(POSITION_PROFIT) <= -3){
                 ExecuteHedge(buyLots, sellLots);
             }    
+        }
+    }
+
+    if(sellLots == 0 || buyLots == 0){
+        if(totalProfit <= -3){
+            ExecuteHedge(buyLots, sellLots);
         }
     }
 }

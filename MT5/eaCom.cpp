@@ -251,20 +251,16 @@ double GetDailyTradedLots() {
     return NormalizeDouble(totalLots, 3);
 }
 
-bool checkCandle(MqlRates &rate){
-    double upperWick = rate.high - MathMax(rate.open, rate.close);
-    double lowerWick = MathMin(rate.open, rate.close) - rate.low;
-    double body = MathAbs(rate.close - rate.open);
-    if(rate.close < rate.open){
-        //Nến giảm, kiểm tra bấc dưới
-        if(lowerWick > body * 2){
-            return false; // Nến giảm với bấc dưới dài, vào lệnh BUY
-        }
+bool checkCandle(const MqlRates &rate) {
+    if (rate.close < rate.open) {
+        double body = rate.open - rate.close;
+        double lowerWick = rate.close - rate.low;
+        
+        return lowerWick <= body * 2; 
     } else {
-        //Nến tăng, kiểm tra bấc trên
-        if(upperWick > body * 2){
-            return true; /// Nến tăng với bấc trên dài, vào lệnh SELL
-        }
+        double body = rate.close - rate.open;
+        double upperWick = rate.high - rate.close;
+        
+        return upperWick > body * 2; 
     }
-    return true;
 }

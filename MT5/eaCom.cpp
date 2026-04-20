@@ -81,10 +81,13 @@ bool CreateLable(CChartObjectLabel &lable, string name, string des, int x, int y
 
 void TradeCom(){
     if(PositionsTotal() == 0){
-        double preCandleOpen = iOpen(_Symbol, PERIOD_M1, 1);
-        double preCandleClose = iClose(_Symbol, PERIOD_M1, 1);
-        
-        if(preCandleClose < preCandleOpen) {
+        MqlRates rates[];
+        if(CopyRates(_Symbol, PERIOD_M1, 1, 2, rates) <= 0){
+            Print("Error copying rates: ", GetLastError());
+            return;
+        }
+
+        if(checkCandle(rates[1])) {
             if(!Trade.Sell(LotSize, _Symbol)){
                 Print("Error placing Sell Order: ", Trade.ResultRetcode());
             }
@@ -246,4 +249,22 @@ double GetDailyTradedLots() {
     }
     
     return NormalizeDouble(totalLots, 3);
+}
+
+bool checkCandle(MqlRates &rate){
+    double upperWick = rate.high - MathMax(rate.open, rate.close);
+    double lowerWick = MathMin(rate.open, rate.close) - rate.low;
+    double body = MathAbs(rate.close - rate.open);
+    if(rate.close < rate.open){
+        //Nến giảm, kiểm tra bấc dưới
+        if(lowerWick > body * 2){
+            return false; // Nến giảm với bấc dưới dài, vào lệnh BUY
+        }
+    } else {
+        //Nến tăng, kiểm tra bấc trên
+        if(upperWick > body * 2){
+            return true; /// Nến tăng với bấc trên dài, vào lệnh SELL
+        }
+    }
+    return true;
 }

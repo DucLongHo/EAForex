@@ -115,7 +115,7 @@ void CalculatePositionStats() {
                     g_sellLots += vol;
                 }
 
-                if(vol > LotSize && profit >= 10.0) {
+                if(vol > LotSize && profit >= 20.0) {
                     double sl = PositionGetDouble(POSITION_SL);
                     double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
                     double newSl = openPrice + (type == POSITION_TYPE_BUY ? 1 : -1) * 50 * _Point;
@@ -180,14 +180,14 @@ void HedgePositions() {
             }
         }
 
-        if(lastTicket > 0 && PositionSelectByTicket(lastTicket)) {
+        if(lastTicket > 0 && PositionSelectByTicket(lastTicket) && g_buyLots > 0 && g_sellLots > 0) {
             if(PositionGetDouble(POSITION_PROFIT) <= -3.0) {
                 ExecuteHedge(g_buyLots, g_sellLots);
             }    
         }
     }
 
-    if(g_sellLots == 0 || g_buyLots == 0) {
+    if((g_sellLots == 0 || g_buyLots == 0) && PositionsTotal() > 1) {
         if(totalProfit <= -3.0) {
             ExecuteHedge(g_buyLots, g_sellLots);
         }

@@ -65,6 +65,7 @@ void OnTick() {
     // 2. Kiểm tra điều kiện chốt lời / cắt lỗ tổng
     if(totalNetProfit >= TakeProfitUSD || totalNetProfit <= -MaxDrawdownUSD) {
         CloseAllPositions();
+        alertSent = false; // Reset cảnh báo sau khi đóng lệnh
         return; // Dừng xử lý tick hiện tại sau khi đóng lệnh
     }
 
@@ -74,8 +75,6 @@ void OnTick() {
             Alert("Cảnh báo: Lỗ đã đạt -20 USD! Hãy kiểm tra lại chiến lược.");
             alertSent = true;
         }
-    } else {
-        alertSent = false; // Reset cờ nếu lợi nhuận hồi phục lại trên -20
     }
 
     datetime currentCandleTime = iTime(_Symbol, PERIOD_M1, 0);

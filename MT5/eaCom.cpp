@@ -163,24 +163,11 @@ void TradeCom() {
 void HedgePositions() {
     double totalProfit = g_buyProfit + g_sellProfit + g_totalSwap;
 
-    if(MathAbs(g_sellLots - g_buyLots) == LotSize) {
-        // Cần lấy ticket chuẩn xác thay vì lấy theo index cuối cùng
-        ulong lastTicket = 0;
-        datetime lastTime = 0;
-        
-        for(int i = PositionsTotal() - 1; i >= 0; i--) {
-            ulong ticket = PositionGetTicket(i);
-            if(PositionSelectByTicket(ticket) && PositionGetString(POSITION_SYMBOL) == _Symbol) {
-                datetime posTime = (datetime)PositionGetInteger(POSITION_TIME);
-                if(posTime > lastTime) {
-                    lastTime = posTime;
-                    lastTicket = ticket;
-                }
-            }
-        }
+    if(MathAbs(g_sellLots - g_buyLots) == LotSize){
+        ulong ticket = PositionGetTicket(PositionsTotal() - 1);
 
-        if(lastTicket > 0 && PositionSelectByTicket(lastTicket)) {
-            if(PositionGetDouble(POSITION_PROFIT) <= -3.0) {
+        if(PositionSelectByTicket(ticket)){
+            if(PositionGetDouble(POSITION_PROFIT) <= -3.0){
                 ExecuteHedge(g_buyLots, g_sellLots);
             }    
         }

@@ -47,6 +47,10 @@ void OnDeinit(const int reason) {
 //| UI Update function (Chỉ update text hiển thị)                    |
 //+------------------------------------------------------------------+
 void OnTimer() {
+    lblTotalBuyLot.Description("Total Buy Lots: " + DoubleToString(g_buyLots, 2));
+    lblTotalSellLot.Description("Total Sell Lots: " + DoubleToString(g_sellLots, 2));
+    lblTotalLots.Description("Daily Lots: " + DoubleToString(GetDailyTradedLots(), 2));
+    ChartRedraw();
 }
 
 //+------------------------------------------------------------------+
@@ -77,11 +81,6 @@ void OnTick() {
     if(currentCandleTime != lastCandleTime) {
         lastCandleTime = currentCandleTime;
         TradeCom();
-
-        lblTotalBuyLot.Description("Total Buy Lots: " + DoubleToString(g_buyLots, 2));
-        lblTotalSellLot.Description("Total Sell Lots: " + DoubleToString(g_sellLots, 2));
-        lblTotalLots.Description("Daily Lots: " + DoubleToString(GetDailyTradedLots(), 2));
-        ChartRedraw();
     }
 
     HedgePositions();
@@ -180,7 +179,7 @@ void HedgePositions() {
             }
         }
 
-        if(lastTicket > 0 && PositionSelectByTicket(lastTicket) && g_buyLots > 0 && g_sellLots > 0) {
+        if(lastTicket > 0 && MathAbs(g_sellLots - g_buyLots) == LotSize) {
             if(PositionGetDouble(POSITION_PROFIT) <= -3.0) {
                 ExecuteHedge(g_buyLots, g_sellLots);
             }    

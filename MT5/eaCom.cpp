@@ -179,7 +179,7 @@ void HedgePositions() {
             }
         }
 
-        if(lastTicket > 0 && MathAbs(g_sellLots - g_buyLots) == LotSize) {
+        if(lastTicket > 0 && PositionSelectByTicket(lastTicket)) {
             if(PositionGetDouble(POSITION_PROFIT) <= -3.0) {
                 ExecuteHedge(g_buyLots, g_sellLots);
             }    

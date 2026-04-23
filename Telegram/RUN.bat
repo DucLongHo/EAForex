@@ -3,7 +3,6 @@ title Telegram Forwarder Bot
 cls
 
 if exist requirements.txt (
-    echo Dang cai dat thu vien tu requirements.txt...
     pip install -r requirements.txt --quiet --upgrade
 ) else (
     echo Dang cai dat thu vien mac dinh...

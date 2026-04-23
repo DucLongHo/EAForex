@@ -163,7 +163,7 @@ void TradeCom() {
 void HedgePositions() {
     double totalProfit = g_buyProfit + g_sellProfit + g_totalSwap;
 
-    if(MathAbs(g_sellLots - g_buyLots) == LotSize){
+    if(NormalizeDouble(MathAbs(g_sellLots - g_buyLots), 2) == LotSize){
         ulong ticket = PositionGetTicket(PositionsTotal() - 1);
 
         if(PositionSelectByTicket(ticket)){

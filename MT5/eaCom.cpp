@@ -171,9 +171,7 @@ void HedgePositions() {
                 ExecuteHedge(g_buyLots, g_sellLots);
             }    
         }
-    }
-
-    if((g_sellLots == 0 || g_buyLots == 0) && PositionsTotal() > 1) {
+    } else if((g_sellLots == 0 || g_buyLots == 0)) {
         if(totalProfit <= -3.0) {
             ExecuteHedge(g_buyLots, g_sellLots);
         }

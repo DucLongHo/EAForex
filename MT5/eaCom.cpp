@@ -229,11 +229,13 @@ bool checkCandle(const MqlRates &rate) {
     if (rate.close < rate.open) { // Nến giảm
         double body = rate.open - rate.close;
         double lowerWick = rate.close - rate.low;
-        return lowerWick <= body * 2; 
+        double upperWick = rate.high - rate.open;
+        return lowerWick <= body * 2 || lowerWick * 2 <= upperWick; 
     } else { // Nến tăng
         double body = rate.close - rate.open;
         double upperWick = rate.high - rate.close;
-        return upperWick > body * 2; 
+        double lowerWick = rate.open - rate.low;
+        return upperWick > body * 2 || upperWick * 2 > lowerWick; 
     }
 }
 

@@ -235,7 +235,7 @@ bool checkCandle(const MqlRates &rate) {
         double body = rate.close - rate.open;
         double upperWick = rate.high - rate.close;
         double lowerWick = rate.open - rate.low;
-        return upperWick > body * 2 || upperWick * 2 <= lowerWick; 
+        return upperWick > body * 2 && upperWick >= lowerWick * 2; 
     }
 }
 

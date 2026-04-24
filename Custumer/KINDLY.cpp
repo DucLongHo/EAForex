@@ -16,6 +16,7 @@
 #include <Trade\PositionInfo.mqh>
 #include <Trade\OrderInfo.mqh>
 #include <Trade\SymbolInfo.mqh>
+#include <ChartObjects\ChartObjectsTxtControls.mqh>
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -80,7 +81,8 @@ input bool   InpNotifyEntry    = true;            // Notify khi dat straddle
 input bool   InpNotifyExit     = true;            // Notify khi dong lenh
 input bool   InpNotifyReset    = true;            // Notify khi reset
 input bool   InpNotifyDaily    = true;            // Gui tong ket ngay luc 23:00
-
+input group "=== SHIFT ==="
+input int Shift = 400;
 //+------------------------------------------------------------------+
 //|  CONSTANTS                                                       |
 //+------------------------------------------------------------------+
@@ -177,6 +179,8 @@ CTrade          g_trade;
 CPositionInfo   g_posInfo;
 COrderInfo      g_orderInfo;
 CSymbolInfo     g_symInfo;
+
+CChartObjectLabel lblIsInTradingHour, lblIsInRolloverWindow, lblIsSpreadOK, lblIsATROK, lblIsADXOK;
 
 //+------------------------------------------------------------------+
 //|                                                                  |
@@ -978,8 +982,20 @@ int OnInit() {
     //--- Validate inputs (Phan 11.13) ---
     if(!ValidateInputs())
         return INIT_PARAMETERS_INCORRECT;
+    
+    int x = (int)ChartGetInteger(0, CHART_WIDTH_IN_PIXELS) - Shift;
 
-    //--- Validate account type (Phan 8.7) ---
+    if(!CreateLable(lblIsInTradingHour, "lblIsInTradingHour", "IsInTradingHour: ", x, 30))
+        return(INIT_FAILED);
+    if(!CreateLable(lblIsInRolloverWindow, "lblIsInRolloverWindow", "IsInRolloverWindow: ", x, 60))
+        return(INIT_FAILED);
+    if(!CreateLable(lblIsSpreadOK, "lblIsSpreadOK", "IsSpreadOK: ", x, 90))
+        return(INIT_FAILED);
+    if(!CreateLable(lblIsATROK, "lblIsATROK", "IsATROK: ", x, 120))
+        return(INIT_FAILED);
+    if(!CreateLable(lblIsADXOK, "lblIsADXOK", "lblIsADXOK: ", x, 150))
+        return(INIT_FAILED);
+        //--- Validate account type (Phan 8.7) ---
     ValidateAccountType();
     //--- Symbol info setup ---
     if(!g_symInfo.Name(_Symbol)) {
@@ -1143,6 +1159,12 @@ void OnTimer() {
         NotifyErrorAlert(StringFormat("Mat ket noi > %d giay voi position dang mo!", DISCONNECT_ALERT_S));
         g_disconnectStart = TimeCurrent();  // reset timer de khong spam
     }
+
+    lblIsInTradingHour.Description("IsInTradingHour: " + (IsInTradingHour() ? "True" : "False"));
+    lblIsInRolloverWindow.Description("IsInRolloverWindow: " + (!IsInRolloverWindow() ? "True" : "False"));
+    lblIsSpreadOK.Description("IsSpreadOK: " + (IsSpreadOK() ? "True" : "False"));
+    lblIsATROK.Description("IsATROK: " + (IsATROK() ? "True" : "False"));
+    lblIsADXOK.Description("IsADXOK: " + (IsADXOK() ? "True" : "False"));
 }
 
 //+------------------------------------------------------------------+
@@ -1222,4 +1244,17 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
             g_state = STATE_IDLE;
         }
     }
+}
+
+bool CreateLable(CChartObjectLabel &lable, string name, string des, int x, int y){
+   // Tạo lable và thiết lập thuộc tính
+   if(!lable.Create(0, name, 0, x, y))
+      return false;
+
+   lable.Description(des);
+   lable.Color(clrWhite);
+   lable.Font("Calibri");
+   lable.FontSize(12);
+
+   return true;
 }

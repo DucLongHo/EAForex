@@ -61,7 +61,7 @@ input double           InpADXMin    = 20.0;       // ADX phai > gia tri nay (exc
 input double           InpADXMax    = 55.0;       // ADX phai < gia tri nay (exclusive)
 
 input group "=== SPREAD FILTER ==="
-input int    InpMaxSpreadPts   = 60;              // Spread max (diem) = 0.6 gia
+input int    InpMaxSpreadPts   = 600;              // Spread max (diem) = 0.6 gia
 
 input group "=== RISK MANAGEMENT ==="
 input double InpDailyLossPct   = 15.0;            // Gioi han lo ngay (%)
@@ -981,7 +981,6 @@ int OnInit() {
 
     //--- Validate account type (Phan 8.7) ---
     ValidateAccountType();
-
     //--- Symbol info setup ---
     if(!g_symInfo.Name(_Symbol)) {
         Print("Loi khoi tao CSymbolInfo cho: ", _Symbol);
@@ -1222,5 +1221,5 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
             UpdateAfterTrade(pl);
             g_state = STATE_IDLE;
         }
-     }
-  }
+    }
+}

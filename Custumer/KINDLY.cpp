@@ -36,12 +36,12 @@ input double InpStopLoss       = 3.0;             // SL cung tu entry (don vi gi
 input double InpTakeProfit     = 15.0;            // TP tu entry (don vi gia)
 
 input group "=== TIME FILTER ==="
-input int    InpStartHour      = 14;              // Gio bat dau trading (gio broker)
+input int    InpStartHour      = 14;              // Gio bat dau trading (gio địa phương)
 input int    InpEndHour        = 22;              // Gio ket thuc T2-T5
 input int    InpEndMinute      = 30;              // Phut ket thuc T2-T5 -> 22:30
 input int    InpFridayEndHour  = 21;              // Gio T6 dong som
 input int    InpFridayEndMin   = 0;               // Phut T6 dong som -> 21:00
-
+input int    InTimeGMT         = 0;               // Giờ địa phương  
 input group "=== ROLLOVER FILTER ==="
 input int    InpRolloverStartH = 3;               // Gio rollover bat dau
 input int    InpRolloverStartM = 45;              // Phut rollover bat dau -> 03:45
@@ -342,13 +342,13 @@ bool IsInTradingHour() {
     MqlDateTime now;
     TimeToStruct(TimeCurrent(), now);
     if(now.day_of_week == 0 || now.day_of_week == 6) return false;
-    if(now.hour < InpStartHour) return false;
+    if(now.hour < (InpStartHour - InTimeGMT)) return false;
     if(now.day_of_week == 5) {
-        if(now.hour > InpFridayEndHour) return false;
-        if(now.hour == InpFridayEndHour && now.min >= InpFridayEndMin) return false;
+        if(now.hour > (InpFridayEndHour - InTimeGMT)) return false;
+        if(now.hour == (InpFridayEndHour - InTimeGMT) && now.min >= InpFridayEndMin) return false;
     } else {
-        if(now.hour > InpEndHour) return false;
-        if(now.hour == InpEndHour && now.min >= InpEndMinute) return false;
+        if(now.hour > (InpEndHour - InTimeGMT)) return false;
+        if(now.hour == (InpEndHour - InTimeGMT) && now.min >= InpEndMinute) return false;
     }
     return true;
 }
@@ -358,8 +358,8 @@ bool IsInRolloverWindow() {
     MqlDateTime now;
     TimeToStruct(TimeCurrent(), now);
     int curMin   = now.hour * 60 + now.min;
-    int startMin = InpRolloverStartH * 60 + InpRolloverStartM;
-    int endMin   = InpRolloverEndH   * 60 + InpRolloverEndM;
+    int startMin = (InpRolloverStartH - InTimeGMT) * 60 + InpRolloverStartM;
+    int endMin   = (InpRolloverEndH - InTimeGMT)  * 60 + InpRolloverEndM;
 
     return (curMin >= startMin && curMin <= endMin);
 }
@@ -834,8 +834,8 @@ bool IsEODClose() {
     if(now.day_of_week == 0 || now.day_of_week == 6) return true;
     int cur = now.hour * 60 + now.min;
     int eod = (now.day_of_week == 5)
-                ? (InpFridayEndHour * 60 + InpFridayEndMin)
-                : (InpEndHour * 60 + InpEndMinute);
+                ? ((InpFridayEndHour - InTimeGMT) * 60 + InpFridayEndMin)
+                : ((InpEndHour - InTimeGMT) * 60 + InpEndMinute);
     return (cur >= eod);
 }
 
@@ -1114,8 +1114,8 @@ void OnTick(){
     TimeToStruct(TimeCurrent(), now);
     int curMin = now.hour * 60 + now.min;
     int eodMin = (now.day_of_week == 5)
-                ? (InpFridayEndHour * 60 + InpFridayEndMin)
-                : (InpEndHour * 60 + InpEndMinute);
+                ? ((InpFridayEndHour - InTimeGMT) * 60 + InpFridayEndMin)
+                : ((InpEndHour - InTimeGMT) * 60 + InpEndMinute);
     if(curMin >= eodMin - EOD_BUFFER_MIN) return;
 
     //--- 11. Check tat ca 5 filter (Phan 6) ---

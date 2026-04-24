@@ -238,7 +238,6 @@ datetime g_lastTelegramTime = 0;
 bool SendTelegram(string text) {
     if(!InpEnableTelegram) return false;
     if(StringLen(InpTelegramToken) < 20) {
-        LogWarn("Telegram: Token khong hop le (< 20 ky tu)");
         return false;
     }
     // Rate limit: 1 msg/giay
@@ -256,10 +255,6 @@ bool SendTelegram(string text) {
     g_lastTelegramTime = TimeCurrent();
     if(httpCode == -1) {
         int err = GetLastError();
-        if(err == 4060)
-            LogError("Telegram: Them URL vao Tools > Options > Expert Advisors > Allowed URLs");
-        else
-            LogError("Telegram error code: " + IntegerToString(err));
         
             return false;
     } if(httpCode == 429) {
@@ -267,7 +262,6 @@ bool SendTelegram(string text) {
         return SendTelegram(text);  // retry 1 lan
     }
     if(httpCode != 200){
-        LogWarn("Telegram HTTP: " + IntegerToString(httpCode));
         return false;
     }
     return true;
@@ -462,15 +456,9 @@ void ApplyTrailing(ulong ticket) {
     // Rate limit: toi da 1 modify/giay
     if(TimeCurrent() - g_lastTrailTime < TRAIL_RATE_LIMIT_S) return;
     if(g_trade.PositionModify(ticket, newSL, curTP)) {
-        LogTrail(StringFormat(
-            "Trailing #%llu SL: %.2f -> %.2f | Lai: %.2f | Offset: %.2f (Tier: %s)",
-            ticket, curSL, newSL, profit,
-            offset,
-            profit < 4 ? "1" : profit < 5 ? "2" : profit <= 10 ? "3" :
-            profit <= 20 ? "4" : profit <= 30 ? "5" : "6"));
+        
         g_lastTrailTime = TimeCurrent();
-    }else
-        LogWarn(StringFormat("PositionModify that bai #%llu: err=%d", ticket, GetLastError()));
+    }
 }
 
 /// Ap dung trailing cho tat ca position dang mo
@@ -518,7 +506,7 @@ void CloseAllPositions(string reason) {
         if(g_posInfo.SelectByIndex(i) &&
             g_posInfo.Magic() == InpMagicNumber &&
             g_posInfo.Symbol() == _Symbol) {
-            if(!g_trade.PositionClose(g_posInfo.Ticket()))
+            if(!g_trade.PositionClose(g_posInfo.Ticket())) Print("");
         }
     }
 }
@@ -529,7 +517,7 @@ void CancelAllPendingOrders() {
             g_orderInfo.Magic() == InpMagicNumber &&
             g_orderInfo.Symbol() == _Symbol) {
             ulong tk = g_orderInfo.Ticket();
-            if(!g_trade.OrderDelete(tk))
+            if(!g_trade.OrderDelete(tk)) Print("");
         }
     }
 }
@@ -1226,7 +1214,6 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
                 g_totalTrades++;
                 g_grossLoss   += pl;
                 g_todayProfit += pl;
-                LogInfo("Trailing SL hit — reset loss streak ve 0");
                 g_state = STATE_IDLE;
             }
         }

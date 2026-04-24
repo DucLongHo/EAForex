@@ -728,7 +728,7 @@ void TryReset(double slHitPrice) {
     if(g_dailyLimitHit)  return;
     if(!IsInTradingHour()) return;
     if(!AllFiltersPass()) return;
-    if(TimeCurrent() - g_lastResetTime < 5) return;
+    if(TimeCurrent() - g_lastResetTime <= 1) return;
     if(CountMyPositions() > 0 || CountMyPendingOrders() > 0) return;
 
     g_lastResetTime = TimeCurrent();
@@ -1227,8 +1227,9 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
                 UpdateAfterTrade(pl);
                 g_state = STATE_RECOVERING;
                 // Thu reset sau khi dam bao khong con position/order nao
-                if(CountMyPositions() == 0 && CountMyPendingOrders() == 0)
-                TryReset(dealPrice);
+                if(CountMyPositions() == 0 && CountMyPendingOrders() == 0){
+                    TryReset(dealPrice);
+                }
             } else {
                 // Trailing SL hit -> reset streak counter theo spec (Phan 4.4)
                 g_lossStreak = 0;

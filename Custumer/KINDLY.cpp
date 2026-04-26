@@ -1248,14 +1248,14 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
 }
 
 bool CreateLable(CChartObjectLabel &lable, string name, string des, int x, int y){
-   // Tạo lable và thiết lập thuộc tính
-   if(!lable.Create(0, name, 0, x, y))
-      return false;
+    // Tạo lable và thiết lập thuộc tính
+    if(!lable.Create(0, name, 0, x, y))
+        return false;
 
-   lable.Description(des);
-   lable.Color(clrWhite);
-   lable.Font("Calibri");
-   lable.FontSize(12);
+    lable.Description(des);
+    lable.Color(clrWhite);
+    lable.Font("Calibri");
+    lable.FontSize(12);
 
-   return true;
+    return true;
 }

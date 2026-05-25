@@ -1,0 +1,198 @@
+//@version=6
+indicator("Rich Trading — CVD Divergence", shorttitle="RTB CVD",
+          overlay=false, max_bars_back=500,
+          max_lines_count=500, max_labels_count=500)
+
+// ══════════════════════════════════════════════════════════════
+// INPUTS
+// ══════════════════════════════════════════════════════════════
+
+grp = "CVD Divergence Settings"
+swingLen     = input.int(2,             "Fractal Periods",  minval=1,                          group=grp)
+cvdPer       = input.int(21,            "CVD Period",       minval=1,                          group=grp)
+cvdMode      = input.string("Periodic", "CVD Mode",   options=["Periodic","EMA"],              group=grp)
+ultraData    = input.bool(false,        "Ultra Data (multi-broker volume)",                    group=grp)
+market       = input.string("Forex",    "Market",     options=["Forex","Crypto","Stock"],       group=grp)
+colBearNorm  = input.color(color.red,    "RD− Color (Normal)",                                 group=grp)
+colBearPhase = input.color(color.orange, "RD− Color (Phase)",                                  group=grp)
+colBullNorm  = input.color(color.lime,   "RD+ Color (Normal)",                                 group=grp)
+colBullPhase = input.color(color.aqua,   "RD+ Color (Phase)",                                  group=grp)
+divLblSize   = input.string("Small",     "Label Size",
+               options=["Tiny","Small","Normal","Large","Huge"],                               group=grp)
+
+// ══════════════════════════════════════════════════════════════
+// ULTRA DATA — multi-broker volume aggregation
+// ══════════════════════════════════════════════════════════════
+
+string bk1 = ""
+string bk2 = ""
+string bk3 = ""
+string bk4 = ""
+string bk5 = ""
+string bk6 = ""
+string bk7 = ""
+string bk8 = ""
+
+switch market
+    "Forex" =>
+        bk1 := "OANDA"
+        bk2 := "FOREXCOM"
+        bk3 := "FX"
+        bk4 := "PEPPERSTONE"
+        bk5 := "CAPITALCOM"
+        bk6 := "ICMARKETS"
+        bk7 := "EIGHTCAP"
+        bk8 := "SAXO"
+    "Crypto" =>
+        bk1 := "BITSTAMP"
+        bk2 := "COINBASE"
+        bk3 := "BINANCE"
+        bk4 := "KRAKEN"
+        bk5 := "BITFINEX"
+        bk6 := "GEMINI"
+        bk7 := "INDEX"
+        bk8 := "CRYPTO"
+
+v1 = nz(request.security(bk1 + ":" + syminfo.ticker, timeframe.period, volume, ignore_invalid_symbol=true))
+v2 = nz(request.security(bk2 + ":" + syminfo.ticker, timeframe.period, volume, ignore_invalid_symbol=true))
+v3 = nz(request.security(bk3 + ":" + syminfo.ticker, timeframe.period, volume, ignore_invalid_symbol=true))
+v4 = nz(request.security(bk4 + ":" + syminfo.ticker, timeframe.period, volume, ignore_invalid_symbol=true))
+v5 = nz(request.security(bk5 + ":" + syminfo.ticker, timeframe.period, volume, ignore_invalid_symbol=true))
+v6 = nz(request.security(bk6 + ":" + syminfo.ticker, timeframe.period, volume, ignore_invalid_symbol=true))
+v7 = nz(request.security(bk7 + ":" + syminfo.ticker, timeframe.period, volume, ignore_invalid_symbol=true))
+v8 = nz(request.security(bk8 + ":" + syminfo.ticker, timeframe.period, volume, ignore_invalid_symbol=true))
+
+rawVol = ultraData ? volume + v1 + v2 + v3 + v4 + v5 + v6 + v7 + v8 : volume
+
+// ══════════════════════════════════════════════════════════════
+// CVD CALCULATION
+// ══════════════════════════════════════════════════════════════
+
+hlRange  = high - low
+cvdBuy   = hlRange > 0 ? rawVol * ((close - low)  / hlRange) : rawVol / 2
+cvdSell  = hlRange > 0 ? rawVol * ((high - close) / hlRange) : rawVol / 2
+cvdDelta = cvdBuy - cvdSell
+cvdHist  = cvdMode == "Periodic" ? math.sum(cvdDelta, cvdPer) : ta.ema(cvdDelta, cvdPer)
+
+// ══════════════════════════════════════════════════════════════
+// DIVERGENCE LOGIC
+// ══════════════════════════════════════════════════════════════
+
+ema50     = ta.ema(close, 50)
+upTrend   = close[swingLen] > ema50
+downTrend = close[swingLen] < ema50
+
+pivHigh  = ta.pivothigh(high, swingLen, swingLen)
+pivLow   = ta.pivotlow(low,  swingLen, swingLen)
+upFrac   = not na(pivHigh) and upTrend
+downFrac = not na(pivLow)  and downTrend
+
+hiLastPrice = ta.valuewhen(upFrac, high[swingLen],      0)
+hiPerPrice  = ta.valuewhen(upFrac, high[swingLen],      1)
+hiLastHist  = ta.valuewhen(upFrac, cvdHist[swingLen],   0)
+hiPerHist   = ta.valuewhen(upFrac, cvdHist[swingLen],   1)
+hiLastBar   = ta.valuewhen(upFrac, bar_index[swingLen], 0)
+hiPerBar    = ta.valuewhen(upFrac, bar_index[swingLen], 1)
+
+loLastPrice = ta.valuewhen(downFrac, low[swingLen],       0)
+loPerPrice  = ta.valuewhen(downFrac, low[swingLen],       1)
+loLastHist  = ta.valuewhen(downFrac, cvdHist[swingLen],   0)
+loPerHist   = ta.valuewhen(downFrac, cvdHist[swingLen],   1)
+loLastBar   = ta.valuewhen(downFrac, bar_index[swingLen], 0)
+loPerBar    = ta.valuewhen(downFrac, bar_index[swingLen], 1)
+
+rdBear = hiLastHist > 0 and hiPerHist > 0 and
+         (hiLastBar + 30) > bar_index  and
+         (hiLastBar - hiPerBar) < 30   and
+         hiLastPrice > hiPerPrice      and
+         hiLastHist  < hiPerHist
+
+rdBull = loLastHist < 0 and loPerHist < 0 and
+         (loLastBar + 30) > bar_index  and
+         (loLastBar - loPerBar) < 30   and
+         loLastPrice < loPerPrice      and
+         loLastHist  > loPerHist
+
+// ── Phase detection ───────────────────────────────────────────
+var bool bearPhase = false
+var bool bullPhase = false
+
+lenBear = not na(hiLastBar - hiPerBar) ? int(math.max(hiLastBar - hiPerBar, 1)) : 1
+lenBull = not na(loLastBar - loPerBar) ? int(math.max(loLastBar - loPerBar, 1)) : 1
+
+if ta.change(hiLastPrice) != 0 and rdBear
+    bearPhase := false
+    for ii = swingLen + 1 to swingLen + lenBear
+        if cvdHist[ii] < 0
+            bearPhase := true
+            break
+else if not rdBear
+    bearPhase := false
+
+if ta.change(loLastPrice) != 0 and rdBull
+    bullPhase := false
+    for ii = swingLen + 1 to swingLen + lenBull
+        if cvdHist[ii] > 0
+            bullPhase := true
+            break
+else if not rdBull
+    bullPhase := false
+
+// ── Count scoring ─────────────────────────────────────────────
+var int cBear = 0
+var int cBull = 0
+
+if ta.change(hiLastPrice) != 0 and rdBear
+    cBear += 1
+else if not rdBear
+    cBear := 0
+
+if ta.change(loLastPrice) != 0 and rdBull
+    cBull += 1
+else if not rdBull
+    cBull := 0
+
+bearLbl = cBear >= 3 ? "RD−  3" : cBear == 2 ? "RD−  2" : "RD−  1"
+bullLbl = cBull >= 3 ? "RD+  3" : cBull == 2 ? "RD+  2" : "RD+  1"
+
+divSz = divLblSize == "Tiny" ? size.tiny : divLblSize == "Normal" ? size.normal
+      : divLblSize == "Large" ? size.large : divLblSize == "Huge" ? size.huge
+      : size.small
+
+// ══════════════════════════════════════════════════════════════
+// HISTOGRAM — pane
+// ══════════════════════════════════════════════════════════════
+
+histColor = cvdHist >= 0 ? color.new(color.green, 20) : color.new(color.red, 20)
+plot(cvdHist, "CVD", color=histColor, style=plot.style_columns)
+hline(0, "Zero", color=color.new(color.white, 60), linestyle=hline.style_dashed, linewidth=1)
+
+if rdBear and ta.change(hiLastPrice) != 0
+    lc = bearPhase ? colBearPhase : colBearNorm
+    line.new(hiPerBar, hiPerHist, hiLastBar, hiLastHist, color=lc, style=line.style_dashed, width=2)
+    label.new(hiLastBar, hiLastHist, bearLbl, color=lc, textcolor=color.white,
+              style=label.style_label_down, size=divSz)
+
+if rdBull and ta.change(loLastPrice) != 0
+    lc = bullPhase ? colBullPhase : colBullNorm
+    line.new(loPerBar, loPerHist, loLastBar, loLastHist, color=lc, style=line.style_dashed, width=2)
+    label.new(loLastBar, loLastHist, bullLbl, color=lc, textcolor=color.white,
+              style=label.style_label_up, size=divSz)
+
+// ══════════════════════════════════════════════════════════════
+// DIVERGENCE — main chart (force_overlay)
+// ══════════════════════════════════════════════════════════════
+
+if rdBear and ta.change(hiLastPrice) != 0
+    lc = bearPhase ? colBearPhase : colBearNorm
+    line.new(hiPerBar, hiPerPrice, hiLastBar, hiLastPrice,
+             color=lc, style=line.style_dashed, width=2, force_overlay=true)
+    label.new(hiLastBar, hiLastPrice, bearLbl, color=lc, textcolor=color.white,
+              style=label.style_label_down, size=divSz, force_overlay=true)
+
+if rdBull and ta.change(loLastPrice) != 0
+    lc = bullPhase ? colBullPhase : colBullNorm
+    line.new(loPerBar, loPerPrice, loLastBar, loLastPrice,
+             color=lc, style=line.style_dashed, width=2, force_overlay=true)
+    label.new(loLastBar, loLastPrice, bullLbl, color=lc, textcolor=color.white,
+              style=label.style_label_up, size=divSz, force_overlay=true)

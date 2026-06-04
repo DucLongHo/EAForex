@@ -236,6 +236,15 @@ input  double  InpCloseLoss    = 0.0;  // Cắt lỗ khi tổng lỗ đạt ($, 
 input  double  InpClosePerPips = 0.0;  // Đóng từng lệnh khi đạt (points, 0=tắt)
 
 //+------------------------------------------------------------------+
+//| INPUT: PANEL                                                     |
+//+------------------------------------------------------------------+
+input group         "══════ PANEL ══════"; //
+input  bool    InpShowPanel  = true;  // Hiện panel
+input  int     InpPanelX     = 5;     // Panel: tọa độ X
+input  int     InpPanelY     = 18;    // Panel: tọa độ Y
+input  int     InpPanelWidth = 252;   // Panel: chiều rộng
+
+//+------------------------------------------------------------------+
 //| GLOBAL STATE                                                     |
 //+------------------------------------------------------------------+
 int      hEMAFast   = INVALID_HANDLE;
@@ -1131,7 +1140,7 @@ PeriodStats GetPeriodStats(datetime from, datetime to) {
     PeriodStats s;
     s.pips = s.profit = s.gain = s.lot = 0;
     if(!HistorySelect(from, to)) return s;
-    double tickVal = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+    double contractSize = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_CONTRACT_SIZE);
     for(int i = 0; i < HistoryDealsTotal(); i++) {
         ulong dk = HistoryDealGetTicket(i);
         if(HistoryDealGetString(dk, DEAL_SYMBOL) != _Symbol) continue;
@@ -1142,7 +1151,9 @@ PeriodStats GetPeriodStats(datetime from, datetime to) {
         s.profit += dp;
         s.lot    += dv;
     }
-    if(tickVal > 0 && s.lot > 0) s.pips = s.profit / (s.lot * tickVal);
+    // 1 price unit = 10 pips (fixed)
+    if(contractSize > 0 && s.lot > 0)
+        s.pips = s.profit / (s.lot * contractSize) * 10.0;
     s.gain = (InitBalance > 0) ? s.profit / InitBalance * 100.0 : 0;
     return s;
 }
@@ -1152,8 +1163,6 @@ void CreateBtn(string name, string text, int x, int y, int w, int h, color bgClr
     if(ObjectFind(0, obj) < 0) {
         ObjectCreate(0, obj, OBJ_BUTTON, 0, 0, 0);
         ObjectSetInteger(0, obj, OBJPROP_CORNER,     CORNER_LEFT_UPPER);
-        ObjectSetInteger(0, obj, OBJPROP_XDISTANCE,  x);
-        ObjectSetInteger(0, obj, OBJPROP_YDISTANCE,  y);
         ObjectSetInteger(0, obj, OBJPROP_XSIZE,      w);
         ObjectSetInteger(0, obj, OBJPROP_YSIZE,      h);
         ObjectSetString(0,  obj, OBJPROP_FONT,       "Consolas");
@@ -1161,6 +1170,8 @@ void CreateBtn(string name, string text, int x, int y, int w, int h, color bgClr
         ObjectSetInteger(0, obj, OBJPROP_BACK,       false);
         ObjectSetInteger(0, obj, OBJPROP_SELECTABLE, false);
     }
+    ObjectSetInteger(0, obj, OBJPROP_XDISTANCE,  x);
+    ObjectSetInteger(0, obj, OBJPROP_YDISTANCE,  y);
     ObjectSetString(0,  obj, OBJPROP_TEXT,         text);
     ObjectSetInteger(0, obj, OBJPROP_COLOR,        clrWhite);
     ObjectSetInteger(0, obj, OBJPROP_BGCOLOR,      bgClr);
@@ -1180,38 +1191,44 @@ void DrawHLine(string name, double price, color clr) {
 
 void CreateRect(string name, int lx, int ly, int lw, int lh, color bg) {
     string obj = GUI + name;
-    if(ObjectFind(0, obj) >= 0) return;
-    ObjectCreate(0, obj, OBJ_RECTANGLE_LABEL, 0, 0, 0);
-    ObjectSetInteger(0, obj, OBJPROP_CORNER,      CORNER_LEFT_UPPER);
-    ObjectSetInteger(0, obj, OBJPROP_XDISTANCE,   lx);
-    ObjectSetInteger(0, obj, OBJPROP_YDISTANCE,   ly);
-    ObjectSetInteger(0, obj, OBJPROP_XSIZE,       lw);
-    ObjectSetInteger(0, obj, OBJPROP_YSIZE,       lh);
-    ObjectSetInteger(0, obj, OBJPROP_BGCOLOR,     bg);
-    ObjectSetInteger(0, obj, OBJPROP_BORDER_TYPE, BORDER_FLAT);
-    ObjectSetInteger(0, obj, OBJPROP_COLOR,       bg);
-    ObjectSetInteger(0, obj, OBJPROP_WIDTH,       0);
-    ObjectSetInteger(0, obj, OBJPROP_BACK,        false);
-    ObjectSetInteger(0, obj, OBJPROP_SELECTABLE,  false);
+    if(ObjectFind(0, obj) < 0) {
+        ObjectCreate(0, obj, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+        ObjectSetInteger(0, obj, OBJPROP_CORNER,      CORNER_LEFT_UPPER);
+        ObjectSetInteger(0, obj, OBJPROP_XSIZE,       lw);
+        ObjectSetInteger(0, obj, OBJPROP_YSIZE,       lh);
+        ObjectSetInteger(0, obj, OBJPROP_BGCOLOR,     bg);
+        ObjectSetInteger(0, obj, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+        ObjectSetInteger(0, obj, OBJPROP_COLOR,       bg);
+        ObjectSetInteger(0, obj, OBJPROP_WIDTH,       0);
+        ObjectSetInteger(0, obj, OBJPROP_BACK,        false);
+        ObjectSetInteger(0, obj, OBJPROP_SELECTABLE,  false);
+    }
+    ObjectSetInteger(0, obj, OBJPROP_XDISTANCE, lx);
+    ObjectSetInteger(0, obj, OBJPROP_YDISTANCE, ly);
 }
 
 void Lbl(string name, string text, int x, int y, color clr = clrSilver, int sz = 9) {
     string obj = GUI + name;
     if(ObjectFind(0, obj) < 0) {
         ObjectCreate(0, obj, OBJ_LABEL, 0, 0, 0);
-        ObjectSetInteger(0, obj, OBJPROP_CORNER,    CORNER_LEFT_UPPER);
-        ObjectSetInteger(0, obj, OBJPROP_XDISTANCE, x);
-        ObjectSetInteger(0, obj, OBJPROP_YDISTANCE, y);
-        ObjectSetString(0,  obj, OBJPROP_FONT, "Consolas");
-        ObjectSetInteger(0, obj, OBJPROP_BACK, false);
+        ObjectSetInteger(0, obj, OBJPROP_CORNER,     CORNER_LEFT_UPPER);
+        ObjectSetString(0,  obj, OBJPROP_FONT,       "Consolas");
+        ObjectSetInteger(0, obj, OBJPROP_BACK,       false);
         ObjectSetInteger(0, obj, OBJPROP_SELECTABLE, false);
     }
+    ObjectSetInteger(0, obj, OBJPROP_XDISTANCE, x);
+    ObjectSetInteger(0, obj, OBJPROP_YDISTANCE, y);
     ObjectSetString(0,  obj, OBJPROP_TEXT,     text);
     ObjectSetInteger(0, obj, OBJPROP_COLOR,    clr);
     ObjectSetInteger(0, obj, OBJPROP_FONTSIZE, sz);
 }
 
 void UpdateGUI() {
+    if(!InpShowPanel) { RemoveGUI(); return; }
+    int PX = InpPanelX;
+    int PY = InpPanelY;
+    int PW = InpPanelWidth;
+
     double balance   = AccountInfoDouble(ACCOUNT_BALANCE);
     double equity    = AccountInfoDouble(ACCOUNT_EQUITY);
     double spread    = (double)SymbolInfoInteger(_Symbol, SYMBOL_SPREAD);
@@ -1267,9 +1284,7 @@ void UpdateGUI() {
     if(ObjectFind(0, bg) < 0) {
         ObjectCreate(0, bg, OBJ_RECTANGLE_LABEL, 0, 0, 0);
         ObjectSetInteger(0, bg, OBJPROP_CORNER,      CORNER_LEFT_UPPER);
-        ObjectSetInteger(0, bg, OBJPROP_XDISTANCE,   5);
-        ObjectSetInteger(0, bg, OBJPROP_YDISTANCE,   18);
-        ObjectSetInteger(0, bg, OBJPROP_XSIZE,       252);
+        ObjectSetInteger(0, bg, OBJPROP_XSIZE,       PW);
         ObjectSetInteger(0, bg, OBJPROP_YSIZE,       346);
         ObjectSetInteger(0, bg, OBJPROP_BGCOLOR,     C'14,17,26');
         ObjectSetInteger(0, bg, OBJPROP_BORDER_TYPE, BORDER_FLAT);
@@ -1278,15 +1293,15 @@ void UpdateGUI() {
         ObjectSetInteger(0, bg, OBJPROP_BACK,        false);
         ObjectSetInteger(0, bg, OBJPROP_SELECTABLE,  false);
     }
+    ObjectSetInteger(0, bg, OBJPROP_XDISTANCE, PX);
+    ObjectSetInteger(0, bg, OBJPROP_YDISTANCE, PY);
 
     // ── PANEL 2: ĐIỀU KHIỂN ──
     string bg2 = GUI + "BG2";
     if(ObjectFind(0, bg2) < 0) {
         ObjectCreate(0, bg2, OBJ_RECTANGLE_LABEL, 0, 0, 0);
         ObjectSetInteger(0, bg2, OBJPROP_CORNER,      CORNER_LEFT_UPPER);
-        ObjectSetInteger(0, bg2, OBJPROP_XDISTANCE,   5);
-        ObjectSetInteger(0, bg2, OBJPROP_YDISTANCE,   378);
-        ObjectSetInteger(0, bg2, OBJPROP_XSIZE,       252);
+        ObjectSetInteger(0, bg2, OBJPROP_XSIZE,       PW);
         ObjectSetInteger(0, bg2, OBJPROP_YSIZE,       110);
         ObjectSetInteger(0, bg2, OBJPROP_BGCOLOR,     C'17,21,32');
         ObjectSetInteger(0, bg2, OBJPROP_BORDER_TYPE, BORDER_FLAT);
@@ -1295,15 +1310,15 @@ void UpdateGUI() {
         ObjectSetInteger(0, bg2, OBJPROP_BACK,        false);
         ObjectSetInteger(0, bg2, OBJPROP_SELECTABLE,  false);
     }
+    ObjectSetInteger(0, bg2, OBJPROP_XDISTANCE, PX);
+    ObjectSetInteger(0, bg2, OBJPROP_YDISTANCE, PY + 360);
 
     // ── PANEL 3: THỐNG KÊ ──
     string bg3 = GUI + "BG3";
     if(ObjectFind(0, bg3) < 0) {
         ObjectCreate(0, bg3, OBJ_RECTANGLE_LABEL, 0, 0, 0);
         ObjectSetInteger(0, bg3, OBJPROP_CORNER,      CORNER_LEFT_UPPER);
-        ObjectSetInteger(0, bg3, OBJPROP_XDISTANCE,   5);
-        ObjectSetInteger(0, bg3, OBJPROP_YDISTANCE,   518);
-        ObjectSetInteger(0, bg3, OBJPROP_XSIZE,       252);
+        ObjectSetInteger(0, bg3, OBJPROP_XSIZE,       PW);
         ObjectSetInteger(0, bg3, OBJPROP_YSIZE,       115);
         ObjectSetInteger(0, bg3, OBJPROP_BGCOLOR,     C'14,19,28');
         ObjectSetInteger(0, bg3, OBJPROP_BORDER_TYPE, BORDER_FLAT);
@@ -1312,9 +1327,11 @@ void UpdateGUI() {
         ObjectSetInteger(0, bg3, OBJPROP_BACK,        false);
         ObjectSetInteger(0, bg3, OBJPROP_SELECTABLE,  false);
     }
+    ObjectSetInteger(0, bg3, OBJPROP_XDISTANCE, PX);
+    ObjectSetInteger(0, bg3, OBJPROP_YDISTANCE, PY + 500);
 
     // ── NỘI DUNG PANEL 1 ──
-    int x = 12, y = 23, s = 16;
+    int x = PX + 7, y = PY + 5, s = 16;
     Lbl("T",    " RICH TRADING BOT  v1.0",   x, y, C'80,160,255', 10); y += s+2;
     Lbl("L0",   "────────────────────────",   x, y, C'45,58,105'  );    y += s-2;
     Lbl("Tim",  "Time   : " + tStr,           x, y, clrSilver     );    y += s;
@@ -1343,35 +1360,39 @@ void UpdateGUI() {
     Lbl("Tot",  StringFormat("Total  : %d orders", nBuy + nSell), x, y, clrSilver);        y += s;
 
     // ── NỘI DUNG PANEL 2 (Nút điều khiển) ──
-    y = 388;
+    y = PY + 370;
     Lbl("P2T", "═══  ĐIỀU KHIỂN LỆNH  ═══", x, y, C'90,140,230', 9); y += s + 2;
 
-    int bh = 22;
-    CreateBtn("BtnCloseAll",    "  Close All",     12,  y, 234, bh, C'20,60,150',  C'80,130,230'); y += bh + 4;
-    CreateBtn("BtnCloseBuy",    "▲ Close Buy",     12,  y, 114, bh, C'0,105,45',   C'45,185,90' );
-    CreateBtn("BtnCloseProfit", "$ Close Profit",  130, y, 114, bh, C'0,110,100',  C'40,190,170'); y += bh + 4;
-    CreateBtn("BtnCloseSell",   "▼ Close Sell",    12,  y, 114, bh, C'145,15,15',  C'230,65,65' );
-    CreateBtn("BtnCloseLoss",   "✕ Close Loss",    130, y, 114, bh, C'140,35,20',  C'210,80,55' );
+    int bh  = 22;
+    int bfw = PW - 18;              // full-width button
+    int bhw = (PW - 24) / 2;        // half-width button
+    int bx2 = PX + 7 + bhw + 4;     // x of second button in a row
+    CreateBtn("BtnCloseAll",    "  Close All",     PX+7, y, bfw, bh, C'20,60,150',  C'80,130,230'); y += bh + 4;
+    CreateBtn("BtnCloseBuy",    "▲ Close Buy",     PX+7, y, bhw, bh, C'0,105,45',   C'45,185,90' );
+    CreateBtn("BtnCloseProfit", "$ Close Profit",  bx2,  y, bhw, bh, C'0,110,100',  C'40,190,170'); y += bh + 4;
+    CreateBtn("BtnCloseSell",   "▼ Close Sell",    PX+7, y, bhw, bh, C'145,15,15',  C'230,65,65' );
+    CreateBtn("BtnCloseLoss",   "✕ Close Loss",    bx2,  y, bhw, bh, C'140,35,20',  C'210,80,55' );
 
     // ── NỘI DUNG PANEL 3 (Thống kê) ──
-    y = 528;
+    y = PY + 510;
     Lbl("P3T", "═══  THỐNG KÊ  ═══", x, y, C'90,140,230', 9); y += s + 2;
-    // y=546: table starts here
 
     color sepClr = C'45,65,120';
-    int tblTop = y, tblH = 5*(s-2); // (header + 4 data rows) × 14px = 70px
+    int tblTop = y, tblH = 5*(s-2);
 
-    // Separator lines created BEFORE text so text renders on top (Z-order)
-    // Vertical column dividers
-    CreateRect("P3VC1", 66,  tblTop, 1, tblH, sepClr);
-    CreateRect("P3VC2", 116, tblTop, 1, tblH, sepClr);
-    CreateRect("P3VC3", 168, tblTop, 1, tblH, sepClr);
-    CreateRect("P3VC4", 216, tblTop, 1, tblH, sepClr);
-    // Horizontal dividers: after header + between data rows
+    int tw  = PW - 4;
+    int vc1 = PX + 2 + tw * 24 / 100;
+    int vc2 = PX + 2 + tw * 44 / 100;
+    int vc3 = PX + 2 + tw * 65 / 100;
+    int vc4 = PX + 2 + tw * 84 / 100;
+    CreateRect("P3VC1", vc1, tblTop, 1, tblH, sepClr);
+    CreateRect("P3VC2", vc2, tblTop, 1, tblH, sepClr);
+    CreateRect("P3VC3", vc3, tblTop, 1, tblH, sepClr);
+    CreateRect("P3VC4", vc4, tblTop, 1, tblH, sepClr);
     for(int si = 0; si < 4; si++)
-        CreateRect("P3HR"+IntegerToString(si), 7, tblTop + (si+1)*(s-2) - 1, 248, 1, sepClr);
+        CreateRect("P3HR"+IntegerToString(si), PX+2, tblTop + (si+1)*(s-2) - 1, PW-4, 1, sepClr);
 
-    int cx0=12, cx1=68, cx2=118, cx3=170, cx4=218;
+    int cx0=PX+7, cx1=vc1+2, cx2=vc2+2, cx3=vc3+2, cx4=vc4+2;
     Lbl("TH0", "Date ",  cx0, y, C'100,125,195', 8);
     Lbl("TH1", "Pips ",  cx1, y, C'100,125,195', 8);
     Lbl("TH2", "Profit", cx2, y, C'100,125,195', 8);
@@ -1413,9 +1434,7 @@ void UpdateGUI() {
         if(ObjectFind(0, bg4) < 0) {
             ObjectCreate(0, bg4, OBJ_RECTANGLE_LABEL, 0, 0, 0);
             ObjectSetInteger(0, bg4, OBJPROP_CORNER,      CORNER_LEFT_UPPER);
-            ObjectSetInteger(0, bg4, OBJPROP_XDISTANCE,   5);
-            ObjectSetInteger(0, bg4, OBJPROP_YDISTANCE,   675);
-            ObjectSetInteger(0, bg4, OBJPROP_XSIZE,       252);
+            ObjectSetInteger(0, bg4, OBJPROP_XSIZE,       PW);
             ObjectSetInteger(0, bg4, OBJPROP_YSIZE,       58);
             ObjectSetInteger(0, bg4, OBJPROP_BGCOLOR,     C'20,14,14');
             ObjectSetInteger(0, bg4, OBJPROP_BORDER_TYPE, BORDER_FLAT);
@@ -1424,10 +1443,12 @@ void UpdateGUI() {
             ObjectSetInteger(0, bg4, OBJPROP_BACK,        false);
             ObjectSetInteger(0, bg4, OBJPROP_SELECTABLE,  false);
         }
-        int y4 = 685;
+        ObjectSetInteger(0, bg4, OBJPROP_XDISTANCE, PX);
+        ObjectSetInteger(0, bg4, OBJPROP_YDISTANCE, PY + 657);
+        int y4 = PY + 667;
         Lbl("P4T", "═══  VÀO LỆNH THỦ CÔNG  ═══", x, y4, C'230,100,100', 9); y4 += s + 2;
-        CreateBtn("BtnOpenBuy",  "▲ Open Buy",  12,  y4, 114, bh, C'0,80,20',  C'30,200,80');
-        CreateBtn("BtnOpenSell", "▼ Open Sell", 130, y4, 114, bh, C'100,0,0',  C'220,40,40');
+        CreateBtn("BtnOpenBuy",  "▲ Open Buy",  PX+7, y4, bhw, bh, C'0,80,20',  C'30,200,80');
+        CreateBtn("BtnOpenSell", "▼ Open Sell", bx2,  y4, bhw, bh, C'100,0,0',  C'220,40,40');
     } else {
         ObjectDelete(0, GUI + "BG4");
         ObjectDelete(0, GUI + "P4T");

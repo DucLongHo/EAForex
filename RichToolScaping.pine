@@ -1,0 +1,265 @@
+//@version=5
+indicator("Rich Tool Scaping — Signal Dashboard", overlay=true, max_bars_back=500)
+
+// ═══════════════════════════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════════════════════════
+sig_col(v) =>
+    v > 0 ? color.new(#1a6b20, 0) : v < 0 ? color.new(#9c1a1a, 0) : color.new(#37474f, 60)
+
+sig_txt(v) => v > 0 ? "UP" : v < 0 ? "DOWN" : "—"
+
+score_col(s) =>
+    s >= 75.0  ? color.new(#1a6b20, 0)  : s >= 50.0  ? color.new(#2e7d32, 30) :
+    s <= -75.0 ? color.new(#9c1a1a, 0)  : s <= -50.0 ? color.new(#c62828, 30) :
+    color.new(#37474f, 60)
+
+// ═══════════════════════════════════════════════════════════
+//  EMA TREND  —  1 security call per TF (tuple)
+//  Điều kiện: Fast > Mid > Filter → UP | Fast < Mid < Filter → DOWN
+// ═══════════════════════════════════════════════════════════
+_ema3(f, m, fi) => [ta.ema(close, f), ta.ema(close, m), ta.ema(close, fi)]
+
+f_ema(tf, f, m, fi) =>
+    [ef, em, efi] = request.security(syminfo.tickerid, tf, _ema3(f, m, fi))
+    ef > em and em > efi ? 1 : ef < em and em < efi ? -1 : 0
+
+//         TF     Fast  Mid  Filter
+ema_m1  = f_ema("1",    9,  21,   50)
+ema_m3  = f_ema("3",    9,  21,   50)
+ema_m5  = f_ema("5",   13,  34,   89)
+ema_m15 = f_ema("15",  21,  50,  200)
+ema_m30 = f_ema("30",  34,  89,  200)
+ema_h1  = f_ema("60",  50, 200,  365)
+ema_h4  = f_ema("240", 50, 200,  500)
+ema_d1  = f_ema("D",   20,  50,  200)
+ema_w1  = f_ema("W",   39,  89,  200)
+
+// ═══════════════════════════════════════════════════════════
+//  RSI
+//  Điều kiện: quá mua/bán + vị trí so với 50
+// ═══════════════════════════════════════════════════════════
+f_rsi(tf, per, ob, os) =>
+    r = request.security(syminfo.tickerid, tf, ta.rsi(close, per))
+    r > ob ? -1 : r < os ? 1 : r > 50 ? 1 : r < 50 ? -1 : 0
+
+//          TF      Per   OB   OS
+rsi_m1  = f_rsi("1",    9, 75, 25)
+rsi_m3  = f_rsi("3",   14, 70, 30)
+rsi_m5  = f_rsi("5",   14, 70, 30)
+rsi_m15 = f_rsi("15",  14, 70, 30)
+rsi_m30 = f_rsi("30",  14, 65, 35)
+rsi_h1  = f_rsi("60",  14, 55, 45)
+rsi_h4  = f_rsi("240", 21, 70, 30)
+rsi_d1  = f_rsi("D",   14, 70, 30)
+rsi_w1  = f_rsi("W",   14, 70, 30)
+
+// ═══════════════════════════════════════════════════════════
+//  MACD
+//  Điều kiện: MACD > Signal + Histogram dương → UP
+// ═══════════════════════════════════════════════════════════
+f_macd(tf, f, s, sg) =>
+    [ml, sl, h] = request.security(syminfo.tickerid, tf, ta.macd(close, f, s, sg))
+    ml > sl and h > 0 ? 1 : ml < sl and h < 0 ? -1 : 0
+
+//           TF     Fast  Slow  Sig
+macd_m1  = f_macd("1",    8,  21,  5)
+macd_m3  = f_macd("3",    8,  21,  5)
+macd_m5  = f_macd("5",    8,  21,  5)
+macd_m15 = f_macd("15",  12,  26,  9)
+macd_m30 = f_macd("30",  12,  26,  9)
+macd_h1  = f_macd("60",  12,  26,  9)
+macd_h4  = f_macd("240", 12,  26,  9)
+macd_d1  = f_macd("D",   12,  26,  9)
+macd_w1  = f_macd("W",    5,  34,  5)
+
+// ═══════════════════════════════════════════════════════════
+//  ICHIMOKU  —  1 security call per TF (tuple)
+//  Điều kiện: Giá > Kumo + Tenkan > Kijun → UP
+// ═══════════════════════════════════════════════════════════
+_ichi(t, k, sb) =>
+    tenkan = (ta.highest(high, t)  + ta.lowest(low, t))  / 2
+    kijun  = (ta.highest(high, k)  + ta.lowest(low, k))  / 2
+    spanB  = (ta.highest(high, sb) + ta.lowest(low, sb)) / 2
+    [close, tenkan, kijun, spanB]
+
+f_ichi(tf, t, k, sb) =>
+    [price, tenkan, kijun, spanB] = request.security(syminfo.tickerid, tf, _ichi(t, k, sb))
+    spanA    = (tenkan + kijun) / 2
+    kumo_top = math.max(spanA, spanB)
+    kumo_bot = math.min(spanA, spanB)
+    price > kumo_top and tenkan > kijun ? 1 : price < kumo_bot and tenkan < kijun ? -1 : 0
+
+//          TF      T    K   SB
+ichi_m1  = f_ichi("1",    6, 13, 26)
+ichi_m3  = f_ichi("3",    9, 26, 52)
+ichi_m5  = f_ichi("5",    9, 26, 52)
+ichi_m15 = f_ichi("15",   9, 26, 52)
+ichi_m30 = f_ichi("30",   9, 26, 52)
+ichi_h1  = f_ichi("60",   9, 26, 52)
+ichi_h4  = f_ichi("240",  9, 26, 52)
+ichi_d1  = f_ichi("D",    9, 26, 52)
+ichi_w1  = f_ichi("W",    9, 26, 52)
+
+// ═══════════════════════════════════════════════════════════
+//  OVERALL SCORE (−100 → +100)
+//  Trọng số: M1=thấp nhất, W1=cao nhất (từ spec)
+//  Tổng trọng số tối đa = 417
+// ═══════════════════════════════════════════════════════════
+overall_score =
+    // EMA weights: M1=4 M3=4 M5=6 M15=8 M30=10 H1=12 H4=15 D1=20 W1=25
+    (float(ema_m1)*4  + float(ema_m3)*4  + float(ema_m5)*6  + float(ema_m15)*8  +
+     float(ema_m30)*10 + float(ema_h1)*12 + float(ema_h4)*15 + float(ema_d1)*20 + float(ema_w1)*25 +
+    // RSI weights: M1=5 M3=5 M5=10 M15=10 M30=10 H1=10 H4=15 D1=20 W1=20
+     float(rsi_m1)*5  + float(rsi_m3)*5  + float(rsi_m5)*10 + float(rsi_m15)*10 +
+     float(rsi_m30)*10 + float(rsi_h1)*10 + float(rsi_h4)*15 + float(rsi_d1)*20 + float(rsi_w1)*20 +
+    // MACD weights: M1=4 M3=4 M5=6 M15=8 M30=10 H1=12 H4=15 D1=20 W1=25
+     float(macd_m1)*4 + float(macd_m3)*4 + float(macd_m5)*6 + float(macd_m15)*8 +
+     float(macd_m30)*10 + float(macd_h1)*12 + float(macd_h4)*15 + float(macd_d1)*20 + float(macd_w1)*25 +
+    // Ichi weights: M1=4 M3=4 M5=6 M15=8 M30=10 H1=12 H4=15 D1=20 W1=25
+     float(ichi_m1)*4 + float(ichi_m3)*4 + float(ichi_m5)*6 + float(ichi_m15)*8 +
+     float(ichi_m30)*10 + float(ichi_h1)*12 + float(ichi_h4)*15 + float(ichi_d1)*20 + float(ichi_w1)*25
+    ) / 417.0 * 100.0
+
+// Ẩn trong Data Window để xem số liệu thực
+plot(overall_score, title="Overall Score", display=display.data_window)
+
+// ═══════════════════════════════════════════════════════════
+//  CHART SIGNALS  —  chỉ vẽ khi score vừa vượt ngưỡng
+// ═══════════════════════════════════════════════════════════
+sig_strong_buy  = ta.crossover(overall_score,  75.0)
+sig_buy         = ta.crossover(overall_score,  50.0) and overall_score < 75.0
+sig_strong_sell = ta.crossunder(overall_score, -75.0)
+sig_sell        = ta.crossunder(overall_score, -50.0) and overall_score > -75.0
+
+plotshape(sig_strong_buy,  title="Strong Buy",  style=shape.triangleup,
+     location=location.belowbar, color=color.lime,   size=size.normal,  text="BUY▲▲",  textcolor=color.white)
+plotshape(sig_buy,         title="Buy",         style=shape.triangleup,
+     location=location.belowbar, color=color.green,  size=size.small,   text="BUY",    textcolor=color.white)
+plotshape(sig_strong_sell, title="Strong Sell", style=shape.triangledown,
+     location=location.abovebar, color=color.red,    size=size.normal,  text="SELL▼▼", textcolor=color.white)
+plotshape(sig_sell,        title="Sell",        style=shape.triangledown,
+     location=location.abovebar, color=color.maroon, size=size.small,   text="SELL",   textcolor=color.white)
+
+// Nền sáng khi xu hướng cực mạnh
+bgcolor(overall_score >= 75.0  ? color.new(color.lime, 93) :
+        overall_score <= -75.0 ? color.new(color.red,  93) : na,
+        title="Strong Trend Background")
+
+// ═══════════════════════════════════════════════════════════
+//  ALERTS
+// ═══════════════════════════════════════════════════════════
+alertcondition(sig_strong_buy,
+     title   = "🔥 Strong BUY",
+     message = "Rich Tool Scaping ▲▲ STRONG BUY — Score vượt 75%")
+alertcondition(sig_buy,
+     title   = "Buy Signal",
+     message = "Rich Tool Scaping ▲ BUY — Score vượt 50%")
+alertcondition(sig_strong_sell,
+     title   = "🔥 Strong SELL",
+     message = "Rich Tool Scaping ▼▼ STRONG SELL — Score xuống dưới −75%")
+alertcondition(sig_sell,
+     title   = "Sell Signal",
+     message = "Rich Tool Scaping ▼ SELL — Score xuống dưới −50%")
+
+// ═══════════════════════════════════════════════════════════
+//  TABLE  (10 cột × 8 hàng)
+// ═══════════════════════════════════════════════════════════
+var table tbl = na
+
+C_HDR = color.new(#0d1b2a, 0)
+C_LBL = color.new(#1a2a3a, 0)
+
+if barstate.islast
+    tbl := table.new(position.top_right, 10, 8,
+         border_color = color.new(color.gray, 70),
+         border_width  = 1,
+         frame_color   = color.new(color.gray, 50),
+         frame_width   = 1)
+
+    // ── Header row ──────────────────────────────────────────
+    tfs = array.from("TF", "M1", "M3", "M5", "M15", "M30", "H1", "H4", "D1", "W1")
+    for i = 0 to 9
+        table.cell(tbl, i, 0, array.get(tfs, i),
+             text_color = color.silver,
+             bgcolor    = C_HDR,
+             text_size  = size.small,
+             text_halign = text.align_center)
+
+    // ── Row labels ──────────────────────────────────────────
+    labels = array.from("EMA Trend", "RSI", "MACD", "Ichimoku", "Score", "Signal", "OVERALL")
+    for r = 0 to 6
+        table.cell(tbl, 0, r + 1, array.get(labels, r),
+             text_color = color.yellow,
+             bgcolor    = C_LBL,
+             text_size  = size.small,
+             text_halign = text.align_left)
+
+    // ── Signal arrays ───────────────────────────────────────
+    ema_row  = array.from(ema_m1,  ema_m3,  ema_m5,  ema_m15,  ema_m30,  ema_h1,  ema_h4,  ema_d1,  ema_w1)
+    rsi_row  = array.from(rsi_m1,  rsi_m3,  rsi_m5,  rsi_m15,  rsi_m30,  rsi_h1,  rsi_h4,  rsi_d1,  rsi_w1)
+    macd_row = array.from(macd_m1, macd_m3, macd_m5, macd_m15, macd_m30, macd_h1, macd_h4, macd_d1, macd_w1)
+    ichi_row = array.from(ichi_m1, ichi_m3, ichi_m5, ichi_m15, ichi_m30, ichi_h1, ichi_h4, ichi_d1, ichi_w1)
+
+    for c = 0 to 8
+        ev = array.get(ema_row,  c)
+        rv = array.get(rsi_row,  c)
+        mv = array.get(macd_row, c)
+        iv = array.get(ichi_row, c)
+        table.cell(tbl, c+1, 1, sig_txt(ev), text_color=color.white, bgcolor=sig_col(ev), text_size=size.small, text_halign=text.align_center)
+        table.cell(tbl, c+1, 2, sig_txt(rv), text_color=color.white, bgcolor=sig_col(rv), text_size=size.small, text_halign=text.align_center)
+        table.cell(tbl, c+1, 3, sig_txt(mv), text_color=color.white, bgcolor=sig_col(mv), text_size=size.small, text_halign=text.align_center)
+        table.cell(tbl, c+1, 4, sig_txt(iv), text_color=color.white, bgcolor=sig_col(iv), text_size=size.small, text_halign=text.align_center)
+
+    // ── Score weights (từ spec) ─────────────────────────────
+    //                  M1  M3   M5  M15  M30  H1   H4   D1   W1
+    ema_wt  = array.from( 4,  4,   6,   8,  10,  12,  15,  20,  25)
+    rsi_wt  = array.from( 5,  5,  10,  10,  10,  10,  15,  20,  20)
+    macd_wt = array.from( 4,  4,   6,   8,  10,  12,  15,  20,  25)
+    ichi_wt = array.from( 4,  4,   6,   8,  10,  12,  15,  20,  25)
+
+    // ── Score & Signal rows (per TF) ────────────────────────
+    for c = 0 to 8
+        ew = array.get(ema_wt,  c)
+        rw = array.get(rsi_wt,  c)
+        mw = array.get(macd_wt, c)
+        iw = array.get(ichi_wt, c)
+        tw = float(ew + rw + mw + iw)
+
+        sc = (float(array.get(ema_row,  c)) * ew +
+              float(array.get(rsi_row,  c)) * rw +
+              float(array.get(macd_row, c)) * mw +
+              float(array.get(ichi_row, c)) * iw) / tw * 100.0
+
+        table.cell(tbl, c+1, 5,
+             str.tostring(math.round(sc)) + "%",
+             text_color = color.white,
+             bgcolor    = score_col(sc),
+             text_size  = size.small,
+             text_halign = text.align_center)
+
+        lbl = sc >= 75.0  ? "STRONG↑" :
+              sc >= 50.0  ? "UP"      :
+              sc <= -75.0 ? "STRONG↓" :
+              sc <= -50.0 ? "DOWN"    : "NEUTRAL"
+        table.cell(tbl, c+1, 6, lbl,
+             text_color = color.white,
+             bgcolor    = score_col(sc),
+             text_size  = size.small,
+             text_halign = text.align_center)
+
+    // ── Overall row (tổng hợp tất cả TF + indicator) ────────
+    oc = score_col(overall_score)
+    overall_lbl = str.tostring(math.round(overall_score)) + "%" + "  " +
+         (overall_score >= 75.0  ? "STRONG BUY ▲▲" :
+          overall_score >= 50.0  ? "BUY  ▲"         :
+          overall_score <= -75.0 ? "STRONG SELL ▼▼" :
+          overall_score <= -50.0 ? "SELL  ▼"         : "NEUTRAL  —")
+
+    for c = 0 to 8
+        table.cell(tbl, c+1, 7,
+             c == 4 ? overall_lbl : "",
+             text_color = color.white,
+             bgcolor    = oc,
+             text_size  = size.normal,
+             text_halign = text.align_center)

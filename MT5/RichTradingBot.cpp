@@ -234,6 +234,8 @@ input group         "══════ ĐÓNG LỆNH TỔNG ══════"
 input  double  InpCloseProfit  = 0.0;  // Chốt lời khi tổng lãi đạt ($, 0=tắt)
 input  double  InpCloseLoss    = 0.0;  // Cắt lỗ khi tổng lỗ đạt ($, 0=tắt)
 input  double  InpClosePerPips = 0.0;  // Đóng từng lệnh khi đạt (points, 0=tắt)
+input  double  InpDayMaxLoss   = 0.0;  // Dừng bot khi lỗ ngày đạt ($, 0=tắt)
+input  double  InpDayMaxProfit = 0.0;  // Dừng bot khi lãi ngày đạt ($, 0=tắt)
 
 //+------------------------------------------------------------------+
 //| INPUT: PANEL                                                     |
@@ -274,6 +276,7 @@ double   InitBalance    = 0.0;
 double   MaxDrawdownPct = 0.0;
 double   DayProfit      = 0.0;
 int      LastDay        = -1;
+bool     DayLimitHit    = false;
 
 // Basket trail levels
 double   TrailBuy  = 0.0;
@@ -286,13 +289,22 @@ const string GUI = "RTB_";
 //| UTILITY FUNCTIONS                                                |
 //+------------------------------------------------------------------+
 
+// Returns true if the currently-selected position should be managed.
+// In Semi-Auto mode: also includes manually opened positions (magic == 0).
+bool IsManaged() {
+    if(PositionGetString(POSITION_SYMBOL) != _Symbol) return false;
+    long magic = PositionGetInteger(POSITION_MAGIC);
+    if(magic == (long)InpMagic) return true;
+    if(InpBotMode == MODE_SEMI_AUTO && magic == 0) return true;
+    return false;
+}
+
 int CountPos(int posType) {
     int n = 0;
     for(int i = PositionsTotal()-1; i >= 0; i--) {
         ulong tk = PositionGetTicket(i);
         if(!PositionSelectByTicket(tk)) continue;
-        if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
-        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(!IsManaged()) continue;
         if((int)PositionGetInteger(POSITION_TYPE) == posType) n++;
     }
     return n;
@@ -302,14 +314,27 @@ int CountBuy()  { return CountPos(POSITION_TYPE_BUY);  }
 int CountSell() { return CountPos(POSITION_TYPE_SELL); }
 int CountAll()  { return CountBuy() + CountSell(); }
 
+// Đếm lệnh thủ công (magic=0) cùng chiều trên symbol này
+int CountManual(int posType) {
+    int n = 0;
+    for(int i = PositionsTotal()-1; i >= 0; i--) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(PositionGetInteger(POSITION_MAGIC) != 0) continue;
+        if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
+        n++;
+    }
+    return n;
+}
+
 // Đếm pyramiding orders theo comment prefix "RTP|" — restart-safe, không lẫn với DCA
 int CountPyra(int posType) {
     int n = 0;
     for(int i = PositionsTotal()-1; i >= 0; i--) {
         ulong tk = PositionGetTicket(i);
         if(!PositionSelectByTicket(tk)) continue;
-        if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
-        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(!IsManaged()) continue;
         if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
         if(StringFind(PositionGetString(POSITION_COMMENT), "RTP|") == 0) n++;
     }
@@ -321,8 +346,7 @@ double FloatProfit(int posType = -1) {
     for(int i = PositionsTotal()-1; i >= 0; i--) {
         ulong tk = PositionGetTicket(i);
         if(!PositionSelectByTicket(tk)) continue;
-        if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
-        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(!IsManaged()) continue;
         if(posType >= 0 && (int)PositionGetInteger(POSITION_TYPE) != posType) continue;
         p += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
     }
@@ -334,8 +358,7 @@ double TotalLot(int posType) {
     for(int i = PositionsTotal()-1; i >= 0; i--) {
         ulong tk = PositionGetTicket(i);
         if(!PositionSelectByTicket(tk)) continue;
-        if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
-        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(!IsManaged()) continue;
         if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
         lot += PositionGetDouble(POSITION_VOLUME);
     }
@@ -349,8 +372,7 @@ double LastOpenPrice(int posType) {
     for(int i = PositionsTotal()-1; i >= 0; i--) {
         ulong tk = PositionGetTicket(i);
         if(!PositionSelectByTicket(tk)) continue;
-        if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
-        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(!IsManaged()) continue;
         if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
         datetime t = (datetime)PositionGetInteger(POSITION_TIME);
         if(t > latest) { latest = t; price = PositionGetDouble(POSITION_PRICE_OPEN); }
@@ -364,8 +386,7 @@ double AvgOpenPrice(int posType) {
     for(int i = PositionsTotal()-1; i >= 0; i--) {
         ulong tk = PositionGetTicket(i);
         if(!PositionSelectByTicket(tk)) continue;
-        if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
-        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(!IsManaged()) continue;
         if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
         double lot   = PositionGetDouble(POSITION_VOLUME);
         double price = PositionGetDouble(POSITION_PRICE_OPEN);
@@ -382,8 +403,7 @@ ulong WorstTicket() {
     for(int i = PositionsTotal()-1; i >= 0; i--) {
         ulong tk = PositionGetTicket(i);
         if(!PositionSelectByTicket(tk)) continue;
-        if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
-        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(!IsManaged()) continue;
         double p = PositionGetDouble(POSITION_PROFIT);
         if(p < worst) { worst = p; tk_worst = tk; }
     }
@@ -397,8 +417,7 @@ ulong BestTicket() {
     for(int i = PositionsTotal()-1; i >= 0; i--) {
         ulong tk = PositionGetTicket(i);
         if(!PositionSelectByTicket(tk)) continue;
-        if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
-        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(!IsManaged()) continue;
         double p = PositionGetDouble(POSITION_PROFIT);
         if(p > best) { best = p; tk_best = tk; }
     }
@@ -412,8 +431,7 @@ void CloseAll(int posType = -1) {
     for(int i = PositionsTotal()-1; i >= 0; i--) {
         ulong tk = PositionGetTicket(i);
         if(!PositionSelectByTicket(tk)) continue;
-        if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
-        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(!IsManaged()) continue;
         if(posType >= 0 && (int)PositionGetInteger(POSITION_TYPE) != posType) continue;
         tickets[count++] = tk;
     }
@@ -430,8 +448,7 @@ void CloseAllProfit() {
     for(int i = PositionsTotal()-1; i >= 0; i--) {
         ulong tk = PositionGetTicket(i);
         if(!PositionSelectByTicket(tk)) continue;
-        if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
-        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(!IsManaged()) continue;
         if(PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP) > 0)
             tickets[count++] = tk;
     }
@@ -448,8 +465,7 @@ void CloseAllLoss() {
     for(int i = PositionsTotal()-1; i >= 0; i--) {
         ulong tk = PositionGetTicket(i);
         if(!PositionSelectByTicket(tk)) continue;
-        if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
-        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(!IsManaged()) continue;
         if(PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP) < 0)
             tickets[count++] = tk;
     }
@@ -656,6 +672,7 @@ void TryOpenSell() {
 }
 
 void CheckEntry() {
+    if(DayLimitHit) return;
     if(InpBotMode == MODE_SEMI_AUTO) return;
     if(TimeCurrent() - LastEntryTime < InpOrderDelay) return;
 
@@ -675,6 +692,102 @@ void CheckEntry() {
 }
 
 //+------------------------------------------------------------------+
+//| DCA PRIMARY CHAIN HELPERS (Semi-Auto multi-entry)               |
+//+------------------------------------------------------------------+
+
+// Đếm lệnh DCA do bot mở (magic=InpMagic, comment "RTB|X|Y" với X≠0 hoặc Y≠0)
+int CountBotDCA(int posType) {
+    int n = 0;
+    for(int i = PositionsTotal()-1; i >= 0; i--) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
+        if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
+        string cmt = PositionGetString(POSITION_COMMENT);
+        if(StringFind(cmt, "RTB|") != 0) continue;
+        string parts[];
+        if(StringSplit(cmt, '|', parts) < 3) continue;
+        if(StringToDouble(parts[1]) == 0 && StringToDouble(parts[2]) == 0) continue;
+        n++;
+    }
+    return n;
+}
+
+// Giá mở của lệnh thủ công CŨ NHẤT (lệnh gốc của user) cùng chiều
+double OldestManualPrice(int posType) {
+    double   price  = 0;
+    datetime oldest = (datetime)0x7FFFFFFF;
+    for(int i = PositionsTotal()-1; i >= 0; i--) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(PositionGetInteger(POSITION_MAGIC) != 0) continue;
+        if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
+        datetime t = (datetime)PositionGetInteger(POSITION_TIME);
+        if(t < oldest) { oldest = t; price = PositionGetDouble(POSITION_PRICE_OPEN); }
+    }
+    return price;
+}
+
+// Giá cực trị trong các lệnh thủ công: BUY → thấp nhất, SELL → cao nhất
+double ExtremeManualPrice(int posType) {
+    double extreme = 0;
+    for(int i = PositionsTotal()-1; i >= 0; i--) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(PositionGetInteger(POSITION_MAGIC) != 0) continue;
+        if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
+        double price = PositionGetDouble(POSITION_PRICE_OPEN);
+        if(posType == POSITION_TYPE_BUY)
+            extreme = (extreme == 0 || price < extreme) ? price : extreme;
+        else
+            extreme = (extreme == 0 || price > extreme) ? price : extreme;
+    }
+    return extreme;
+}
+
+// Giá của lệnh pyramiding (RTP|) gần nhất do bot mở cùng chiều
+double LastPyraPrice(int posType) {
+    double   price  = 0;
+    datetime latest = 0;
+    for(int i = PositionsTotal()-1; i >= 0; i--) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
+        if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
+        if(StringFind(PositionGetString(POSITION_COMMENT), "RTP|") != 0) continue;
+        datetime t = (datetime)PositionGetInteger(POSITION_TIME);
+        if(t > latest) { latest = t; price = PositionGetDouble(POSITION_PRICE_OPEN); }
+    }
+    return price;
+}
+
+// Điểm tham chiếu DCA: lệnh DCA bot gần nhất → fallback lệnh thủ công cũ nhất
+double LastPrimaryPrice(int posType) {
+    double   price  = 0;
+    datetime latest = 0;
+    for(int i = PositionsTotal()-1; i >= 0; i--) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
+        if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
+        string cmt = PositionGetString(POSITION_COMMENT);
+        if(StringFind(cmt, "RTB|") != 0) continue;
+        string parts[];
+        if(StringSplit(cmt, '|', parts) < 3) continue;
+        if(StringToDouble(parts[1]) == 0 && StringToDouble(parts[2]) == 0) continue;
+        datetime t = (datetime)PositionGetInteger(POSITION_TIME);
+        if(t > latest) { latest = t; price = PositionGetDouble(POSITION_PRICE_OPEN); }
+    }
+    if(price > 0) return price;
+    return OldestManualPrice(posType);
+}
+
+//+------------------------------------------------------------------+
 //| DCA LOGIC                                                        |
 //+------------------------------------------------------------------+
 void CheckDCA(int posType) {
@@ -684,7 +797,12 @@ void CheckDCA(int posType) {
     int count = CountPos(posType);
     if(count == 0) return;
 
-    int dcaCount = count - 1; // số lệnh DCA đã mở (không tính lệnh gốc)
+    // Semi-Auto với nhiều lệnh thủ công: chỉ DCA cho "lệnh gốc" (cũ nhất).
+    // dcaCount = số DCA bot đã mở; lastPrice = điểm tham chiếu của chuỗi DCA chính.
+    bool multiManual = (InpBotMode == MODE_SEMI_AUTO && CountManual(posType) >= 1);
+    int    dcaCount  = multiManual ? CountBotDCA(posType)     : (count - 1);
+    double lastPrice = multiManual ? LastPrimaryPrice(posType) : LastOpenPrice(posType);
+    if(lastPrice == 0) return;
 
     int lvl = -1;
     int cumulative = 0;
@@ -693,14 +811,11 @@ void CheckDCA(int posType) {
         if(dcaCount < nextCum) { lvl = i; break; }
         cumulative = nextCum;
     }
-    if(lvl < 0) return; // Đã hết 8 tầng
+    if(lvl < 0) return;
     if(DCA_Mode[lvl] == DCA_STOP) return;
 
     int maxOrds = (posType == POSITION_TYPE_BUY) ? InpMaxBuy : InpMaxSell;
     if(count >= maxOrds) return;
-
-    double lastPrice = LastOpenPrice(posType);
-    if(lastPrice == 0) return;
 
     double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
     double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
@@ -726,7 +841,8 @@ void CheckDCA(int posType) {
 
     double lot = NormLot(InpLotSize * DCA_Mult[lvl]);
     int    ord = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
-    Print("RTB: DCA level ", lvl+1, " triggered. count=", count, " dcaOrds=", dcaCount);
+    Print("RTB: DCA level ", lvl+1, " triggered. dcaCount=", dcaCount,
+          multiManual ? " [primary chain only]" : "");
     OpenOrder(ord, lot, DCA_TP[lvl], DCA_SL[lvl], true);
 }
 
@@ -756,7 +872,15 @@ void CheckPyramiding(int posType) {
     int maxOrds = (posType == POSITION_TYPE_BUY) ? InpMaxBuy : InpMaxSell;
     if(count >= maxOrds) return;
 
-    double lastPrice = LastOpenPrice(posType);
+    // Semi-Auto: đo từ lệnh pyramiding gần nhất (nếu có) → fallback giá cực trị lệnh tay
+    // Auto: đo từ lệnh được mở gần nhất bất kỳ
+    double lastPrice;
+    if(InpBotMode == MODE_SEMI_AUTO && CountManual(posType) > 0) {
+        double pyraRef = LastPyraPrice(posType);
+        lastPrice = (pyraRef > 0) ? pyraRef : ExtremeManualPrice(posType);
+    } else {
+        lastPrice = LastOpenPrice(posType);
+    }
     if(lastPrice == 0) return;
 
     double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
@@ -919,8 +1043,7 @@ void CheckTrailing() {
                     for(int i = PositionsTotal()-1; i >= 0; i--) {
                         ulong tk = PositionGetTicket(i);
                         if(!PositionSelectByTicket(tk)) continue;
-                        if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
-                        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+                        if(!IsManaged()) continue;
                         if((int)PositionGetInteger(POSITION_TYPE) != POSITION_TYPE_BUY) continue;
                         ApplyTrailToPos(tk, POSITION_TYPE_BUY, TrailBuy);
                     }
@@ -942,8 +1065,7 @@ void CheckTrailing() {
                     for(int i = PositionsTotal()-1; i >= 0; i--) {
                         ulong tk = PositionGetTicket(i);
                         if(!PositionSelectByTicket(tk)) continue;
-                        if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
-                        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+                        if(!IsManaged()) continue;
                         if((int)PositionGetInteger(POSITION_TYPE) != POSITION_TYPE_SELL) continue;
                         ApplyTrailToPos(tk, POSITION_TYPE_SELL, TrailSell);
                     }
@@ -962,8 +1084,7 @@ void CheckTrailing() {
         for(int i = PositionsTotal()-1; i >= 0; i--) {
             ulong tk = PositionGetTicket(i);
             if(!PositionSelectByTicket(tk)) continue;
-            if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
-            if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+            if(!IsManaged()) continue;
 
             int    pt        = (int)PositionGetInteger(POSITION_TYPE);
             double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
@@ -1002,8 +1123,7 @@ void CheckExit() {
         for(int i = PositionsTotal()-1; i >= 0; i--) {
             ulong tk = PositionGetTicket(i);
             if(!PositionSelectByTicket(tk)) continue;
-            if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
-            if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+            if(!IsManaged()) continue;
 
             int    pt    = (int)PositionGetInteger(POSITION_TYPE);
             double opn   = PositionGetDouble(POSITION_PRICE_OPEN);
@@ -1024,8 +1144,7 @@ void CheckExit() {
         for(int i = PositionsTotal()-1; i >= 0; i--) {
             ulong tk = PositionGetTicket(i);
             if(!PositionSelectByTicket(tk)) continue;
-            if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
-            if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+            if(!IsManaged()) continue;
 
             string cmt = PositionGetString(POSITION_COMMENT);
             // Xử lý DCA ("RTB|tp|sl") và Pyramiding ("RTP|tp|sl") — bỏ qua "RTB|0|0" (lệnh gốc)
@@ -1060,12 +1179,15 @@ void CheckExit() {
         for(int i = PositionsTotal()-1; i >= 0; i--) {
             ulong tk = PositionGetTicket(i);
             if(!PositionSelectByTicket(tk)) continue;
-            if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
-            if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+            if(!IsManaged()) continue;
 
-            // Chỉ xử lý lệnh gốc (comment "RTB|0|0")
+            // Xử lý lệnh gốc ("RTB|0|0") và lệnh thủ công trong Semi-Auto
             string cmt = PositionGetString(POSITION_COMMENT);
-            if(cmt != "RTB|0|0") continue;
+            bool isManualPos = (InpBotMode == MODE_SEMI_AUTO &&
+                                PositionGetInteger(POSITION_MAGIC) == 0 &&
+                                StringFind(cmt, "RTB|") != 0 &&
+                                StringFind(cmt, "RTP|") != 0);
+            if(cmt != "RTB|0|0" && !isManualPos) continue;
 
             int    pt  = (int)PositionGetInteger(POSITION_TYPE);
             double opn = PositionGetDouble(POSITION_PRICE_OPEN);
@@ -1111,8 +1233,9 @@ void UpdateDayProfit() {
     MqlDateTime dt;
     TimeToStruct(TimeCurrent(), dt);
     if(dt.day != LastDay) {
-        DayProfit = 0;
-        LastDay   = dt.day;
+        DayProfit    = 0;
+        DayLimitHit  = false;
+        LastDay      = dt.day;
     }
 
     datetime dayStart = StringToTime(StringFormat("%04d.%02d.%02d 00:00:00",
@@ -1129,6 +1252,24 @@ void UpdateDayProfit() {
                       HistoryDealGetDouble(dTk, DEAL_SWAP);
     }
     DayProfit = closed;
+}
+
+//+------------------------------------------------------------------+
+//| DAY LIMIT CHECK                                                  |
+//+------------------------------------------------------------------+
+void CheckDayLimit() {
+    if(DayLimitHit) return;
+    if(InpDayMaxLoss > 0 && DayProfit <= -InpDayMaxLoss) {
+        Print("RTB: Day loss limit $", InpDayMaxLoss, " hit. DayProfit=", DayProfit, ". Closing all.");
+        CloseAll();
+        DayLimitHit = true;
+        return;
+    }
+    if(InpDayMaxProfit > 0 && DayProfit >= InpDayMaxProfit) {
+        Print("RTB: Day profit target $", InpDayMaxProfit, " hit. DayProfit=", DayProfit, ". Closing all.");
+        CloseAll();
+        DayLimitHit = true;
+    }
 }
 
 //+------------------------------------------------------------------+
@@ -1238,8 +1379,7 @@ void UpdateGUI() {
     for(int i = PositionsTotal()-1; i >= 0; i--) {
         ulong tk = PositionGetTicket(i);
         if(!PositionSelectByTicket(tk)) continue;
-        if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
-        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(!IsManaged()) continue;
         double p   = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
         double lot = PositionGetDouble(POSITION_VOLUME);
         int    pt  = (int)PositionGetInteger(POSITION_TYPE);
@@ -1285,7 +1425,7 @@ void UpdateGUI() {
         ObjectCreate(0, bg, OBJ_RECTANGLE_LABEL, 0, 0, 0);
         ObjectSetInteger(0, bg, OBJPROP_CORNER,      CORNER_LEFT_UPPER);
         ObjectSetInteger(0, bg, OBJPROP_XSIZE,       PW);
-        ObjectSetInteger(0, bg, OBJPROP_YSIZE,       346);
+        ObjectSetInteger(0, bg, OBJPROP_YSIZE,       362);
         ObjectSetInteger(0, bg, OBJPROP_BGCOLOR,     C'14,17,26');
         ObjectSetInteger(0, bg, OBJPROP_BORDER_TYPE, BORDER_FLAT);
         ObjectSetInteger(0, bg, OBJPROP_COLOR,       C'50,65,120');
@@ -1311,7 +1451,7 @@ void UpdateGUI() {
         ObjectSetInteger(0, bg2, OBJPROP_SELECTABLE,  false);
     }
     ObjectSetInteger(0, bg2, OBJPROP_XDISTANCE, PX);
-    ObjectSetInteger(0, bg2, OBJPROP_YDISTANCE, PY + 360);
+    ObjectSetInteger(0, bg2, OBJPROP_YDISTANCE, PY + 376);
 
     // ── PANEL 3: THỐNG KÊ ──
     string bg3 = GUI + "BG3";
@@ -1328,7 +1468,7 @@ void UpdateGUI() {
         ObjectSetInteger(0, bg3, OBJPROP_SELECTABLE,  false);
     }
     ObjectSetInteger(0, bg3, OBJPROP_XDISTANCE, PX);
-    ObjectSetInteger(0, bg3, OBJPROP_YDISTANCE, PY + 500);
+    ObjectSetInteger(0, bg3, OBJPROP_YDISTANCE, PY + 516);
 
     // ── NỘI DUNG PANEL 1 ──
     int x = PX + 7, y = PY + 5, s = 16;
@@ -1344,6 +1484,18 @@ void UpdateGUI() {
     Lbl("Bal",  StringFormat("Balance: $%.2f", balance),    x, y, clrSilver); y += s;
     Lbl("Ini",  StringFormat("Initial: $%.2f", InitBalance), x, y, clrSilver); y += s;
     Lbl("DayP", StringFormat("Day P/L: $%.2f", DayProfit),  x, y, cDayP);     y += s;
+    {
+        string lmtText;
+        color  lmtClr;
+        if(DayLimitHit) {
+            lmtText = "Day Lmt: !! STOP !!";
+            lmtClr  = clrTomato;
+        } else {
+            lmtText = StringFormat("Day Lmt: L$%.0f / P$%.0f", InpDayMaxLoss, InpDayMaxProfit);
+            lmtClr  = C'90,90,90';
+        }
+        Lbl("DayLmt", lmtText, x, y, lmtClr);
+    }                                                                           y += s;
     Lbl("FP",   StringFormat("Float  : $%.2f  (%.2f%%)", totalProfit, pnlPct),
                 x, y, cProfit);                                                y += s;
     Lbl("L2",   "────────────────────────",   x, y, C'45,58,105'  );    y += s-2;
@@ -1360,7 +1512,7 @@ void UpdateGUI() {
     Lbl("Tot",  StringFormat("Total  : %d orders", nBuy + nSell), x, y, clrSilver);        y += s;
 
     // ── NỘI DUNG PANEL 2 (Nút điều khiển) ──
-    y = PY + 370;
+    y = PY + 386;
     Lbl("P2T", "═══  ĐIỀU KHIỂN LỆNH  ═══", x, y, C'90,140,230', 9); y += s + 2;
 
     int bh  = 22;
@@ -1374,7 +1526,7 @@ void UpdateGUI() {
     CreateBtn("BtnCloseLoss",   "✕ Close Loss",    bx2,  y, bhw, bh, C'140,35,20',  C'210,80,55' );
 
     // ── NỘI DUNG PANEL 3 (Thống kê) ──
-    y = PY + 510;
+    y = PY + 526;
     Lbl("P3T", "═══  THỐNG KÊ  ═══", x, y, C'90,140,230', 9); y += s + 2;
 
     color sepClr = C'45,65,120';
@@ -1444,8 +1596,8 @@ void UpdateGUI() {
             ObjectSetInteger(0, bg4, OBJPROP_SELECTABLE,  false);
         }
         ObjectSetInteger(0, bg4, OBJPROP_XDISTANCE, PX);
-        ObjectSetInteger(0, bg4, OBJPROP_YDISTANCE, PY + 657);
-        int y4 = PY + 667;
+        ObjectSetInteger(0, bg4, OBJPROP_YDISTANCE, PY + 673);
+        int y4 = PY + 683;
         Lbl("P4T", "═══  VÀO LỆNH THỦ CÔNG  ═══", x, y4, C'230,100,100', 9); y4 += s + 2;
         CreateBtn("BtnOpenBuy",  "▲ Open Buy",  PX+7, y4, bhw, bh, C'0,80,20',  C'30,200,80');
         CreateBtn("BtnOpenSell", "▼ Open Sell", bx2,  y4, bhw, bh, C'100,0,0',  C'220,40,40');
@@ -1569,6 +1721,7 @@ void OnTick() {
 
 void OnTimer() {
     UpdateDayProfit();
+    CheckDayLimit();
 
     if(CountBuy()  == 0) TrailBuy  = 0;
     if(CountSell() == 0) TrailSell = 0;
@@ -1576,19 +1729,21 @@ void OnTimer() {
     // Exit checks (basket close conditions)
     if(!InpStealthMode) CheckExit();
 
-    // Trimming
-    CheckTrimming();
+    if(!DayLimitHit) {
+        // Trimming
+        CheckTrimming();
 
-    // Trailing stop
-    CheckTrailing();
+        // Trailing stop
+        CheckTrailing();
 
-    // DCA scale-in
-    if(CountBuy()  > 0) CheckDCA(POSITION_TYPE_BUY);
-    if(CountSell() > 0) CheckDCA(POSITION_TYPE_SELL);
+        // DCA scale-in
+        if(CountBuy()  > 0) CheckDCA(POSITION_TYPE_BUY);
+        if(CountSell() > 0) CheckDCA(POSITION_TYPE_SELL);
 
-    // Pyramiding (add to winners)
-    if(CountBuy()  > 0) CheckPyramiding(POSITION_TYPE_BUY);
-    if(CountSell() > 0) CheckPyramiding(POSITION_TYPE_SELL);
+        // Pyramiding (add to winners)
+        if(CountBuy()  > 0) CheckPyramiding(POSITION_TYPE_BUY);
+        if(CountSell() > 0) CheckPyramiding(POSITION_TYPE_SELL);
+    }
 
     // GUI refresh every second
     UpdateGUI();
@@ -1600,6 +1755,7 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
     // Cập nhật Day P/L ngay khi có deal đóng, không chờ timer 1 giây
     if(trans.type == TRADE_TRANSACTION_DEAL_ADD) {
         UpdateDayProfit();
+        CheckDayLimit();
         UpdateGUI();
     }
 }
@@ -1611,8 +1767,8 @@ void OnChartEvent(const int id, const long& lparam, const double& dparam, const 
     else if(sparam == GUI + "BtnCloseSell")   CloseAll(POSITION_TYPE_SELL);
     else if(sparam == GUI + "BtnCloseProfit") CloseAllProfit();
     else if(sparam == GUI + "BtnCloseLoss")   CloseAllLoss();
-    else if(sparam == GUI + "BtnOpenBuy")     OpenOrder(ORDER_TYPE_BUY,  InpLotSize, InpTP_Points, InpSL_Points);
-    else if(sparam == GUI + "BtnOpenSell")    OpenOrder(ORDER_TYPE_SELL, InpLotSize, InpTP_Points, InpSL_Points);
+    else if(sparam == GUI + "BtnOpenBuy")  { if(!DayLimitHit) OpenOrder(ORDER_TYPE_BUY,  InpLotSize, InpTP_Points, InpSL_Points); }
+    else if(sparam == GUI + "BtnOpenSell") { if(!DayLimitHit) OpenOrder(ORDER_TYPE_SELL, InpLotSize, InpTP_Points, InpSL_Points); }
     else return;
     ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
     ChartRedraw(0);

@@ -10,6 +10,49 @@ InpTablePos = input.string("Bottom Left", title="Vị trí bảng",
               "Bottom Left", "Bottom Center", "Bottom Right",
               "Left Center"])
 
+// ── Arrow style ─────────────────────────────────────────────
+InpStrongBuyColor  = input.color(color.lime,   title="Màu Strong BUY",  group="Mũi tên")
+InpBuyColor        = input.color(color.green,  title="Màu BUY",         group="Mũi tên")
+InpStrongSellColor = input.color(color.red,    title="Màu Strong SELL", group="Mũi tên")
+InpSellColor       = input.color(color.maroon, title="Màu SELL",        group="Mũi tên")
+InpSizeStrong      = input.string("Normal", title="Cỡ mũi tên Strong",
+     options=["Tiny", "Small", "Normal", "Large", "Huge"], group="Mũi tên")
+InpSizeNormal      = input.string("Small",  title="Cỡ mũi tên thường",
+     options=["Tiny", "Small", "Normal", "Large", "Huge"], group="Mũi tên")
+InpShape           = input.string("Triangle", title="Hình dạng",
+     options=["Triangle", "Arrow", "Label", "Circle", "Diamond", "Square", "Cross"], group="Mũi tên")
+
+// ── Table style ─────────────────────────────────────────────
+InpTblBg         = input.color(color.new(#0d1b2a, 0),  title="Màu nền header / nhãn", group="Bảng")
+InpTblHdrTxt     = input.color(color.silver,           title="Màu chữ header TF",     group="Bảng")
+InpTblLblTxt     = input.color(color.yellow,           title="Màu chữ nhãn hàng",     group="Bảng")
+InpTblNeutral    = input.color(color.new(#37474f, 0),  title="Màu ô trung lập",       group="Bảng")
+InpTblStrongBuy  = input.color(color.new(#1a6b20, 0),  title="Màu Strong BUY",     group="Bảng")
+InpTblBuyCell    = input.color(color.new(#2e7d32, 30), title="Màu BUY",            group="Bảng")
+InpTblStrongSell = input.color(color.new(#9c1a1a, 0),  title="Màu Strong SELL",    group="Bảng")
+InpTblSellCell   = input.color(color.new(#c62828, 30), title="Màu SELL",           group="Bảng")
+
+_sz(s) =>
+    s == "Tiny" ? size.tiny : s == "Small" ? size.small : s == "Normal" ? size.normal : s == "Large" ? size.large : size.huge
+
+_buy_style() =>
+    InpShape == "Arrow"   ? label.style_arrowup   :
+     InpShape == "Label"  ? label.style_label_up  :
+     InpShape == "Circle" ? label.style_circle     :
+     InpShape == "Diamond"? label.style_diamond    :
+     InpShape == "Square" ? label.style_square     :
+     InpShape == "Cross"  ? label.style_cross      :
+     label.style_triangleup
+
+_sell_style() =>
+    InpShape == "Arrow"   ? label.style_arrowdown  :
+     InpShape == "Label"  ? label.style_label_down :
+     InpShape == "Circle" ? label.style_circle      :
+     InpShape == "Diamond"? label.style_diamond     :
+     InpShape == "Square" ? label.style_square      :
+     InpShape == "Cross"  ? label.style_cross       :
+     label.style_triangledown
+
 _tblPos = (InpTablePos == "Top Left"      ? position.top_left      :
            InpTablePos == "Top Center"    ? position.top_center    :
            InpTablePos == "Top Right"     ? position.top_right     :
@@ -25,16 +68,16 @@ _tblPos = (InpTablePos == "Top Left"      ? position.top_left      :
 //  HELPERS
 // ═══════════════════════════════════════════════════════════
 sig_col(v) =>
-    v > 0 ? color.new(#1a6b20, 0) : v < 0 ? color.new(#9c1a1a, 0) : color.new(#37474f, 60)
+    v > 0 ? InpTblStrongBuy : v < 0 ? InpTblStrongSell : InpTblNeutral
 
 sig_txt(v) => v > 0 ? "UP" : v < 0 ? "DOWN" : "—"
 
 score_col(s) =>
-    (s >= 75.0  ? color.new(#1a6b20, 0)  :
-     s >= 50.0  ? color.new(#2e7d32, 30) :
-     s <= -75.0 ? color.new(#9c1a1a, 0)  :
-     s <= -50.0 ? color.new(#c62828, 30) :
-     color.new(#37474f, 60))
+    (s >= 75.0  ? InpTblStrongBuy  :
+     s >= 50.0  ? InpTblBuyCell    :
+     s <= -75.0 ? InpTblStrongSell :
+     s <= -50.0 ? InpTblSellCell   :
+     InpTblNeutral)
 
 // Per-TF consensus: đếm indicator đồng thuận, trả về 1/−1/0
 // bc phải > sc mới tính BUY (tránh tie 2-2 bị tính là BUY)
@@ -137,8 +180,6 @@ _sm = float(macd_m1)*4 + float(macd_m5)*6 + float(macd_m15)*8 + float(macd_m30)*
 _si = float(ichi_m1)*4 + float(ichi_m5)*6 + float(ichi_m15)*8 + float(ichi_m30)*10 + float(ichi_h1)*12 + float(ichi_h4)*15 + float(ichi_d1)*20 + float(ichi_w1)*25
 overall_score = (_se + _sr + _sm + _si) / 400.0 * 100.0
 
-// Ẩn trong Data Window để xem số liệu thực
-plot(overall_score, title="Overall Score", display=display.data_window)
 
 // ═══════════════════════════════════════════════════════════
 //  CONSENSUS SIGNAL (spec điều kiện vào kết hợp)
@@ -214,28 +255,27 @@ sell_inds = (cur_ema  < 0 ? "EMA " : "") + (cur_rsi  < 0 ? "RSI " : "") + (cur_m
 // label.new() cho phép text động (series string) — plotshape chỉ nhận const string
 if sig_strong_buy
     label.new(bar_index, na, text="BUY▲▲\n" + buy_inds,
-         yloc=yloc.belowbar, style=label.style_triangleup,
-         color=color.lime, textcolor=color.white, size=size.normal)
+         yloc=yloc.belowbar, style=_buy_style(),
+         color=InpStrongBuyColor, textcolor=color.white, size=_sz(InpSizeStrong))
 
 if sig_buy
     label.new(bar_index, na, text="BUY\n" + buy_inds,
-         yloc=yloc.belowbar, style=label.style_triangleup,
-         color=color.green, textcolor=color.white, size=size.small)
+         yloc=yloc.belowbar, style=_buy_style(),
+         color=InpBuyColor, textcolor=color.white, size=_sz(InpSizeNormal))
 
 if sig_strong_sell
     label.new(bar_index, na, text="SELL▼▼\n" + sell_inds,
-         yloc=yloc.abovebar, style=label.style_triangledown,
-         color=color.red, textcolor=color.white, size=size.normal)
+         yloc=yloc.abovebar, style=_sell_style(),
+         color=InpStrongSellColor, textcolor=color.white, size=_sz(InpSizeStrong))
 
 if sig_sell
     label.new(bar_index, na, text="SELL\n" + sell_inds,
-         yloc=yloc.abovebar, style=label.style_triangledown,
-         color=color.maroon, textcolor=color.white, size=size.small)
+         yloc=yloc.abovebar, style=_sell_style(),
+         color=InpSellColor, textcolor=color.white, size=_sz(InpSizeNormal))
 
 // Nền sáng khi consensus cực mạnh
-bgcolor(consensus_score >= 75.0  ? color.new(color.lime, 93) :
-        consensus_score <= -75.0 ? color.new(color.red,  93) : na,
-        title="Strong Trend Background")
+bgcolor(consensus_score >= 75.0  ? color.new(color.lime, 93) : na, title="Strong BUY Background")
+bgcolor(consensus_score <= -75.0 ? color.new(color.red,  93) : na, title="Strong SELL Background")
 
 // ═══════════════════════════════════════════════════════════
 //  ALERTS
@@ -258,8 +298,8 @@ alertcondition(sig_sell,
 // ═══════════════════════════════════════════════════════════
 var table tbl = na
 
-C_HDR = color.new(#0d1b2a, 0)
-C_LBL = color.new(#1a2a3a, 0)
+C_HDR = InpTblBg
+C_LBL = InpTblBg
 
 if barstate.islast
     tbl := table.new(_tblPos, 9, 8,
@@ -272,7 +312,7 @@ if barstate.islast
     tfs = array.from("TF", "M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1")
     for i = 0 to 8
         table.cell(tbl, i, 0, array.get(tfs, i),
-             text_color = color.silver,
+             text_color = InpTblHdrTxt,
              bgcolor    = C_HDR,
              text_size  = size.small,
              text_halign = text.align_center)
@@ -281,7 +321,7 @@ if barstate.islast
     labels = array.from("EMA Trend", "RSI", "MACD", "Ichimoku", "Score", "Signal", "OVERALL")
     for r = 0 to 6
         table.cell(tbl, 0, r + 1, array.get(labels, r),
-             text_color = color.yellow,
+             text_color = InpTblLblTxt,
              bgcolor    = C_LBL,
              text_size  = size.small,
              text_halign = text.align_left)

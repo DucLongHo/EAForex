@@ -335,3 +335,84 @@
 | 70 – 79 | Xu hướng trung bình |
 | 50 – 60 | Sideway / điều chỉnh — hạn chế giao dịch |
 | < 50 | Tín hiệu yếu — không giao dịch |
+
+---
+
+## 5. Điều Kiện Vào Lệnh Kết Hợp (EMA + RSI + MACD + Ichimoku)
+
+---
+
+### Khung M1
+
+| Lệnh | EMA | RSI | MACD | Ichimoku |
+| :--- | :--- | :--- | :--- | :--- |
+| **Buy** | Giá > EMA50 H1 **và** EMA9 > EMA21 trên M1 | RSI(14) < 30 + phân kỳ tăng | MACD cắt lên Signal, Histogram dương | Giá trên mây + Tenkan > Kijun |
+| **Sell** | Giá < EMA50 H1 **và** EMA9 < EMA21 trên M1 | RSI(14) > 70 + phân kỳ giảm | MACD cắt xuống Signal, Histogram âm | Giá dưới mây + Tenkan < Kijun |
+
+> **Điều kiện vào:** Cần đủ 4 yếu tố hoặc ít nhất 2/4 đồng thuận
+
+---
+
+### Khung M5
+
+| Lệnh | EMA | RSI | MACD | Ichimoku |
+| :--- | :--- | :--- | :--- | :--- |
+| **Buy** | Giá > EMA50 H1 **và** EMA20 > EMA50 trên M5 | RSI(14) < 30 + nến đảo chiều tăng | MACD > 0 + đường Signal hướng lên | Giá trên mây xanh + Chikou trên giá |
+| **Sell** | Giá < EMA50 H1 **và** EMA20 < EMA50 trên M5 | RSI(14) > 70 + nến đảo chiều giảm | MACD < 0 + đường Signal hướng xuống | Giá dưới mây đỏ + Chikou dưới giá |
+
+> **Điều kiện vào:** Cần đủ 4 yếu tố hoặc 3/4 đồng thuận
+
+---
+
+### Khung M15
+
+| Lệnh | EMA | RSI | MACD | Ichimoku |
+| :--- | :--- | :--- | :--- | :--- |
+| **Buy** | Giá > EMA50 H1 **và** EMA20 > EMA50 trên M15 | RSI(14) hồi về vùng 40–50 (pullback trong xu hướng) | MACD > 0 + Histogram thu hẹp rồi bật lên | Giá trên mây + Tenkan > Kijun + Chikou trên giá |
+| **Sell** | Giá < EMA50 H1 **và** EMA20 < EMA50 trên M15 | RSI(14) hồi về vùng 50–60 (pullback trong xu hướng) | MACD < 0 + Histogram thu hẹp rồi bật xuống | Giá dưới mây + Tenkan < Kijun + Chikou dưới giá |
+
+> **Điều kiện vào:** Cần đủ 4 yếu tố hoặc 3/4 đồng thuận
+
+---
+
+### Khung M30
+
+| Lệnh | EMA | RSI | MACD | Ichimoku |
+| :--- | :--- | :--- | :--- | :--- |
+| **Buy** | Giá > EMA50 H1 **và** EMA20 > EMA50 trên M30 | RSI(14) > 50 + đang dốc lên | MACD cắt lên Signal tại vùng âm hoặc gần 0 | Giá trên mây + Tenkan > Kijun + cả hai dốc lên |
+| **Sell** | Giá < EMA50 H1 **và** EMA20 < EMA50 trên M30 | RSI(14) < 50 + đang dốc xuống | MACD cắt xuống Signal tại vùng dương hoặc gần 0 | Giá dưới mây + Tenkan < Kijun + cả hai dốc xuống |
+
+> **Điều kiện vào:** Cần đủ 3/4 yếu tố + H4 xu hướng đồng thuận
+
+---
+
+### Khung H1
+
+| Lệnh | EMA | RSI | MACD | Ichimoku |
+| :--- | :--- | :--- | :--- | :--- |
+| **Buy** | EMA20 > EMA50 (xu hướng tăng) | RSI(14) từ dưới 45 lên trên 45 | MACD > 0 + Histogram dương tăng dần | Giá trên mây xanh + Pullback chạm Kijun + nến xác nhận |
+| **Sell** | EMA20 < EMA50 (xu hướng giảm) | RSI(14) từ trên 55 xuống dưới 55 | MACD < 0 + Histogram âm giảm dần | Giá dưới mây đỏ + Pullback chạm Kijun + nến xác nhận |
+
+> **Điều kiện vào:** Cần đủ 3/4 yếu tố + D1 xu hướng đồng thuận
+
+---
+
+### Khung D1
+
+| Lệnh | EMA | RSI | MACD | Ichimoku |
+| :--- | :--- | :--- | :--- | :--- |
+| **Buy** | Giá > EMA50 D1 **và** EMA20 > EMA50 | RSI(14) < 30 + phân kỳ tăng rõ ràng | MACD > 0 + Histogram dương + xu hướng tăng | Giá trên mây + Tenkan > Kijun + Chikou trên giá |
+| **Sell** | Giá < EMA50 D1 **và** EMA20 < EMA50 | RSI(14) > 70 + phân kỳ giảm rõ ràng | MACD < 0 + Histogram âm + xu hướng giảm | Giá dưới mây + Tenkan < Kijun + Chikou dưới giá |
+
+> **Điều kiện vào:** Cần đủ 4 yếu tố xác nhận
+
+---
+
+### Khung W1
+
+| Lệnh | EMA | RSI | MACD | Ichimoku |
+| :--- | :--- | :--- | :--- | :--- |
+| **Buy** | Giá > EMA50 W1 **và** EMA20 > EMA50 | RSI(14) thoát vùng quá bán (từ < 30 lên > 30) | MACD cắt lên Signal trên đường 0 | Chikou cắt lên giá + Giá trên mây + Tenkan cắt lên Kijun |
+| **Sell** | Giá < EMA50 W1 **và** EMA20 < EMA50 | RSI(14) thoát vùng quá mua (từ > 70 xuống < 70) | MACD cắt xuống Signal dưới đường 0 | Chikou cắt xuống giá + Giá dưới mây + Tenkan cắt xuống Kijun |
+
+> **Điều kiện vào:** Cần đủ 4 yếu tố xác nhận

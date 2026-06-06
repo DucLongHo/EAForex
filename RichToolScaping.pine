@@ -1,5 +1,25 @@
-//@version=5
+//@version=6
 indicator("Rich Tool Scaping — Signal Dashboard", overlay=true, max_bars_back=500)
+
+// ═══════════════════════════════════════════════════════════
+//  INPUTS
+// ═══════════════════════════════════════════════════════════
+InpTablePos = input.string("Bottom Left", title="Vị trí bảng",
+     options=["Top Left", "Top Center", "Top Right",
+              "Middle Left", "Middle Center", "Middle Right",
+              "Bottom Left", "Bottom Center", "Bottom Right",
+              "Left Center"])
+
+_tblPos = (InpTablePos == "Top Left"      ? position.top_left      :
+           InpTablePos == "Top Center"    ? position.top_center    :
+           InpTablePos == "Top Right"     ? position.top_right     :
+           InpTablePos == "Middle Left"   ? position.middle_left   :
+           InpTablePos == "Middle Center" ? position.middle_center :
+           InpTablePos == "Middle Right"  ? position.middle_right  :
+           InpTablePos == "Bottom Left"   ? position.bottom_left   :
+           InpTablePos == "Bottom Center" ? position.bottom_center :
+           InpTablePos == "Left Center"   ? position.middle_left  :
+           position.bottom_right)
 
 // ═══════════════════════════════════════════════════════════
 //  HELPERS
@@ -10,9 +30,18 @@ sig_col(v) =>
 sig_txt(v) => v > 0 ? "UP" : v < 0 ? "DOWN" : "—"
 
 score_col(s) =>
-    s >= 75.0  ? color.new(#1a6b20, 0)  : s >= 50.0  ? color.new(#2e7d32, 30) :
-    s <= -75.0 ? color.new(#9c1a1a, 0)  : s <= -50.0 ? color.new(#c62828, 30) :
-    color.new(#37474f, 60)
+    (s >= 75.0  ? color.new(#1a6b20, 0)  :
+     s >= 50.0  ? color.new(#2e7d32, 30) :
+     s <= -75.0 ? color.new(#9c1a1a, 0)  :
+     s <= -50.0 ? color.new(#c62828, 30) :
+     color.new(#37474f, 60))
+
+// Per-TF consensus: đếm indicator đồng thuận, trả về 1/−1/0
+// bc phải > sc mới tính BUY (tránh tie 2-2 bị tính là BUY)
+tf_signal(e, r, m, i, min_agree) =>
+    bc = (e > 0 ? 1 : 0) + (r > 0 ? 1 : 0) + (m > 0 ? 1 : 0) + (i > 0 ? 1 : 0)
+    sc = (e < 0 ? 1 : 0) + (r < 0 ? 1 : 0) + (m < 0 ? 1 : 0) + (i < 0 ? 1 : 0)
+    bc >= min_agree and bc > sc ? 1 : sc >= min_agree and sc > bc ? -1 : 0
 
 // ═══════════════════════════════════════════════════════════
 //  EMA TREND  —  1 security call per TF (tuple)
@@ -26,7 +55,6 @@ f_ema(tf, f, m, fi) =>
 
 //         TF     Fast  Mid  Filter
 ema_m1  = f_ema("1",    9,  21,   50)
-ema_m3  = f_ema("3",    9,  21,   50)
 ema_m5  = f_ema("5",   13,  34,   89)
 ema_m15 = f_ema("15",  21,  50,  200)
 ema_m30 = f_ema("30",  34,  89,  200)
@@ -44,8 +72,7 @@ f_rsi(tf, per, ob, os) =>
     r > ob ? -1 : r < os ? 1 : r > 50 ? 1 : r < 50 ? -1 : 0
 
 //          TF      Per   OB   OS
-rsi_m1  = f_rsi("1",    9, 75, 25)
-rsi_m3  = f_rsi("3",   14, 70, 30)
+rsi_m1  = f_rsi("1",   14, 75, 30)
 rsi_m5  = f_rsi("5",   14, 70, 30)
 rsi_m15 = f_rsi("15",  14, 70, 30)
 rsi_m30 = f_rsi("30",  14, 65, 35)
@@ -64,7 +91,6 @@ f_macd(tf, f, s, sg) =>
 
 //           TF     Fast  Slow  Sig
 macd_m1  = f_macd("1",    8,  21,  5)
-macd_m3  = f_macd("3",    8,  21,  5)
 macd_m5  = f_macd("5",    8,  21,  5)
 macd_m15 = f_macd("15",  12,  26,  9)
 macd_m30 = f_macd("30",  12,  26,  9)
@@ -92,7 +118,6 @@ f_ichi(tf, t, k, sb) =>
 
 //          TF      T    K   SB
 ichi_m1  = f_ichi("1",    6, 13, 26)
-ichi_m3  = f_ichi("3",    9, 26, 52)
 ichi_m5  = f_ichi("5",    9, 26, 52)
 ichi_m15 = f_ichi("15",   9, 26, 52)
 ichi_m30 = f_ichi("30",   9, 26, 52)
@@ -106,44 +131,110 @@ ichi_w1  = f_ichi("W",    9, 26, 52)
 //  Trọng số: M1=thấp nhất, W1=cao nhất (từ spec)
 //  Tổng trọng số tối đa = 417
 // ═══════════════════════════════════════════════════════════
-overall_score =
-    // EMA weights: M1=4 M3=4 M5=6 M15=8 M30=10 H1=12 H4=15 D1=20 W1=25
-    (float(ema_m1)*4  + float(ema_m3)*4  + float(ema_m5)*6  + float(ema_m15)*8  +
-     float(ema_m30)*10 + float(ema_h1)*12 + float(ema_h4)*15 + float(ema_d1)*20 + float(ema_w1)*25 +
-    // RSI weights: M1=5 M3=5 M5=10 M15=10 M30=10 H1=10 H4=15 D1=20 W1=20
-     float(rsi_m1)*5  + float(rsi_m3)*5  + float(rsi_m5)*10 + float(rsi_m15)*10 +
-     float(rsi_m30)*10 + float(rsi_h1)*10 + float(rsi_h4)*15 + float(rsi_d1)*20 + float(rsi_w1)*20 +
-    // MACD weights: M1=4 M3=4 M5=6 M15=8 M30=10 H1=12 H4=15 D1=20 W1=25
-     float(macd_m1)*4 + float(macd_m3)*4 + float(macd_m5)*6 + float(macd_m15)*8 +
-     float(macd_m30)*10 + float(macd_h1)*12 + float(macd_h4)*15 + float(macd_d1)*20 + float(macd_w1)*25 +
-    // Ichi weights: M1=4 M3=4 M5=6 M15=8 M30=10 H1=12 H4=15 D1=20 W1=25
-     float(ichi_m1)*4 + float(ichi_m3)*4 + float(ichi_m5)*6 + float(ichi_m15)*8 +
-     float(ichi_m30)*10 + float(ichi_h1)*12 + float(ichi_h4)*15 + float(ichi_d1)*20 + float(ichi_w1)*25
-    ) / 417.0 * 100.0
+_se = float(ema_m1)*4  + float(ema_m5)*6  + float(ema_m15)*8  + float(ema_m30)*10 + float(ema_h1)*12 + float(ema_h4)*15 + float(ema_d1)*20 + float(ema_w1)*25
+_sr = float(rsi_m1)*4  + float(rsi_m5)*6  + float(rsi_m15)*8  + float(rsi_m30)*10 + float(rsi_h1)*12 + float(rsi_h4)*15 + float(rsi_d1)*20 + float(rsi_w1)*25
+_sm = float(macd_m1)*4 + float(macd_m5)*6 + float(macd_m15)*8 + float(macd_m30)*10 + float(macd_h1)*12 + float(macd_h4)*15 + float(macd_d1)*20 + float(macd_w1)*25
+_si = float(ichi_m1)*4 + float(ichi_m5)*6 + float(ichi_m15)*8 + float(ichi_m30)*10 + float(ichi_h1)*12 + float(ichi_h4)*15 + float(ichi_d1)*20 + float(ichi_w1)*25
+overall_score = (_se + _sr + _sm + _si) / 400.0 * 100.0
 
 // Ẩn trong Data Window để xem số liệu thực
 plot(overall_score, title="Overall Score", display=display.data_window)
 
 // ═══════════════════════════════════════════════════════════
-//  CHART SIGNALS  —  chỉ vẽ khi score vừa vượt ngưỡng
+//  CONSENSUS SIGNAL (spec điều kiện vào kết hợp)
+//  Ngưỡng đồng thuận theo spec: M1=2/4, M5/M15/M30/H1=3/4, D1/W1=4/4
+//  M30 cần H4 đồng chiều; H1 cần D1 đồng chiều
 // ═══════════════════════════════════════════════════════════
-sig_strong_buy  = ta.crossover(overall_score,  75.0)
-sig_buy         = ta.crossover(overall_score,  50.0) and overall_score < 75.0
-sig_strong_sell = ta.crossunder(overall_score, -75.0)
-sig_sell        = ta.crossunder(overall_score, -50.0) and overall_score > -75.0
+cs_m1  = tf_signal(ema_m1,  rsi_m1,  macd_m1,  ichi_m1,  2)
+cs_m5  = tf_signal(ema_m5,  rsi_m5,  macd_m5,  ichi_m5,  3)
+cs_m15 = tf_signal(ema_m15, rsi_m15, macd_m15, ichi_m15, 3)
+cs_m30 = tf_signal(ema_m30, rsi_m30, macd_m30, ichi_m30, 3)
+cs_h1  = tf_signal(ema_h1,  rsi_h1,  macd_h1,  ichi_h1,  3)
+cs_h4  = tf_signal(ema_h4,  rsi_h4,  macd_h4,  ichi_h4,  3)
+cs_d1  = tf_signal(ema_d1,  rsi_d1,  macd_d1,  ichi_d1,  4)
+cs_w1  = tf_signal(ema_w1,  rsi_w1,  macd_w1,  ichi_w1,  4)
 
-plotshape(sig_strong_buy,  title="Strong Buy",  style=shape.triangleup,
-     location=location.belowbar, color=color.lime,   size=size.normal,  text="BUY▲▲",  textcolor=color.white)
-plotshape(sig_buy,         title="Buy",         style=shape.triangleup,
-     location=location.belowbar, color=color.green,  size=size.small,   text="BUY",    textcolor=color.white)
-plotshape(sig_strong_sell, title="Strong Sell", style=shape.triangledown,
-     location=location.abovebar, color=color.red,    size=size.normal,  text="SELL▼▼", textcolor=color.white)
-plotshape(sig_sell,        title="Sell",        style=shape.triangledown,
-     location=location.abovebar, color=color.maroon, size=size.small,   text="SELL",   textcolor=color.white)
+cs_m30f = (cs_h4 != 0 and cs_m30 != cs_h4) ? 0 : cs_m30
+cs_h1f  = (cs_d1 != 0 and cs_h1  != cs_d1) ? 0 : cs_h1
 
-// Nền sáng khi xu hướng cực mạnh
-bgcolor(overall_score >= 75.0  ? color.new(color.lime, 93) :
-        overall_score <= -75.0 ? color.new(color.red,  93) : na,
+consensus_score = (float(cs_m1)*4 + float(cs_m5)*6 + float(cs_m15)*8 + float(cs_m30f)*10 + float(cs_h1f)*12 + float(cs_h4)*15 + float(cs_d1)*20 + float(cs_w1)*25) / 100.0 * 100.0
+
+// ═══════════════════════════════════════════════════════════
+//  CHART SIGNALS  —  vẽ theo TF hiện tại của chart
+//  Chỉ hiện thị nếu TF chart nằm trong 8 TF setup
+// ═══════════════════════════════════════════════════════════
+in_setup = (timeframe.period == "1"   or timeframe.period == "5"   or
+            timeframe.period == "15"  or timeframe.period == "30"  or
+            timeframe.period == "60"  or timeframe.period == "240" or
+            timeframe.period == "D"   or timeframe.period == "W")
+
+cur_cs = (timeframe.period == "1"   ? cs_m1   :
+          timeframe.period == "5"   ? cs_m5   :
+          timeframe.period == "15"  ? cs_m15  :
+          timeframe.period == "30"  ? cs_m30f :
+          timeframe.period == "60"  ? cs_h1f  :
+          timeframe.period == "240" ? cs_h4   :
+          timeframe.period == "D"   ? cs_d1   :
+          timeframe.period == "W"   ? cs_w1   : 0)
+
+cur_ema  = (timeframe.period == "1"   ? ema_m1  : timeframe.period == "5"   ? ema_m5  :
+            timeframe.period == "15"  ? ema_m15 : timeframe.period == "30"  ? ema_m30 :
+            timeframe.period == "60"  ? ema_h1  : timeframe.period == "240" ? ema_h4  :
+            timeframe.period == "D"   ? ema_d1  : ema_w1)
+
+cur_rsi  = (timeframe.period == "1"   ? rsi_m1  : timeframe.period == "5"   ? rsi_m5  :
+            timeframe.period == "15"  ? rsi_m15 : timeframe.period == "30"  ? rsi_m30 :
+            timeframe.period == "60"  ? rsi_h1  : timeframe.period == "240" ? rsi_h4  :
+            timeframe.period == "D"   ? rsi_d1  : rsi_w1)
+
+cur_macd = (timeframe.period == "1"   ? macd_m1  : timeframe.period == "5"   ? macd_m5  :
+            timeframe.period == "15"  ? macd_m15 : timeframe.period == "30"  ? macd_m30 :
+            timeframe.period == "60"  ? macd_h1  : timeframe.period == "240" ? macd_h4  :
+            timeframe.period == "D"   ? macd_d1  : macd_w1)
+
+cur_ichi = (timeframe.period == "1"   ? ichi_m1  : timeframe.period == "5"   ? ichi_m5  :
+            timeframe.period == "15"  ? ichi_m15 : timeframe.period == "30"  ? ichi_m30 :
+            timeframe.period == "60"  ? ichi_h1  : timeframe.period == "240" ? ichi_h4  :
+            timeframe.period == "D"   ? ichi_d1  : ichi_w1)
+
+cur_all_buy  = cur_ema > 0 and cur_rsi > 0 and cur_macd > 0 and cur_ichi > 0
+cur_all_sell = cur_ema < 0 and cur_rsi < 0 and cur_macd < 0 and cur_ichi < 0
+
+prev_sell = cur_cs[1] == -1 and cur_cs[2] == -1 and cur_cs[3] == -1
+prev_buy  = cur_cs[1] == 1  and cur_cs[2] == 1  and cur_cs[3] == 1
+
+sig_strong_buy  = in_setup and cur_all_buy  and cur_cs == 1 and prev_sell
+sig_buy         = in_setup and not cur_all_buy  and cur_cs == 1 and prev_sell
+sig_strong_sell = in_setup and cur_all_sell and cur_cs == -1 and prev_buy
+sig_sell        = in_setup and not cur_all_sell and cur_cs == -1 and prev_buy
+
+buy_inds  = (cur_ema  > 0 ? "EMA " : "") + (cur_rsi  > 0 ? "RSI " : "") + (cur_macd > 0 ? "MACD " : "") + (cur_ichi > 0 ? "ICH" : "")
+sell_inds = (cur_ema  < 0 ? "EMA " : "") + (cur_rsi  < 0 ? "RSI " : "") + (cur_macd < 0 ? "MACD " : "") + (cur_ichi < 0 ? "ICH" : "")
+
+// label.new() cho phép text động (series string) — plotshape chỉ nhận const string
+if sig_strong_buy
+    label.new(bar_index, na, text="BUY▲▲\n" + buy_inds,
+         yloc=yloc.belowbar, style=label.style_triangleup,
+         color=color.lime, textcolor=color.white, size=size.normal)
+
+if sig_buy
+    label.new(bar_index, na, text="BUY\n" + buy_inds,
+         yloc=yloc.belowbar, style=label.style_triangleup,
+         color=color.green, textcolor=color.white, size=size.small)
+
+if sig_strong_sell
+    label.new(bar_index, na, text="SELL▼▼\n" + sell_inds,
+         yloc=yloc.abovebar, style=label.style_triangledown,
+         color=color.red, textcolor=color.white, size=size.normal)
+
+if sig_sell
+    label.new(bar_index, na, text="SELL\n" + sell_inds,
+         yloc=yloc.abovebar, style=label.style_triangledown,
+         color=color.maroon, textcolor=color.white, size=size.small)
+
+// Nền sáng khi consensus cực mạnh
+bgcolor(consensus_score >= 75.0  ? color.new(color.lime, 93) :
+        consensus_score <= -75.0 ? color.new(color.red,  93) : na,
         title="Strong Trend Background")
 
 // ═══════════════════════════════════════════════════════════
@@ -171,15 +262,15 @@ C_HDR = color.new(#0d1b2a, 0)
 C_LBL = color.new(#1a2a3a, 0)
 
 if barstate.islast
-    tbl := table.new(position.top_right, 10, 8,
+    tbl := table.new(_tblPos, 9, 8,
          border_color = color.new(color.gray, 70),
          border_width  = 1,
          frame_color   = color.new(color.gray, 50),
          frame_width   = 1)
 
     // ── Header row ──────────────────────────────────────────
-    tfs = array.from("TF", "M1", "M3", "M5", "M15", "M30", "H1", "H4", "D1", "W1")
-    for i = 0 to 9
+    tfs = array.from("TF", "M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1")
+    for i = 0 to 8
         table.cell(tbl, i, 0, array.get(tfs, i),
              text_color = color.silver,
              bgcolor    = C_HDR,
@@ -196,12 +287,12 @@ if barstate.islast
              text_halign = text.align_left)
 
     // ── Signal arrays ───────────────────────────────────────
-    ema_row  = array.from(ema_m1,  ema_m3,  ema_m5,  ema_m15,  ema_m30,  ema_h1,  ema_h4,  ema_d1,  ema_w1)
-    rsi_row  = array.from(rsi_m1,  rsi_m3,  rsi_m5,  rsi_m15,  rsi_m30,  rsi_h1,  rsi_h4,  rsi_d1,  rsi_w1)
-    macd_row = array.from(macd_m1, macd_m3, macd_m5, macd_m15, macd_m30, macd_h1, macd_h4, macd_d1, macd_w1)
-    ichi_row = array.from(ichi_m1, ichi_m3, ichi_m5, ichi_m15, ichi_m30, ichi_h1, ichi_h4, ichi_d1, ichi_w1)
+    ema_row  = array.from(ema_m1,  ema_m5,  ema_m15,  ema_m30,  ema_h1,  ema_h4,  ema_d1,  ema_w1)
+    rsi_row  = array.from(rsi_m1,  rsi_m5,  rsi_m15,  rsi_m30,  rsi_h1,  rsi_h4,  rsi_d1,  rsi_w1)
+    macd_row = array.from(macd_m1, macd_m5, macd_m15, macd_m30, macd_h1, macd_h4, macd_d1, macd_w1)
+    ichi_row = array.from(ichi_m1, ichi_m5, ichi_m15, ichi_m30, ichi_h1, ichi_h4, ichi_d1, ichi_w1)
 
-    for c = 0 to 8
+    for c = 0 to 7
         ev = array.get(ema_row,  c)
         rv = array.get(rsi_row,  c)
         mv = array.get(macd_row, c)
@@ -213,13 +304,13 @@ if barstate.islast
 
     // ── Score weights (từ spec) ─────────────────────────────
     //                  M1  M3   M5  M15  M30  H1   H4   D1   W1
-    ema_wt  = array.from( 4,  4,   6,   8,  10,  12,  15,  20,  25)
-    rsi_wt  = array.from( 5,  5,  10,  10,  10,  10,  15,  20,  20)
-    macd_wt = array.from( 4,  4,   6,   8,  10,  12,  15,  20,  25)
-    ichi_wt = array.from( 4,  4,   6,   8,  10,  12,  15,  20,  25)
+    ema_wt  = array.from( 4,  6,   8,  10,  12,  15,  20,  25)
+    rsi_wt  = array.from( 4,  6,   8,  10,  12,  15,  20,  25)
+    macd_wt = array.from( 4,  6,   8,  10,  12,  15,  20,  25)
+    ichi_wt = array.from( 4,  6,   8,  10,  12,  15,  20,  25)
 
     // ── Score & Signal rows (per TF) ────────────────────────
-    for c = 0 to 8
+    for c = 0 to 7
         ew = array.get(ema_wt,  c)
         rw = array.get(rsi_wt,  c)
         mw = array.get(macd_wt, c)
@@ -238,10 +329,10 @@ if barstate.islast
              text_size  = size.small,
              text_halign = text.align_center)
 
-        lbl = sc >= 75.0  ? "STRONG↑" :
-              sc >= 50.0  ? "UP"      :
-              sc <= -75.0 ? "STRONG↓" :
-              sc <= -50.0 ? "DOWN"    : "NEUTRAL"
+        lbl = (sc >= 75.0  ? "STRONG↑" :
+               sc >= 50.0  ? "UP"      :
+               sc <= -75.0 ? "STRONG↓" :
+               sc <= -50.0 ? "DOWN"    : "NEUTRAL")
         table.cell(tbl, c+1, 6, lbl,
              text_color = color.white,
              bgcolor    = score_col(sc),
@@ -256,10 +347,9 @@ if barstate.islast
           overall_score <= -75.0 ? "STRONG SELL ▼▼" :
           overall_score <= -50.0 ? "SELL  ▼"         : "NEUTRAL  —")
 
-    for c = 0 to 8
-        table.cell(tbl, c+1, 7,
-             c == 4 ? overall_lbl : "",
-             text_color = color.white,
-             bgcolor    = oc,
-             text_size  = size.normal,
-             text_halign = text.align_center)
+    table.cell(tbl, 1, 7, overall_lbl,
+         text_color = color.white,
+         bgcolor    = oc,
+         text_size  = size.normal,
+         text_halign = text.align_center)
+    table.merge_cells(tbl, 1, 7, 8, 7)

@@ -313,8 +313,8 @@ cur_ichi = (timeframe.period == "1"   ? ichi_m1  : timeframe.period == "5"   ? i
 cur_all_buy  = cur_ema > 0 and cur_rsi > 0 and cur_macd > 0 and cur_ichi > 0
 cur_all_sell = cur_ema < 0 and cur_rsi < 0 and cur_macd < 0 and cur_ichi < 0
 
-prev_sell = cur_cs[1] == -1 and cur_cs[2] == -1 and cur_cs[3] == -1
-prev_buy  = cur_cs[1] == 1  and cur_cs[2] == 1  and cur_cs[3] == 1
+prev_sell = cur_cs[1] == -1
+prev_buy  = cur_cs[1] == 1
 
 sig_strong_buy  = in_setup and cur_all_buy  and cur_cs == 1 and prev_sell
 sig_buy         = in_setup and not cur_all_buy  and cur_cs == 1 and prev_sell

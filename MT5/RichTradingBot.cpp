@@ -15,7 +15,7 @@ CTrade    Trade;
 //+------------------------------------------------------------------+
 //| ENUMS                                                            |
 //+------------------------------------------------------------------+
-enum ENUM_SIGNAL_MODE  { SIG_EMA, SIG_BZ_ZONE, SIG_ICHIMOKU, SIG_BB, SIG_SIMULATED };
+enum ENUM_SIGNAL_MODE  { SIG_EMA, SIG_BZ_ZONE, SIG_ICHIMOKU, SIG_BB, SIG_SIMULATED, SIG_UT_BOT };
 enum ENUM_DIRECTION    { DIR_BOTH, DIR_ONLY_BUY, DIR_ONLY_SELL, DIR_EITHER };
 enum ENUM_DCA_MODE     { DCA_STOP, DCA_STEP, DCA_STEP_TF };
 enum ENUM_TRAIL_MODE   { TRAIL_BASKET, TRAIL_SINGLE };
@@ -65,6 +65,13 @@ input group         "══════ ICHIMOKU ══════"; //
 input  int     InpIchiTenkan = 9;   // Tenkan-sen
 input  int     InpIchiKijun  = 26;  // Kijun-sen
 input  int     InpIchiSenkou = 52;  // Senkou Span B
+
+//+------------------------------------------------------------------+
+//| INPUT: UT BOT                                                    |
+//+------------------------------------------------------------------+
+input group         "══════ UT BOT ══════"; //
+input  int     InpUTKeyValue  = 1;    // Key Value (độ nhạy ATR)
+input  int     InpUTATRPeriod = 10;   // ATR Period
 
 //+------------------------------------------------------------------+
 //| INPUT: GLOBAL FILTERS                                            |
@@ -253,6 +260,10 @@ int      hEMAFast   = INVALID_HANDLE;
 int      hEMASlow   = INVALID_HANDLE;
 int      hBB        = INVALID_HANDLE;
 int      hIchi      = INVALID_HANDLE;
+int      hATR       = INVALID_HANDLE;
+double   g_ats_ut        = 0.0;
+int      g_ats_ut_signal = 0;
+datetime g_last_bar_ut   = 0;
 
 // DCA config arrays (index 0-7 = level 1-8)
 ENUM_DCA_MODE DCA_Mode[8];
@@ -631,6 +642,49 @@ int SignalBB() {
     return 0;
 }
 
+void WarmupATS(int bars) {
+    int need = bars + 5;
+    double atr[], cls[];
+    ArraySetAsSeries(atr, true);
+    ArraySetAsSeries(cls, true);
+    if(CopyBuffer(hATR, 0, 0, need, atr) < need ||
+       CopyClose(_Symbol, InpSignalTF, 0, need, cls) < need) return;
+    double ats = 0.0;
+    for(int i = bars; i >= 1; i--) {
+        double s=cls[i], sp=cls[i+1], nl=InpUTKeyValue*atr[i];
+        if     (s>ats&&sp>ats) ats=MathMax(ats,s-nl);
+        else if(s<ats&&sp<ats) ats=MathMin(ats,s+nl);
+        else if(s>ats)          ats=s-nl;
+        else                    ats=s+nl;
+    }
+    g_ats_ut = ats;
+}
+
+int SignalUTBot() {
+    datetime t0 = iTime(_Symbol, InpSignalTF, 0);
+    if(t0 == g_last_bar_ut) return g_ats_ut_signal;
+    g_last_bar_ut = t0;
+
+    double atr[];
+    ArraySetAsSeries(atr, true);
+    if(CopyBuffer(hATR, 0, 1, 1, atr) < 1) { g_ats_ut_signal = 0; return 0; }
+
+    double src      = iClose(_Symbol, InpSignalTF, 1);
+    double src_prev = iClose(_Symbol, InpSignalTF, 2);
+    double nLoss    = InpUTKeyValue * atr[0];
+    double ats_prev = g_ats_ut;
+
+    if     (src > ats_prev && src_prev > ats_prev) g_ats_ut = MathMax(ats_prev, src - nLoss);
+    else if(src < ats_prev && src_prev < ats_prev) g_ats_ut = MathMin(ats_prev, src + nLoss);
+    else if(src > ats_prev)                         g_ats_ut = src - nLoss;
+    else                                            g_ats_ut = src + nLoss;
+
+    g_ats_ut_signal = 0;
+    if(src > g_ats_ut && src_prev <= ats_prev) g_ats_ut_signal =  1;
+    if(src < g_ats_ut && src_prev >= ats_prev) g_ats_ut_signal = -1;
+    return g_ats_ut_signal;
+}
+
 int SignalSimulated() {
     if(InpDirection == DIR_ONLY_BUY)  return  1;
     if(InpDirection == DIR_ONLY_SELL) return -1;
@@ -645,6 +699,7 @@ int GetSignal() {
         case SIG_ICHIMOKU:  sig = SignalIchimoku();  break;
         case SIG_BB:        sig = SignalBB();        break;
         case SIG_SIMULATED: sig = SignalSimulated(); break;
+        case SIG_UT_BOT:    sig = SignalUTBot();    break;
     }
     // SIG_SIMULATED đã tự filter theo InpDirection — chỉ apply cho các strategy khác
     if(InpSignalMode != SIG_SIMULATED) {
@@ -779,6 +834,42 @@ double LastPyraPrice(int posType) {
         if(t > latest) { latest = t; price = PositionGetDouble(POSITION_PRICE_OPEN); }
     }
     return price;
+}
+
+// Lot của lệnh pyramiding (RTP|) gần nhất cùng chiều
+double LastPyraLot(int posType) {
+    double   lot    = 0;
+    datetime latest = 0;
+    for(int i = PositionsTotal()-1; i >= 0; i--) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
+        if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
+        if(StringFind(PositionGetString(POSITION_COMMENT), "RTP|") != 0) continue;
+        datetime t = (datetime)PositionGetInteger(POSITION_TIME);
+        if(t > latest) { latest = t; lot = PositionGetDouble(POSITION_VOLUME); }
+    }
+    return lot;
+}
+
+// Lot của lệnh thủ công có giá cực trị: BUY → thấp nhất, SELL → cao nhất
+double ExtremeManualLot(int posType) {
+    double extreme = 0, lot = 0;
+    for(int i = PositionsTotal()-1; i >= 0; i--) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(PositionGetInteger(POSITION_MAGIC) != 0) continue;
+        if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
+        double price = PositionGetDouble(POSITION_PRICE_OPEN);
+        if(posType == POSITION_TYPE_BUY) {
+            if(extreme == 0 || price < extreme) { extreme = price; lot = PositionGetDouble(POSITION_VOLUME); }
+        } else {
+            if(extreme == 0 || price > extreme) { extreme = price; lot = PositionGetDouble(POSITION_VOLUME); }
+        }
+    }
+    return lot;
 }
 
 // Điểm tham chiếu DCA: lệnh DCA bot gần nhất → fallback lệnh thủ công cũ nhất
@@ -922,7 +1013,15 @@ void CheckPyramiding(int posType) {
 
     if(TimeCurrent() - LastOrderTime < InpOrderDelay) return;
 
-    double lot = NormLot(InpLotSize * PYRA_Mult[lvl]);
+    double baseLotPyra;
+    if(InpBotMode == MODE_SEMI_AUTO && CountManual(posType) >= 1) {
+        double pyraRef = LastPyraPrice(posType);
+        baseLotPyra = (pyraRef > 0) ? LastPyraLot(posType) : ExtremeManualLot(posType);
+        if(baseLotPyra <= 0) baseLotPyra = InpLotSize;
+    } else {
+        baseLotPyra = InpLotSize;
+    }
+    double lot = NormLot(baseLotPyra * PYRA_Mult[lvl]);
     int    ord = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
 
     // Khi PYRA_TP=0 và PYRA_SL=0: fallback về isPyra=false, dùng InpUseTakeProfit + InpTP_Points
@@ -1416,6 +1515,7 @@ void UpdateGUI() {
         case SIG_ICHIMOKU:  sigName = "Ichimoku";       break;
         case SIG_BB:        sigName = "Bollinger Band"; break;
         case SIG_SIMULATED: sigName = "Simulated";      break;
+        case SIG_UT_BOT:    sigName = "UT Bot";         break;
     }
 
     string dirName = "";
@@ -1702,12 +1802,16 @@ int OnInit() {
     hEMASlow = iMA(_Symbol, InpSignalTF, InpEMASlow, 0, MODE_EMA, PRICE_CLOSE);
     hBB      = iBands(_Symbol, InpSignalTF, InpBBPeriod, 0, InpBBDev, PRICE_CLOSE);
     hIchi    = iIchimoku(_Symbol, InpSignalTF, InpIchiTenkan, InpIchiKijun, InpIchiSenkou);
+    hATR     = iATR(_Symbol, InpSignalTF, InpUTATRPeriod);
 
     if(hEMAFast == INVALID_HANDLE || hEMASlow == INVALID_HANDLE ||
-       hBB == INVALID_HANDLE      || hIchi    == INVALID_HANDLE) {
+       hBB == INVALID_HANDLE      || hIchi    == INVALID_HANDLE ||
+       hATR == INVALID_HANDLE) {
         Print("RTB: ERROR — failed to create indicator handles!");
         return INIT_FAILED;
     }
+
+    WarmupATS(1000);
 
     InitBalance    = AccountInfoDouble(ACCOUNT_BALANCE);
     MaxDrawdownPct = 0;
@@ -1728,6 +1832,7 @@ void OnDeinit(const int reason) {
     IndicatorRelease(hEMASlow);
     IndicatorRelease(hBB);
     IndicatorRelease(hIchi);
+    IndicatorRelease(hATR);
 }
 
 void OnTick() {

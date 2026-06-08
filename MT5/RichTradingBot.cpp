@@ -730,6 +730,22 @@ double OldestManualPrice(int posType) {
     return price;
 }
 
+// Lot của lệnh thủ công CŨ NHẤT (lệnh gốc của user) cùng chiều
+double OldestManualLot(int posType) {
+    double   lot    = 0;
+    datetime oldest = (datetime)0x7FFFFFFF;
+    for(int i = PositionsTotal()-1; i >= 0; i--) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(PositionGetInteger(POSITION_MAGIC) != 0) continue;
+        if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
+        datetime t = (datetime)PositionGetInteger(POSITION_TIME);
+        if(t < oldest) { oldest = t; lot = PositionGetDouble(POSITION_VOLUME); }
+    }
+    return lot;
+}
+
 // Giá cực trị trong các lệnh thủ công: BUY → thấp nhất, SELL → cao nhất
 double ExtremeManualPrice(int posType) {
     double extreme = 0;
@@ -839,7 +855,9 @@ void CheckDCA(int posType) {
 
     if(TimeCurrent() - LastOrderTime < InpOrderDelay) return;
 
-    double lot = NormLot(InpLotSize * DCA_Mult[lvl]);
+    double baseLot = multiManual ? OldestManualLot(posType) : InpLotSize;
+    if(baseLot <= 0) baseLot = InpLotSize;
+    double lot = NormLot(baseLot * DCA_Mult[lvl]);
     int    ord = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
     Print("RTB: DCA level ", lvl+1, " triggered. dcaCount=", dcaCount,
           multiManual ? " [primary chain only]" : "");

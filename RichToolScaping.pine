@@ -159,7 +159,7 @@ _trdPos = (trdTPos == 'Top Left'      ? position.top_left      :
            trdTPos == 'Bottom Center' ? position.bottom_center :
            position.bottom_right)
 
-_dir(v)   => v > 0 ? 'Tăng' : v < 0 ? 'Giảm' : ' — '
+_dir(v)   => v > 0 ? 'Tăng ↑' : v < 0 ? 'Giảm ↓' : ' — '
 _dirC(v)  => v > 0 ? color.lime : v < 0 ? color.red : color.silver
 _prFmt(v) => na(v) ? '   —   ' : str.tostring(v, format.mintick)
 _calcPnl(entry, dir, vol, mult) =>
@@ -184,7 +184,7 @@ _drawLvl(arr_ln, arr_lb, x1, price, col, stl, w, txt) =>
 sig_col(v) =>
     v > 0 ? InpTblStrongBuy : v < 0 ? InpTblStrongSell : InpTblNeutral
 
-sig_txt(v) => v > 0 ? " UP " : v < 0 ? "DOWN" : " — "
+sig_txt(v) => v > 0 ? "TĂNG" : v < 0 ? "GIẢM" : " — "
 
 score_col(s) =>
     (s >= 75.0  ? InpTblStrongBuy  :
@@ -513,13 +513,13 @@ overall_score = (_se + _sr + _sm + _si) / 400.0 * 100.0
 //  M30 cần H4 đồng chiều; H1 cần D1 đồng chiều
 // ═══════════════════════════════════════════════════════════
 cs_m1  = tf_signal(ema_m1,  rsi_m1,  macd_m1,  ichi_m1,  2)
-cs_m5  = tf_signal(ema_m5,  rsi_m5,  macd_m5,  ichi_m5,  3)
-cs_m15 = tf_signal(ema_m15, rsi_m15, macd_m15, ichi_m15, 3)
-cs_m30 = tf_signal(ema_m30, rsi_m30, macd_m30, ichi_m30, 3)
-cs_h1  = tf_signal(ema_h1,  rsi_h1,  macd_h1,  ichi_h1,  3)
-cs_h4  = tf_signal(ema_h4,  rsi_h4,  macd_h4,  ichi_h4,  3)
-cs_d1  = tf_signal(ema_d1,  rsi_d1,  macd_d1,  ichi_d1,  4)
-cs_w1  = tf_signal(ema_w1,  rsi_w1,  macd_w1,  ichi_w1,  4)
+cs_m5  = tf_signal(ema_m5,  rsi_m5,  macd_m5,  ichi_m5,  2)
+cs_m15 = tf_signal(ema_m15, rsi_m15, macd_m15, ichi_m15, 2)
+cs_m30 = tf_signal(ema_m30, rsi_m30, macd_m30, ichi_m30, 2)
+cs_h1  = tf_signal(ema_h1,  rsi_h1,  macd_h1,  ichi_h1,  2)
+cs_h4  = tf_signal(ema_h4,  rsi_h4,  macd_h4,  ichi_h4,  2)
+cs_d1  = tf_signal(ema_d1,  rsi_d1,  macd_d1,  ichi_d1,  3)
+cs_w1  = tf_signal(ema_w1,  rsi_w1,  macd_w1,  ichi_w1,  3)
 
 cs_m30f = (cs_h4 != 0 and cs_m30 != cs_h4) ? 0 : cs_m30
 cs_h1f  = (cs_d1 != 0 and cs_h1  != cs_d1) ? 0 : cs_h1
@@ -546,10 +546,13 @@ var int   m30_dir   = 0
 var int   m30_bar   = na
 var bool  m5_tp1_hit  = false
 var bool  m5_tp2_hit  = false
+var bool  m5_tp3_hit  = false
 var bool  m15_tp1_hit = false
 var bool  m15_tp2_hit = false
+var bool  m15_tp3_hit = false
 var bool  m30_tp1_hit = false
 var bool  m30_tp2_hit = false
+var bool  m30_tp3_hit = false
 
 // Capture entry chỉ khi tín hiệu MỚI xuất hiện — dùng 2-bar debounce giống điều kiện bắn mũi tên
 // Đảm bảo entry luôn khớp với mũi tên gần nhất trên chart khi reload
@@ -566,12 +569,14 @@ if is_new_buy_m5 or is_new_sell_m5
     m5_bar     := bar_index
     m5_tp1_hit := false
     m5_tp2_hit := false
+    m5_tp3_hit := false
 else if m5_dir != 0 and cs_m5 != 0 and cs_m5 != m5_dir
     m5_entry   := float(na)
     m5_dir     := 0
     m5_bar     := na
     m5_tp1_hit := false
     m5_tp2_hit := false
+    m5_tp3_hit := false
 
 if is_new_buy_m15 or is_new_sell_m15
     m15_entry   := m15_cv
@@ -579,12 +584,14 @@ if is_new_buy_m15 or is_new_sell_m15
     m15_bar     := bar_index
     m15_tp1_hit := false
     m15_tp2_hit := false
+    m15_tp3_hit := false
 else if m15_dir != 0 and cs_m15 != 0 and cs_m15 != m15_dir
     m15_entry   := float(na)
     m15_dir     := 0
     m15_bar     := na
     m15_tp1_hit := false
     m15_tp2_hit := false
+    m15_tp3_hit := false
 
 if is_new_buy_m30 or is_new_sell_m30
     m30_entry   := m30_cv
@@ -592,12 +599,15 @@ if is_new_buy_m30 or is_new_sell_m30
     m30_bar     := bar_index
     m30_tp1_hit := false
     m30_tp2_hit := false
+    m30_tp3_hit := false
 else if m30_dir != 0 and cs_m30f != 0 and cs_m30f != m30_dir
     m30_entry   := float(na)
     m30_dir     := 0
     m30_bar     := na
     m30_tp1_hit := false
     m30_tp2_hit := false
+    m30_tp3_hit := false
+
 
 m5_sl   = na(m5_entry)  ? float(na) : m5_dir  > 0 ? m5_entry  - trdSL  : m5_entry  + trdSL
 m5_tp1  = na(m5_entry)  ? float(na) : m5_dir  > 0 ? m5_entry  + trdTP1 : m5_entry  - trdTP1
@@ -612,51 +622,29 @@ m30_tp1 = na(m30_entry) ? float(na) : m30_dir > 0 ? m30_entry + trdTP1 : m30_ent
 m30_tp2 = na(m30_entry) ? float(na) : m30_dir > 0 ? m30_entry + trdTP2 : m30_entry - trdTP2
 m30_tp3 = na(m30_entry) ? float(na) : m30_dir > 0 ? m30_entry + trdTP3 : m30_entry - trdTP3
 
-// Xóa entry khi giá chạm SL hoặc TP3
-if not na(m5_entry)
-    _sl_hit5  = trdSL > 0  and ((m5_dir > 0 and m5_lo <= m5_sl)  or (m5_dir < 0 and m5_hi >= m5_sl))
-    _tp3_hit5 = trdTP3 > 0 and ((m5_dir > 0 and m5_hi >= m5_tp3) or (m5_dir < 0 and m5_lo <= m5_tp3))
-    if _sl_hit5 or _tp3_hit5
-        m5_entry   := float(na)
-        m5_dir     := 0
-        m5_bar     := na
-        m5_tp1_hit := false
-        m5_tp2_hit := false
-if not na(m15_entry)
-    _sl_hit15  = trdSL > 0  and ((m15_dir > 0 and m15_lo <= m15_sl)  or (m15_dir < 0 and m15_hi >= m15_sl))
-    _tp3_hit15 = trdTP3 > 0 and ((m15_dir > 0 and m15_hi >= m15_tp3) or (m15_dir < 0 and m15_lo <= m15_tp3))
-    if _sl_hit15 or _tp3_hit15
-        m15_entry   := float(na)
-        m15_dir     := 0
-        m15_bar     := na
-        m15_tp1_hit := false
-        m15_tp2_hit := false
-if not na(m30_entry)
-    _sl_hit30  = trdSL > 0  and ((m30_dir > 0 and m30_lo <= m30_sl)  or (m30_dir < 0 and m30_hi >= m30_sl))
-    _tp3_hit30 = trdTP3 > 0 and ((m30_dir > 0 and m30_hi >= m30_tp3) or (m30_dir < 0 and m30_lo <= m30_tp3))
-    if _sl_hit30 or _tp3_hit30
-        m30_entry   := float(na)
-        m30_dir     := 0
-        m30_bar     := na
-        m30_tp1_hit := false
-        m30_tp2_hit := false
 
-// TP hit detection — khoá PNL floor khi chạm TP1/TP2
+// TP hit detection — khoá PNL floor khi chạm TP1/TP2/TP3
 if not na(m5_entry)
     if (m5_dir > 0 and close >= m5_tp1) or (m5_dir < 0 and close <= m5_tp1)
         m5_tp1_hit := true
     if (m5_dir > 0 and close >= m5_tp2) or (m5_dir < 0 and close <= m5_tp2)
         m5_tp2_hit := true
+    if (m5_dir > 0 and close >= m5_tp3) or (m5_dir < 0 and close <= m5_tp3)
+        m5_tp3_hit := true
 if not na(m15_entry)
     if (m15_dir > 0 and close >= m15_tp1) or (m15_dir < 0 and close <= m15_tp1)
         m15_tp1_hit := true
     if (m15_dir > 0 and close >= m15_tp2) or (m15_dir < 0 and close <= m15_tp2)
         m15_tp2_hit := true
+    if (m15_dir > 0 and close >= m15_tp3) or (m15_dir < 0 and close <= m15_tp3)
+        m15_tp3_hit := true
 if not na(m30_entry)
     if (m30_dir > 0 and close >= m30_tp1) or (m30_dir < 0 and close <= m30_tp1)
         m30_tp1_hit := true
     if (m30_dir > 0 and close >= m30_tp2) or (m30_dir < 0 and close <= m30_tp2)
         m30_tp2_hit := true
+    if (m30_dir > 0 and close >= m30_tp3) or (m30_dir < 0 and close <= m30_tp3)
+        m30_tp3_hit := true
 
 // ═══════════════════════════════════════════════════════════
 //  CHART SIGNALS  —  vẽ theo TF hiện tại của chart
@@ -832,22 +820,22 @@ if barstate.islast
              text_halign = text.align_center)
 
         cs_v = array.get(cs_row, c)
-        lbl = (cs_v > 0 ? (sc >= 75.0 ? "STRONG↑" : "  UP   ") :
-               cs_v < 0 ? (sc <= -75.0 ? "STRONG↓" : " DOWN  ") : "NEUTRAL")
+        lbl = (cs_v > 0 ? (sc >= 75.0 ? "MẠNH ↑ " : " TĂNG  ") :
+               cs_v < 0 ? (sc <= -75.0 ? "MẠNH ↓ " : " GIẢM  ") : " NONE ")
         _sig_bg = cs_v != 0 ? score_col(sc) : InpTblNeutral
         table.cell(tbl, c+1, 6, lbl,
-             text_color = color.white,
-             bgcolor    = _sig_bg,
-             text_size  = size.normal,
+             text_color  = color.white,
+             bgcolor     = _sig_bg,
+             text_size   = size.normal,
              text_halign = text.align_center)
 
     // ── Overall row (tổng hợp tất cả TF + indicator) ────────
     oc = score_col(overall_score)
     overall_lbl = str.tostring(math.round(overall_score)) + "%" + "  " +
-         (overall_score >= 75.0  ? "STRONG BUY ▲▲" :
-          overall_score >= 50.0  ? "BUY  ▲"         :
-          overall_score <= -75.0 ? "STRONG SELL ▼▼" :
-          overall_score <= -50.0 ? "SELL  ▼"         : "NEUTRAL  —")
+         (overall_score >= 75.0  ? "MUA MẠNH ▲▲" :
+          overall_score >= 50.0  ? "MUA  ▲"      :
+          overall_score <= -75.0 ? "BÁN MẠNH ▼▼" :
+          overall_score <= -50.0 ? "BÁN  ▼"      : "NONE —")
 
     table.cell(tbl, 1, 7, overall_lbl,
          text_color = color.white,
@@ -868,19 +856,22 @@ if trdSH and barstate.islast
     m15_entC = na(m15_entry) ? color.white : m15_dir > 0 ? color.lime : color.red
     m30_entC = na(m30_entry) ? color.white : m30_dir > 0 ? color.lime : color.red
     pnl5_raw   = _calcPnl(m5_entry,  m5_dir,  trdVol, trdMult)
-    pnl5_floor = m5_tp2_hit  ? _calcPnlAt(m5_entry,  m5_dir,  m5_tp2,  trdVol, trdMult) :
+    pnl5_floor = m5_tp3_hit  ? _calcPnlAt(m5_entry,  m5_dir,  m5_tp3,  trdVol, trdMult) :
+                 m5_tp2_hit  ? _calcPnlAt(m5_entry,  m5_dir,  m5_tp2,  trdVol, trdMult) :
                  m5_tp1_hit  ? _calcPnlAt(m5_entry,  m5_dir,  m5_tp1,  trdVol, trdMult) : float(na)
-    pnl5  = na(pnl5_floor)  ? pnl5_raw  : na(pnl5_raw)  ? pnl5_floor  : math.max(pnl5_raw,  pnl5_floor)
+    pnl5  = m5_tp3_hit ? pnl5_floor : na(pnl5_floor) ? pnl5_raw : na(pnl5_raw) ? pnl5_floor : math.max(pnl5_raw, pnl5_floor)
 
     pnl15_raw   = _calcPnl(m15_entry, m15_dir, trdVol, trdMult)
-    pnl15_floor = m15_tp2_hit ? _calcPnlAt(m15_entry, m15_dir, m15_tp2, trdVol, trdMult) :
+    pnl15_floor = m15_tp3_hit ? _calcPnlAt(m15_entry, m15_dir, m15_tp3, trdVol, trdMult) :
+                  m15_tp2_hit ? _calcPnlAt(m15_entry, m15_dir, m15_tp2, trdVol, trdMult) :
                   m15_tp1_hit ? _calcPnlAt(m15_entry, m15_dir, m15_tp1, trdVol, trdMult) : float(na)
-    pnl15 = na(pnl15_floor) ? pnl15_raw : na(pnl15_raw) ? pnl15_floor : math.max(pnl15_raw, pnl15_floor)
+    pnl15 = m15_tp3_hit ? pnl15_floor : na(pnl15_floor) ? pnl15_raw : na(pnl15_raw) ? pnl15_floor : math.max(pnl15_raw, pnl15_floor)
 
     pnl30_raw   = _calcPnl(m30_entry, m30_dir, trdVol, trdMult)
-    pnl30_floor = m30_tp2_hit ? _calcPnlAt(m30_entry, m30_dir, m30_tp2, trdVol, trdMult) :
+    pnl30_floor = m30_tp3_hit ? _calcPnlAt(m30_entry, m30_dir, m30_tp3, trdVol, trdMult) :
+                  m30_tp2_hit ? _calcPnlAt(m30_entry, m30_dir, m30_tp2, trdVol, trdMult) :
                   m30_tp1_hit ? _calcPnlAt(m30_entry, m30_dir, m30_tp1, trdVol, trdMult) : float(na)
-    pnl30 = na(pnl30_floor) ? pnl30_raw : na(pnl30_raw) ? pnl30_floor : math.max(pnl30_raw, pnl30_floor)
+    pnl30 = m30_tp3_hit ? pnl30_floor : na(pnl30_floor) ? pnl30_raw : na(pnl30_raw) ? pnl30_floor : math.max(pnl30_raw, pnl30_floor)
     trdTbl := table.new(_trdPos, 4, 13,
          border_color=_B, border_width=1,
          frame_color=color.new(color.gray, 40), frame_width=2,
@@ -912,21 +903,21 @@ if trdSH and barstate.islast
     table.cell(trdTbl, 2, 7, _prFmt(m15_entry), text_color=m15_entC, bgcolor=_C, text_size=size.normal)
     table.cell(trdTbl, 3, 7, _prFmt(m30_entry), text_color=m30_entC, bgcolor=_C, text_size=size.normal)
     table.cell(trdTbl, 0, 8, 'SL', text_color=color.red, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 1, 8, _prFmt(m5_sl),  text_color=color.red, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 2, 8, _prFmt(m15_sl), text_color=color.red, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 3, 8, _prFmt(m30_sl), text_color=color.red, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 1, 8, _prFmt(na(m5_entry)  ? float(na) : m5_sl),  text_color=color.red, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 2, 8, _prFmt(na(m15_entry) ? float(na) : m15_sl), text_color=color.red, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 3, 8, _prFmt(na(m30_entry) ? float(na) : m30_sl), text_color=color.red, bgcolor=_C, text_size=size.normal)
     table.cell(trdTbl, 0, 9,  'TP1', text_color=color.lime, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 1, 9,  _prFmt(m5_tp1),  text_color=color.lime, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 2, 9,  _prFmt(m15_tp1), text_color=color.lime, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 3, 9,  _prFmt(m30_tp1), text_color=color.lime, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 1, 9,  _prFmt(na(m5_entry)  ? float(na) : m5_tp1),  text_color=color.lime, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 2, 9,  _prFmt(na(m15_entry) ? float(na) : m15_tp1), text_color=color.lime, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 3, 9,  _prFmt(na(m30_entry) ? float(na) : m30_tp1), text_color=color.lime, bgcolor=_C, text_size=size.normal)
     table.cell(trdTbl, 0, 10, 'TP2', text_color=color.lime, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 1, 10, _prFmt(m5_tp2),  text_color=color.lime, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 2, 10, _prFmt(m15_tp2), text_color=color.lime, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 3, 10, _prFmt(m30_tp2), text_color=color.lime, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 1, 10, _prFmt(na(m5_entry)  ? float(na) : m5_tp2),  text_color=color.lime, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 2, 10, _prFmt(na(m15_entry) ? float(na) : m15_tp2), text_color=color.lime, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 3, 10, _prFmt(na(m30_entry) ? float(na) : m30_tp2), text_color=color.lime, bgcolor=_C, text_size=size.normal)
     table.cell(trdTbl, 0, 11, 'TP3', text_color=color.lime, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 1, 11, _prFmt(m5_tp3),  text_color=color.lime, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 2, 11, _prFmt(m15_tp3), text_color=color.lime, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 3, 11, _prFmt(m30_tp3), text_color=color.lime, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 1, 11, _prFmt(na(m5_entry)  ? float(na) : m5_tp3),  text_color=color.lime, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 2, 11, _prFmt(na(m15_entry) ? float(na) : m15_tp3), text_color=color.lime, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 3, 11, _prFmt(na(m30_entry) ? float(na) : m30_tp3), text_color=color.lime, bgcolor=_C, text_size=size.normal)
     table.cell(trdTbl, 0, 12, 'Float PNL', text_color=color.silver, bgcolor=_C, text_size=size.normal)
     table.cell(trdTbl, 1, 12, _pnlStr(pnl5),  text_color=na(pnl5)  ? color.silver : pnl5  >= 0 ? color.lime : color.red, bgcolor=_C, text_size=size.normal)
     table.cell(trdTbl, 2, 12, _pnlStr(pnl15), text_color=na(pnl15) ? color.silver : pnl15 >= 0 ? color.lime : color.red, bgcolor=_C, text_size=size.normal)

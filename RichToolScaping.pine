@@ -222,24 +222,87 @@ ema_w1  = f_ema("W",   39,  89,  200)
 
 // ═══════════════════════════════════════════════════════════
 //  RSI
-//  Điều kiện: quá mua/bán + vị trí so với 50
 // ═══════════════════════════════════════════════════════════
-f_rsi(tf, per, ob, os) =>
-    r = request.security(syminfo.tickerid, tf, ta.rsi(close, per))
-    r > ob ? -1 : r < os ? 1 : r > 50 ? 1 : r < 50 ? -1 : 0
-
 //          TF      Per   OB   OS
-rsi_m1  = f_rsi("1",   14, 75, 30)
+_rsi_m1_sig() =>
+    r = ta.rsi(close, 9)
+    bull = false
+    bear = false
+    if r < 25
+        for i = 2 to 20
+            if r[i] < 25 and low < low[i] and r > r[i]
+                bull := true
+                break
+    if r > 75
+        for i = 2 to 20
+            if r[i] > 75 and high > high[i] and r < r[i]
+                bear := true
+                break
+    bull ? 1 : bear ? -1 : 0
+rsi_m1  = request.security(syminfo.tickerid, "1", _rsi_m1_sig())
+// M5 RSI: RSI < 30 + nến đảo chiều tăng | RSI > 70 + nến đảo chiều giảm
 _rsi_m5_sig() =>
     r = ta.rsi(close, 14)
-    r > 70 ? -1 : r < 30 ? 1 : 0
+    r < 30 and close > open ? 1 : r > 70 and close < open ? -1 : 0
 rsi_m5  = request.security(syminfo.tickerid, "5", _rsi_m5_sig())
-rsi_m15 = f_rsi("15",  14, 70, 30)
-rsi_m30 = f_rsi("30",  14, 65, 35)
-rsi_h1  = f_rsi("60",  14, 55, 45)
-rsi_h4  = f_rsi("240", 21, 70, 30)
-rsi_d1  = f_rsi("D",   14, 70, 30)
-rsi_w1  = f_rsi("W",   14, 70, 30)
+// M15 RSI: trên/dưới mức 50
+_rsi_m15_sig() =>
+    r = ta.rsi(close, 14)
+    r > 50 ? 1 : r < 50 ? -1 : 0
+rsi_m15 = request.security(syminfo.tickerid, "15", _rsi_m15_sig())
+// M30 RSI: vùng 35-40 bật tăng → BUY | vùng 60-65 quay đầu → SELL
+_rsi_m30_sig() =>
+    r = ta.rsi(close, 14)
+    r >= 35 and r <= 40 and r > r[1] ? 1 : r >= 60 and r <= 65 and r < r[1] ? -1 : 0
+rsi_m30 = request.security(syminfo.tickerid, "30", _rsi_m30_sig())
+// H1 RSI: cắt lên 45 + đáy cao hơn | cắt xuống 55 + đỉnh thấp hơn
+_rsi_h1_sig() =>
+    r = ta.rsi(close, 14)
+    cross_up45  = r > 45 and r[1] <= 45 and low > low[1]
+    cross_dn55  = r < 55 and r[1] >= 55 and high < high[1]
+    cross_up45 ? 1 : cross_dn55 ? -1 : 0
+rsi_h1  = request.security(syminfo.tickerid, "60", _rsi_h1_sig())
+// H4 RSI: chu kỳ 21, OS=30/OB=70 + phân kỳ rõ ràng
+_rsi_h4_sig() =>
+    r = ta.rsi(close, 21)
+    bull = false
+    bear = false
+    if r < 30
+        for i = 2 to 30
+            if r[i] < 30 and low < low[i] and r > r[i]
+                bull := true
+                break
+    if r > 70
+        for i = 2 to 30
+            if r[i] > 70 and high > high[i] and r < r[i]
+                bear := true
+                break
+    bull ? 1 : bear ? -1 : 0
+rsi_h4  = request.security(syminfo.tickerid, "240", _rsi_h4_sig())
+// D1 RSI: < 30 + phân kỳ tăng + volume giảm | > 70 + phân kỳ giảm + volume giảm
+_rsi_d1_sig() =>
+    r = ta.rsi(close, 14)
+    bull = false
+    bear = false
+    if r < 30
+        for i = 2 to 30
+            if r[i] < 30 and low < low[i] and r > r[i] and volume < volume[1]
+                bull := true
+                break
+    if r > 70
+        for i = 2 to 30
+            if r[i] > 70 and high > high[i] and r < r[i] and volume < volume[1]
+                bear := true
+                break
+    bull ? 1 : bear ? -1 : 0
+rsi_d1  = request.security(syminfo.tickerid, "D", _rsi_d1_sig())
+// W1 RSI: thoát OS/OB + tuần sau xác nhận đóng cửa giữ vững
+_rsi_w1_sig() =>
+    r = ta.rsi(close, 14)
+    cross_os = r[1] > 30 and r[2] <= 30 and r > 30
+    cross_ob = r[1] < 70 and r[2] >= 70 and r < 70
+    cross_os ? 1 : cross_ob ? -1 : 0
+rsi_w1  = request.security(syminfo.tickerid, "W", _rsi_w1_sig())
 
 // ═══════════════════════════════════════════════════════════
 //  MACD
@@ -249,15 +312,71 @@ f_macd(tf, f, s, sg) =>
     [ml, sl, h] = request.security(syminfo.tickerid, tf, ta.macd(close, f, s, sg))
     ml > sl and h > 0 ? 1 : ml < sl and h < 0 ? -1 : 0
 
+// M1 MACD: 8/21/SMA5, histogram tăng dần 3 nến liên tiếp
+_macd_m1_sig() =>
+    ml = ta.ema(close, 8) - ta.ema(close, 21)
+    sl = ta.sma(ml, 5)
+    h  = ml - sl
+    cross_up   = ml > sl and ml[1] <= sl[1]
+    cross_down = ml < sl and ml[1] >= sl[1]
+    hist_rising  = h > 0 and h[1] > 0 and h[2] > 0 and h > h[1] and h[1] > h[2]
+    hist_falling = h < 0 and h[1] < 0 and h[2] < 0 and h < h[1] and h[1] < h[2]
+    cross_up and hist_rising ? 1 : cross_down and hist_falling ? -1 : 0
+
+// M5 MACD: 12/26/9, histogram tăng dần 2 nến liên tiếp
+_macd_m5_sig() =>
+    [ml, sl, h] = ta.macd(close, 12, 26, 9)
+    cross_up   = ml > sl and ml[1] <= sl[1]
+    cross_down = ml < sl and ml[1] >= sl[1]
+    hist_rising  = h > 0 and h > h[1]
+    hist_falling = h < 0 and h < h[1]
+    cross_up and hist_rising ? 1 : cross_down and hist_falling ? -1 : 0
+
 //           TF     Fast  Slow  Sig
-macd_m1  = f_macd("1",    8,  21,  5)
-macd_m5  = f_macd("5",    8,  21,  5)
-macd_m15 = f_macd("15",  12,  26,  9)
-macd_m30 = f_macd("30",  12,  26,  9)
-macd_h1  = f_macd("60",  12,  26,  9)
-macd_h4  = f_macd("240", 12,  26,  9)
-macd_d1  = f_macd("D",   12,  26,  9)
-macd_w1  = f_macd("W",    5,  34,  5)
+macd_m1  = request.security(syminfo.tickerid, "1", _macd_m1_sig())
+macd_m5  = request.security(syminfo.tickerid, "5", _macd_m5_sig())
+// M15 MACD: 12/26/9, histogram dương/âm và mở rộng
+_macd_m15_sig() =>
+    [ml, sl, h] = ta.macd(close, 12, 26, 9)
+    ml > sl and h > 0 and h > h[1] ? 1 : ml < sl and h < 0 and h < h[1] ? -1 : 0
+macd_m15 = request.security(syminfo.tickerid, "15", _macd_m15_sig())
+// M30 MACD: 12/26/9, histogram dương/âm liên tiếp 2-3 nến
+_macd_m30_sig() =>
+    [ml, sl, h] = ta.macd(close, 12, 26, 9)
+    hist_pos = h > 0 and h[1] > 0 and ml > sl
+    hist_neg = h < 0 and h[1] < 0 and ml < sl
+    hist_pos ? 1 : hist_neg ? -1 : 0
+macd_m30 = request.security(syminfo.tickerid, "30", _macd_m30_sig())
+// H1 MACD: crossover + histogram chuyển dương/âm rõ ràng
+_macd_h1_sig() =>
+    [ml, sl, h] = ta.macd(close, 12, 26, 9)
+    cross_up   = ml > sl and ml[1] <= sl[1]
+    cross_down = ml < sl and ml[1] >= sl[1]
+    hist_turn_pos = h > 0 and h[1] <= 0
+    hist_turn_neg = h < 0 and h[1] >= 0
+    cross_up and hist_turn_pos ? 1 : cross_down and hist_turn_neg ? -1 : 0
+macd_h1  = request.security(syminfo.tickerid, "60", _macd_h1_sig())
+// H4 MACD: MACD > Signal và > 0 + Histogram dương tăng dần
+_macd_h4_sig() =>
+    [ml, sl, h] = ta.macd(close, 12, 26, 9)
+    bull = ml > sl and ml > 0 and h > 0 and h > h[1]
+    bear = ml < sl and ml < 0 and h < 0 and h < h[1]
+    bull ? 1 : bear ? -1 : 0
+macd_h4  = request.security(syminfo.tickerid, "240", _macd_h4_sig())
+// D1 MACD: crossover bất kỳ vị trí + histogram dương/âm ít nhất 1 nến
+_macd_d1_sig() =>
+    [ml, sl, h] = ta.macd(close, 12, 26, 9)
+    cross_up   = ml > sl and ml[1] <= sl[1]
+    cross_down = ml < sl and ml[1] >= sl[1]
+    cross_up and h > 0 ? 1 : cross_down and h < 0 ? -1 : 0
+macd_d1  = request.security(syminfo.tickerid, "D", _macd_d1_sig())
+// W1 MACD: MACD > Signal liên tục trên 0 + Histogram dương nhiều tuần
+_macd_w1_sig() =>
+    [ml, sl, h] = ta.macd(close, 5, 34, 5)
+    bull = ml > sl and ml > 0 and h > 0 and h[1] > 0 and h[2] > 0
+    bear = ml < sl and ml < 0 and h < 0 and h[1] < 0 and h[2] < 0
+    bull ? 1 : bear ? -1 : 0
+macd_w1  = request.security(syminfo.tickerid, "W", _macd_w1_sig())
 
 // ═══════════════════════════════════════════════════════════
 //  ICHIMOKU  —  1 security call per TF (tuple)
@@ -278,13 +397,103 @@ f_ichi(tf, t, k, sb) =>
 
 //          TF      T    K   SB
 ichi_m1  = f_ichi("1",    6, 13, 26)
-ichi_m5  = f_ichi("5",    9, 26, 52)
-ichi_m15 = f_ichi("15",   9, 26, 52)
-ichi_m30 = f_ichi("30",   9, 26, 52)
-ichi_h1  = f_ichi("60",   9, 26, 52)
-ichi_h4  = f_ichi("240",  9, 26, 52)
-ichi_d1  = f_ichi("D",    9, 26, 52)
-ichi_w1  = f_ichi("W",    9, 26, 52)
+// M5 Ichimoku: thêm màu mây + Chikou Span
+_ichi_m5_sig() =>
+    tenkan = (ta.highest(high, 9)  + ta.lowest(low, 9))  / 2
+    kijun  = (ta.highest(high, 26) + ta.lowest(low, 26)) / 2
+    spanB  = (ta.highest(high, 52) + ta.lowest(low, 52)) / 2
+    spanA  = (tenkan + kijun) / 2
+    kumo_top    = math.max(spanA, spanB)
+    kumo_bot    = math.min(spanA, spanB)
+    green_cloud = spanA > spanB
+    red_cloud   = spanA < spanB
+    chikou_up   = close > close[26]
+    chikou_dn   = close < close[26]
+    close > kumo_top and tenkan > kijun and green_cloud and chikou_up ? 1 :
+     close < kumo_bot and tenkan < kijun and red_cloud   and chikou_dn ? -1 : 0
+ichi_m5  = request.security(syminfo.tickerid, "5", _ichi_m5_sig())
+// M15 Ichimoku: màu mây + xác nhận 2 nến đóng trên/dưới mây
+_ichi_m15_sig() =>
+    tenkan = (ta.highest(high, 9)  + ta.lowest(low, 9))  / 2
+    kijun  = (ta.highest(high, 26) + ta.lowest(low, 26)) / 2
+    spanB  = (ta.highest(high, 52) + ta.lowest(low, 52)) / 2
+    spanA  = (tenkan + kijun) / 2
+    kumo_top    = math.max(spanA, spanB)
+    kumo_bot    = math.min(spanA, spanB)
+    green_cloud = spanA > spanB
+    red_cloud   = spanA < spanB
+    confirm_up  = close > kumo_top and close[1] > kumo_top[1]
+    confirm_dn  = close < kumo_bot and close[1] < kumo_bot[1]
+    confirm_up and green_cloud ? 1 : confirm_dn and red_cloud ? -1 : 0
+ichi_m15 = request.security(syminfo.tickerid, "15", _ichi_m15_sig())
+// M30 Ichimoku: Tenkan>Kijun dốc lên + Chikou trên giá hướng lên + close trên Kijun
+_ichi_m30_sig() =>
+    tenkan = (ta.highest(high, 9)  + ta.lowest(low, 9))  / 2
+    kijun  = (ta.highest(high, 26) + ta.lowest(low, 26)) / 2
+    tk_above     = tenkan > kijun
+    tk_slope_up  = tenkan > tenkan[1] and kijun > kijun[1]
+    tk_slope_dn  = tenkan < tenkan[1] and kijun < kijun[1]
+    chikou_up    = close > close[26] and close > close[1]
+    chikou_dn    = close < close[26] and close < close[1]
+    tk_above  and tk_slope_up and chikou_up and close > kijun ? 1 :
+     not tk_above and tk_slope_dn and chikou_dn and close < kijun ? -1 : 0
+ichi_m30 = request.security(syminfo.tickerid, "30", _ichi_m30_sig())
+// H1 Ichimoku: giá trên mây xanh + Tenkan > Kijun
+_ichi_h1_sig() =>
+    tenkan = (ta.highest(high, 9)  + ta.lowest(low, 9))  / 2
+    kijun  = (ta.highest(high, 26) + ta.lowest(low, 26)) / 2
+    spanB  = (ta.highest(high, 52) + ta.lowest(low, 52)) / 2
+    spanA  = (tenkan + kijun) / 2
+    kumo_top    = math.max(spanA, spanB)
+    kumo_bot    = math.min(spanA, spanB)
+    green_cloud = spanA > spanB
+    red_cloud   = spanA < spanB
+    close > kumo_top and green_cloud and tenkan > kijun ? 1 :
+     close < kumo_bot and red_cloud   and tenkan < kijun ? -1 : 0
+ichi_h1  = request.security(syminfo.tickerid, "60", _ichi_h1_sig())
+// H4 Ichimoku: giá trên/dưới mây + màu mây hiện tại + future cloud cùng màu
+_ichi_h4_sig() =>
+    tenkan = (ta.highest(high, 9)  + ta.lowest(low, 9))  / 2
+    kijun  = (ta.highest(high, 26) + ta.lowest(low, 26)) / 2
+    spanB  = (ta.highest(high, 52) + ta.lowest(low, 52)) / 2
+    spanA  = (tenkan + kijun) / 2
+    kumo_top   = math.max(spanA[26], spanB[26])
+    kumo_bot   = math.min(spanA[26], spanB[26])
+    cur_green  = spanA[26] > spanB[26]
+    fut_green  = spanA     > spanB
+    cur_red    = spanA[26] < spanB[26]
+    fut_red    = spanA     < spanB
+    close > kumo_top and cur_green and fut_green ? 1 :
+     close < kumo_bot and cur_red   and fut_red   ? -1 : 0
+ichi_h4  = request.security(syminfo.tickerid, "240", _ichi_h4_sig())
+// D1 Ichimoku: giá trên/dưới mây + Tenkan vs Kijun + Chikou hướng lên/xuống
+_ichi_d1_sig() =>
+    tenkan = (ta.highest(high, 9)  + ta.lowest(low, 9))  / 2
+    kijun  = (ta.highest(high, 26) + ta.lowest(low, 26)) / 2
+    spanB  = (ta.highest(high, 52) + ta.lowest(low, 52)) / 2
+    spanA  = (tenkan + kijun) / 2
+    kumo_top  = math.max(spanA, spanB)
+    kumo_bot  = math.min(spanA, spanB)
+    chikou_up = close > close[26] and close > close[1]
+    chikou_dn = close < close[26] and close < close[1]
+    close > kumo_top and tenkan > kijun and chikou_up ? 1 :
+     close < kumo_bot and tenkan < kijun and chikou_dn ? -1 : 0
+ichi_d1  = request.security(syminfo.tickerid, "D", _ichi_d1_sig())
+// W1 Ichimoku: giá đóng trên/dưới mây + Tenkan cắt Kijun + Chikou cắt qua giá
+_ichi_w1_sig() =>
+    tenkan = (ta.highest(high, 9)  + ta.lowest(low, 9))  / 2
+    kijun  = (ta.highest(high, 26) + ta.lowest(low, 26)) / 2
+    spanB  = (ta.highest(high, 52) + ta.lowest(low, 52)) / 2
+    spanA  = (tenkan + kijun) / 2
+    kumo_top = math.max(spanA, spanB)
+    kumo_bot = math.min(spanA, spanB)
+    tk_cross_up   = tenkan > kijun and tenkan[1] <= kijun[1]
+    tk_cross_down = tenkan < kijun and tenkan[1] >= kijun[1]
+    chikou_cross_up   = close > close[26] and close[1] <= close[27]
+    chikou_cross_down = close < close[26] and close[1] >= close[27]
+    close > kumo_top and tk_cross_up   and chikou_cross_up   ? 1 :
+     close < kumo_bot and tk_cross_down and chikou_cross_down ? -1 : 0
+ichi_w1  = request.security(syminfo.tickerid, "W", _ichi_w1_sig())
 
 // ═══════════════════════════════════════════════════════════
 //  OVERALL SCORE (−100 → +100)
@@ -315,12 +524,16 @@ cs_w1  = tf_signal(ema_w1,  rsi_w1,  macd_w1,  ichi_w1,  4)
 cs_m30f = (cs_h4 != 0 and cs_m30 != cs_h4) ? 0 : cs_m30
 cs_h1f  = (cs_d1 != 0 and cs_h1  != cs_d1) ? 0 : cs_h1
 
-consensus_score = (float(cs_m1)*4 + float(cs_m5)*6 + float(cs_m15)*8 + float(cs_m30f)*10 + float(cs_h1f)*12 + float(cs_h4)*15 + float(cs_d1)*20 + float(cs_w1)*25) / 100.0 * 100.0
+_m30_flt    = cs_h4 != 0 and cs_m30 != cs_h4
+_h1_flt     = cs_d1 != 0 and cs_h1  != cs_d1
+_cs_denom   = 100.0 - (_m30_flt ? 10.0 : 0.0) - (_h1_flt ? 12.0 : 0.0)
+consensus_score = (float(cs_m1)*4 + float(cs_m5)*6 + float(cs_m15)*8 + float(cs_m30f)*10 + float(cs_h1f)*12 + float(cs_h4)*15 + float(cs_d1)*20 + float(cs_w1)*25) / _cs_denom * 100.0
 
 // ── Auto-entry từ tín hiệu BUY/SELL ─────────────────────────
-m5_cv  = request.security(syminfo.tickerid, "5",  close)
-m15_cv = request.security(syminfo.tickerid, "15", close)
-m30_cv = request.security(syminfo.tickerid, "30", close)
+_chl() => [close, high, low]
+[m5_cv,  m5_hi,  m5_lo]  = request.security(syminfo.tickerid, "5",  _chl())
+[m15_cv, m15_hi, m15_lo] = request.security(syminfo.tickerid, "15", _chl())
+[m30_cv, m30_hi, m30_lo] = request.security(syminfo.tickerid, "30", _chl())
 
 var float m5_entry  = float(na)
 var int   m5_dir    = 0
@@ -401,8 +614,8 @@ m30_tp3 = na(m30_entry) ? float(na) : m30_dir > 0 ? m30_entry + trdTP3 : m30_ent
 
 // Xóa entry khi giá chạm SL hoặc TP3
 if not na(m5_entry)
-    _sl_hit5  = trdSL > 0  and ((m5_dir > 0 and m5_cv <= m5_sl)  or (m5_dir < 0 and m5_cv >= m5_sl))
-    _tp3_hit5 = trdTP3 > 0 and ((m5_dir > 0 and m5_cv >= m5_tp3) or (m5_dir < 0 and m5_cv <= m5_tp3))
+    _sl_hit5  = trdSL > 0  and ((m5_dir > 0 and m5_lo <= m5_sl)  or (m5_dir < 0 and m5_hi >= m5_sl))
+    _tp3_hit5 = trdTP3 > 0 and ((m5_dir > 0 and m5_hi >= m5_tp3) or (m5_dir < 0 and m5_lo <= m5_tp3))
     if _sl_hit5 or _tp3_hit5
         m5_entry   := float(na)
         m5_dir     := 0
@@ -410,8 +623,8 @@ if not na(m5_entry)
         m5_tp1_hit := false
         m5_tp2_hit := false
 if not na(m15_entry)
-    _sl_hit15  = trdSL > 0  and ((m15_dir > 0 and m15_cv <= m15_sl)  or (m15_dir < 0 and m15_cv >= m15_sl))
-    _tp3_hit15 = trdTP3 > 0 and ((m15_dir > 0 and m15_cv >= m15_tp3) or (m15_dir < 0 and m15_cv <= m15_tp3))
+    _sl_hit15  = trdSL > 0  and ((m15_dir > 0 and m15_lo <= m15_sl)  or (m15_dir < 0 and m15_hi >= m15_sl))
+    _tp3_hit15 = trdTP3 > 0 and ((m15_dir > 0 and m15_hi >= m15_tp3) or (m15_dir < 0 and m15_lo <= m15_tp3))
     if _sl_hit15 or _tp3_hit15
         m15_entry   := float(na)
         m15_dir     := 0
@@ -419,8 +632,8 @@ if not na(m15_entry)
         m15_tp1_hit := false
         m15_tp2_hit := false
 if not na(m30_entry)
-    _sl_hit30  = trdSL > 0  and ((m30_dir > 0 and m30_cv <= m30_sl)  or (m30_dir < 0 and m30_cv >= m30_sl))
-    _tp3_hit30 = trdTP3 > 0 and ((m30_dir > 0 and m30_cv >= m30_tp3) or (m30_dir < 0 and m30_cv <= m30_tp3))
+    _sl_hit30  = trdSL > 0  and ((m30_dir > 0 and m30_lo <= m30_sl)  or (m30_dir < 0 and m30_hi >= m30_sl))
+    _tp3_hit30 = trdTP3 > 0 and ((m30_dir > 0 and m30_hi >= m30_tp3) or (m30_dir < 0 and m30_lo <= m30_tp3))
     if _sl_hit30 or _tp3_hit30
         m30_entry   := float(na)
         m30_dir     := 0
@@ -579,6 +792,7 @@ if barstate.islast
     rsi_row  = array.from(rsi_m1,  rsi_m5,  rsi_m15,  rsi_m30,  rsi_h1,  rsi_h4,  rsi_d1,  rsi_w1)
     macd_row = array.from(macd_m1, macd_m5, macd_m15, macd_m30, macd_h1, macd_h4, macd_d1, macd_w1)
     ichi_row = array.from(ichi_m1, ichi_m5, ichi_m15, ichi_m30, ichi_h1, ichi_h4, ichi_d1, ichi_w1)
+    cs_row   = array.from(cs_m1,   cs_m5,   cs_m15,   cs_m30f,  cs_h1f,  cs_h4,   cs_d1,   cs_w1)
 
     for c = 0 to 7
         ev = array.get(ema_row,  c)
@@ -617,13 +831,13 @@ if barstate.islast
              text_size  = size.normal,
              text_halign = text.align_center)
 
-        lbl = (sc >= 75.0  ? "STRONG↑" :
-               sc >= 50.0  ? "  UP   " :
-               sc <= -75.0 ? "STRONG↓" :
-               sc <= -50.0 ? " DOWN  " : "NEUTRAL")
+        cs_v = array.get(cs_row, c)
+        lbl = (cs_v > 0 ? (sc >= 75.0 ? "STRONG↑" : "  UP   ") :
+               cs_v < 0 ? (sc <= -75.0 ? "STRONG↓" : " DOWN  ") : "NEUTRAL")
+        _sig_bg = cs_v != 0 ? score_col(sc) : InpTblNeutral
         table.cell(tbl, c+1, 6, lbl,
              text_color = color.white,
-             bgcolor    = score_col(sc),
+             bgcolor    = _sig_bg,
              text_size  = size.normal,
              text_halign = text.align_center)
 

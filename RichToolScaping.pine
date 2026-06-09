@@ -26,14 +26,14 @@ InpShape           = input.string("Triangle", title="Hình dạng",
      options=["Triangle", "Arrow", "Label", "Circle", "Diamond", "Square", "Cross"], group="Mũi tên")
 
 // ── Table style ─────────────────────────────────────────────
-InpTblBg         = input.color(color.new(#0d1b2a, 0),  title="Màu nền header / nhãn", group="Bảng")
-InpTblHdrTxt     = input.color(color.silver,           title="Màu chữ header TF",     group="Bảng")
-InpTblLblTxt     = input.color(color.yellow,           title="Màu chữ nhãn hàng",     group="Bảng")
-InpTblNeutral    = input.color(color.new(#37474f, 0),  title="Màu ô trung lập",       group="Bảng")
-InpTblStrongBuy  = input.color(color.new(#1a6b20, 0),  title="Màu Strong BUY",     group="Bảng")
-InpTblBuyCell    = input.color(color.new(#2e7d32, 30), title="Màu BUY",            group="Bảng")
-InpTblStrongSell = input.color(color.new(#9c1a1a, 0),  title="Màu Strong SELL",    group="Bảng")
-InpTblSellCell   = input.color(color.new(#c62828, 30), title="Màu SELL",           group="Bảng")
+InpTblBg         = color.new(#0d1b2a, 0)
+InpTblHdrTxt     = color.silver
+InpTblLblTxt     = color.white
+InpTblNeutral    = color.new(#37474f, 0)
+InpTblStrongBuy  = color.new(#1a6b20, 0)
+InpTblBuyCell    = color.new(#2e7d32, 30)
+InpTblStrongSell = color.new(#9c1a1a, 0)
+InpTblSellCell   = color.new(#c62828, 30)
 
 // ── Killzones (LuxAlgo) ─────────────────────────────────────
 kzGR    = 'Killzones'
@@ -61,7 +61,7 @@ kzMML   = input(true,  'Killzone Lines : Top/Bottom', inline='LN', group=kzGR)
 kzML    = input(false, 'Mean',                         inline='LN', group=kzGR)
 kzLE    = input(true,  'Extend Top/Bottom',            inline='LN', group=kzGR)
 kzLB    = input(true,  'Killzone Labels', group=kzGR)
-kzSH    = input.int(15, 'Display Killzones within Timeframes Up To', options=[1,3,5,15,30,45,60], group=kzGR, display=disp)
+kzSH    = input.int(60, 'Display Killzones within Timeframes Up To', options=[1,3,5,15,30,45,60], group=kzGR, display=disp)
 dwmO    = input.string('None', 'Open Price of', options=['Killzones','the Day','the Week','the Month','None'], inline='OP', group=kzGR, display=disp)
 dwmS    = input.bool(true,  'Separator', inline='OP', group=kzGR)
 dwmC    = input(color.new(color.gray, 89), '', inline='OP', group=kzGR)
@@ -104,6 +104,19 @@ fvgBC   = input.color(color.new(#4caf50, 80), 'Bullish Imbalance', group=fvgGR)
 fvgSC   = input.color(color.new(color.red, 80), 'Bearish Imbalance', group=fvgGR)
 fvgTX   = input.bool(true, 'Show Fair Value Gaps Text', group=fvgGR)
 
+// ── Trade Signal Table ───────────────────────────────────────
+trdGR    = 'Bảng Lệnh'
+trdSH    = input.bool(false, 'Hiện Bảng Lệnh', group=trdGR)
+trdTPos  = input.string('Top Right', 'Vị trí bảng',
+     options=['Top Left','Top Center','Top Right','Middle Left','Middle Center','Middle Right','Bottom Left','Bottom Center','Bottom Right'], group=trdGR)
+trdVol   = input.float(0.1,  'Volume (Lot)',          step=0.01, minval=0.01, group=trdGR)
+trdMult  = input.float(100.0,'Hệ số PNL ($/Lot/$1)',  group=trdGR, tooltip='XAUUSD=100 | Forex Major=100000')
+trdSL    = input.float(5.0,  'SL  (giá)',  minval=0, step=0.1, group=trdGR)
+trdTP1   = input.float(10.0, 'TP1 (giá)',  minval=0, step=0.1, group=trdGR)
+trdTP2   = input.float(20.0, 'TP2 (giá)',  minval=0, step=0.1, group=trdGR)
+trdTP3   = input.float(50.0, 'TP3 (giá)',  minval=0, step=0.1, group=trdGR)
+trdLvlSH = input.bool(true, 'Vẽ Entry/SL/TP lên chart', group=trdGR)
+
 _sz(s) =>
     s == "Tiny" ? size.tiny : s == "Small" ? size.small : s == "Normal" ? size.normal : s == "Large" ? size.large : size.huge
 
@@ -136,13 +149,42 @@ _tblPos = (InpTablePos == "Top Left"      ? position.top_left      :
            InpTablePos == "Left Center"   ? position.middle_left  :
            position.bottom_right)
 
+_trdPos = (trdTPos == 'Top Left'      ? position.top_left      :
+           trdTPos == 'Top Center'    ? position.top_center    :
+           trdTPos == 'Top Right'     ? position.top_right     :
+           trdTPos == 'Middle Left'   ? position.middle_left   :
+           trdTPos == 'Middle Center' ? position.middle_center :
+           trdTPos == 'Middle Right'  ? position.middle_right  :
+           trdTPos == 'Bottom Left'   ? position.bottom_left   :
+           trdTPos == 'Bottom Center' ? position.bottom_center :
+           position.bottom_right)
+
+_dir(v)   => v > 0 ? 'Tăng' : v < 0 ? 'Giảm' : ' — '
+_dirC(v)  => v > 0 ? color.lime : v < 0 ? color.red : color.silver
+_prFmt(v) => na(v) ? '   —   ' : str.tostring(v, format.mintick)
+_calcPnl(entry, dir, vol, mult) =>
+    entry > 0 ? (dir > 0 ? close - entry : entry - close) * mult * vol : float(na)
+_calcPnlAt(entry, dir, target, vol, mult) =>
+    entry > 0 and not na(target) ? (dir > 0 ? target - entry : entry - target) * mult * vol : float(na)
+_pnlStr(v) => na(v) ? '      —      ' : (v >= 0 ? '+' : '') + str.tostring(math.round(v, 2)) + ' USD'
+
+_drawLvl(arr_ln, arr_lb, x1, price, col, stl, w, txt) =>
+    if not na(price)
+        _x1 = na(x1) ? bar_index - 5 : x1
+        arr_ln.push(line.new(_x1, price, bar_index + 3, price,
+             extend=extend.none, color=col, style=stl, width=w))
+        arr_lb.push(label.new(bar_index + 4, price,
+             txt + '  ' + str.tostring(price, format.mintick),
+             color=color.new(col, 80), textcolor=col,
+             style=label.style_label_left, size=size.small))
+
 // ═══════════════════════════════════════════════════════════
 //  HELPERS
 // ═══════════════════════════════════════════════════════════
 sig_col(v) =>
     v > 0 ? InpTblStrongBuy : v < 0 ? InpTblStrongSell : InpTblNeutral
 
-sig_txt(v) => v > 0 ? "UP" : v < 0 ? "DOWN" : "—"
+sig_txt(v) => v > 0 ? " UP " : v < 0 ? "DOWN" : " — "
 
 score_col(s) =>
     (s >= 75.0  ? InpTblStrongBuy  :
@@ -188,7 +230,10 @@ f_rsi(tf, per, ob, os) =>
 
 //          TF      Per   OB   OS
 rsi_m1  = f_rsi("1",   14, 75, 30)
-rsi_m5  = f_rsi("5",   14, 70, 30)
+_rsi_m5_sig() =>
+    r = ta.rsi(close, 14)
+    r > 70 ? -1 : r < 30 ? 1 : 0
+rsi_m5  = request.security(syminfo.tickerid, "5", _rsi_m5_sig())
 rsi_m15 = f_rsi("15",  14, 70, 30)
 rsi_m30 = f_rsi("30",  14, 65, 35)
 rsi_h1  = f_rsi("60",  14, 55, 45)
@@ -272,6 +317,134 @@ cs_h1f  = (cs_d1 != 0 and cs_h1  != cs_d1) ? 0 : cs_h1
 
 consensus_score = (float(cs_m1)*4 + float(cs_m5)*6 + float(cs_m15)*8 + float(cs_m30f)*10 + float(cs_h1f)*12 + float(cs_h4)*15 + float(cs_d1)*20 + float(cs_w1)*25) / 100.0 * 100.0
 
+// ── Auto-entry từ tín hiệu BUY/SELL ─────────────────────────
+m5_cv  = request.security(syminfo.tickerid, "5",  close)
+m15_cv = request.security(syminfo.tickerid, "15", close)
+m30_cv = request.security(syminfo.tickerid, "30", close)
+
+var float m5_entry  = float(na)
+var int   m5_dir    = 0
+var int   m5_bar    = na
+var float m15_entry = float(na)
+var int   m15_dir   = 0
+var int   m15_bar   = na
+var float m30_entry = float(na)
+var int   m30_dir   = 0
+var int   m30_bar   = na
+var bool  m5_tp1_hit  = false
+var bool  m5_tp2_hit  = false
+var bool  m15_tp1_hit = false
+var bool  m15_tp2_hit = false
+var bool  m30_tp1_hit = false
+var bool  m30_tp2_hit = false
+
+// Capture entry chỉ khi tín hiệu MỚI xuất hiện — dùng 2-bar debounce giống điều kiện bắn mũi tên
+// Đảm bảo entry luôn khớp với mũi tên gần nhất trên chart khi reload
+is_new_buy_m5   = cs_m5   == 1  and cs_m5[1]   != 1  and cs_m5[2]   != 1
+is_new_sell_m5  = cs_m5   == -1 and cs_m5[1]   != -1 and cs_m5[2]   != -1
+is_new_buy_m15  = cs_m15  == 1  and cs_m15[1]  != 1  and cs_m15[2]  != 1
+is_new_sell_m15 = cs_m15  == -1 and cs_m15[1]  != -1 and cs_m15[2]  != -1
+is_new_buy_m30  = cs_m30f == 1  and cs_m30f[1] != 1  and cs_m30f[2] != 1
+is_new_sell_m30 = cs_m30f == -1 and cs_m30f[1] != -1 and cs_m30f[2] != -1
+
+if is_new_buy_m5 or is_new_sell_m5
+    m5_entry   := m5_cv
+    m5_dir     := cs_m5
+    m5_bar     := bar_index
+    m5_tp1_hit := false
+    m5_tp2_hit := false
+else if m5_dir != 0 and cs_m5 != 0 and cs_m5 != m5_dir
+    m5_entry   := float(na)
+    m5_dir     := 0
+    m5_bar     := na
+    m5_tp1_hit := false
+    m5_tp2_hit := false
+
+if is_new_buy_m15 or is_new_sell_m15
+    m15_entry   := m15_cv
+    m15_dir     := cs_m15
+    m15_bar     := bar_index
+    m15_tp1_hit := false
+    m15_tp2_hit := false
+else if m15_dir != 0 and cs_m15 != 0 and cs_m15 != m15_dir
+    m15_entry   := float(na)
+    m15_dir     := 0
+    m15_bar     := na
+    m15_tp1_hit := false
+    m15_tp2_hit := false
+
+if is_new_buy_m30 or is_new_sell_m30
+    m30_entry   := m30_cv
+    m30_dir     := cs_m30f
+    m30_bar     := bar_index
+    m30_tp1_hit := false
+    m30_tp2_hit := false
+else if m30_dir != 0 and cs_m30f != 0 and cs_m30f != m30_dir
+    m30_entry   := float(na)
+    m30_dir     := 0
+    m30_bar     := na
+    m30_tp1_hit := false
+    m30_tp2_hit := false
+
+m5_sl   = na(m5_entry)  ? float(na) : m5_dir  > 0 ? m5_entry  - trdSL  : m5_entry  + trdSL
+m5_tp1  = na(m5_entry)  ? float(na) : m5_dir  > 0 ? m5_entry  + trdTP1 : m5_entry  - trdTP1
+m5_tp2  = na(m5_entry)  ? float(na) : m5_dir  > 0 ? m5_entry  + trdTP2 : m5_entry  - trdTP2
+m5_tp3  = na(m5_entry)  ? float(na) : m5_dir  > 0 ? m5_entry  + trdTP3 : m5_entry  - trdTP3
+m15_sl  = na(m15_entry) ? float(na) : m15_dir > 0 ? m15_entry - trdSL  : m15_entry + trdSL
+m15_tp1 = na(m15_entry) ? float(na) : m15_dir > 0 ? m15_entry + trdTP1 : m15_entry - trdTP1
+m15_tp2 = na(m15_entry) ? float(na) : m15_dir > 0 ? m15_entry + trdTP2 : m15_entry - trdTP2
+m15_tp3 = na(m15_entry) ? float(na) : m15_dir > 0 ? m15_entry + trdTP3 : m15_entry - trdTP3
+m30_sl  = na(m30_entry) ? float(na) : m30_dir > 0 ? m30_entry - trdSL  : m30_entry + trdSL
+m30_tp1 = na(m30_entry) ? float(na) : m30_dir > 0 ? m30_entry + trdTP1 : m30_entry - trdTP1
+m30_tp2 = na(m30_entry) ? float(na) : m30_dir > 0 ? m30_entry + trdTP2 : m30_entry - trdTP2
+m30_tp3 = na(m30_entry) ? float(na) : m30_dir > 0 ? m30_entry + trdTP3 : m30_entry - trdTP3
+
+// Xóa entry khi giá chạm SL hoặc TP3
+if not na(m5_entry)
+    _sl_hit5  = trdSL > 0  and ((m5_dir > 0 and m5_cv <= m5_sl)  or (m5_dir < 0 and m5_cv >= m5_sl))
+    _tp3_hit5 = trdTP3 > 0 and ((m5_dir > 0 and m5_cv >= m5_tp3) or (m5_dir < 0 and m5_cv <= m5_tp3))
+    if _sl_hit5 or _tp3_hit5
+        m5_entry   := float(na)
+        m5_dir     := 0
+        m5_bar     := na
+        m5_tp1_hit := false
+        m5_tp2_hit := false
+if not na(m15_entry)
+    _sl_hit15  = trdSL > 0  and ((m15_dir > 0 and m15_cv <= m15_sl)  or (m15_dir < 0 and m15_cv >= m15_sl))
+    _tp3_hit15 = trdTP3 > 0 and ((m15_dir > 0 and m15_cv >= m15_tp3) or (m15_dir < 0 and m15_cv <= m15_tp3))
+    if _sl_hit15 or _tp3_hit15
+        m15_entry   := float(na)
+        m15_dir     := 0
+        m15_bar     := na
+        m15_tp1_hit := false
+        m15_tp2_hit := false
+if not na(m30_entry)
+    _sl_hit30  = trdSL > 0  and ((m30_dir > 0 and m30_cv <= m30_sl)  or (m30_dir < 0 and m30_cv >= m30_sl))
+    _tp3_hit30 = trdTP3 > 0 and ((m30_dir > 0 and m30_cv >= m30_tp3) or (m30_dir < 0 and m30_cv <= m30_tp3))
+    if _sl_hit30 or _tp3_hit30
+        m30_entry   := float(na)
+        m30_dir     := 0
+        m30_bar     := na
+        m30_tp1_hit := false
+        m30_tp2_hit := false
+
+// TP hit detection — khoá PNL floor khi chạm TP1/TP2
+if not na(m5_entry)
+    if (m5_dir > 0 and close >= m5_tp1) or (m5_dir < 0 and close <= m5_tp1)
+        m5_tp1_hit := true
+    if (m5_dir > 0 and close >= m5_tp2) or (m5_dir < 0 and close <= m5_tp2)
+        m5_tp2_hit := true
+if not na(m15_entry)
+    if (m15_dir > 0 and close >= m15_tp1) or (m15_dir < 0 and close <= m15_tp1)
+        m15_tp1_hit := true
+    if (m15_dir > 0 and close >= m15_tp2) or (m15_dir < 0 and close <= m15_tp2)
+        m15_tp2_hit := true
+if not na(m30_entry)
+    if (m30_dir > 0 and close >= m30_tp1) or (m30_dir < 0 and close <= m30_tp1)
+        m30_tp1_hit := true
+    if (m30_dir > 0 and close >= m30_tp2) or (m30_dir < 0 and close <= m30_tp2)
+        m30_tp2_hit := true
+
 // ═══════════════════════════════════════════════════════════
 //  CHART SIGNALS  —  vẽ theo TF hiện tại của chart
 //  Chỉ hiện thị nếu TF chart nằm trong 8 TF setup
@@ -313,13 +486,15 @@ cur_ichi = (timeframe.period == "1"   ? ichi_m1  : timeframe.period == "5"   ? i
 cur_all_buy  = cur_ema > 0 and cur_rsi > 0 and cur_macd > 0 and cur_ichi > 0
 cur_all_sell = cur_ema < 0 and cur_rsi < 0 and cur_macd < 0 and cur_ichi < 0
 
-prev_sell = cur_cs[1] == -1
-prev_buy  = cur_cs[1] == 1
+// Bắn khi cur_cs VỪA trở thành 1/-1 từ chiều ngược lại hoặc từ neutral (0)
+// Không bắn nếu trước đó đã là cùng chiều (loại tín hiệu lặp)
+is_new_buy  = cur_cs == 1  and cur_cs[1] != 1   and cur_cs[2] != 1
+is_new_sell = cur_cs == -1 and cur_cs[1] != -1  and cur_cs[2] != -1
 
-sig_strong_buy  = in_setup and cur_all_buy  and cur_cs == 1 and prev_sell
-sig_buy         = in_setup and not cur_all_buy  and cur_cs == 1 and prev_sell
-sig_strong_sell = in_setup and cur_all_sell and cur_cs == -1 and prev_buy
-sig_sell        = in_setup and not cur_all_sell and cur_cs == -1 and prev_buy
+sig_strong_buy  = in_setup and cur_all_buy  and is_new_buy
+sig_buy         = in_setup and not cur_all_buy  and is_new_buy
+sig_strong_sell = in_setup and cur_all_sell and is_new_sell
+sig_sell        = in_setup and not cur_all_sell and is_new_sell
 
 buy_inds  = (cur_ema  > 0 ? "EMA " : "") + (cur_rsi  > 0 ? "RSI " : "") + (cur_macd > 0 ? "MACD " : "") + (cur_ichi > 0 ? "ICH" : "")
 sell_inds = (cur_ema  < 0 ? "EMA " : "") + (cur_rsi  < 0 ? "RSI " : "") + (cur_macd < 0 ? "MACD " : "") + (cur_ichi < 0 ? "ICH" : "")
@@ -368,7 +543,8 @@ alertcondition(sig_sell,
 // ═══════════════════════════════════════════════════════════
 //  TABLE  (10 cột × 8 hàng)
 // ═══════════════════════════════════════════════════════════
-var table tbl = na
+var table tbl    = na
+var table trdTbl = na
 
 C_HDR = InpTblBg
 C_LBL = InpTblBg
@@ -386,7 +562,7 @@ if barstate.islast
         table.cell(tbl, i, 0, array.get(tfs, i),
              text_color = InpTblHdrTxt,
              bgcolor    = C_HDR,
-             text_size  = size.small,
+             text_size  = size.normal,
              text_halign = text.align_center)
 
     // ── Row labels ──────────────────────────────────────────
@@ -395,7 +571,7 @@ if barstate.islast
         table.cell(tbl, 0, r + 1, array.get(labels, r),
              text_color = InpTblLblTxt,
              bgcolor    = C_LBL,
-             text_size  = size.small,
+             text_size  = size.normal,
              text_halign = text.align_left)
 
     // ── Signal arrays ───────────────────────────────────────
@@ -409,10 +585,10 @@ if barstate.islast
         rv = array.get(rsi_row,  c)
         mv = array.get(macd_row, c)
         iv = array.get(ichi_row, c)
-        table.cell(tbl, c+1, 1, sig_txt(ev), text_color=color.white, bgcolor=sig_col(ev), text_size=size.small, text_halign=text.align_center)
-        table.cell(tbl, c+1, 2, sig_txt(rv), text_color=color.white, bgcolor=sig_col(rv), text_size=size.small, text_halign=text.align_center)
-        table.cell(tbl, c+1, 3, sig_txt(mv), text_color=color.white, bgcolor=sig_col(mv), text_size=size.small, text_halign=text.align_center)
-        table.cell(tbl, c+1, 4, sig_txt(iv), text_color=color.white, bgcolor=sig_col(iv), text_size=size.small, text_halign=text.align_center)
+        table.cell(tbl, c+1, 1, sig_txt(ev), text_color=color.white, bgcolor=sig_col(ev), text_size=size.normal, text_halign=text.align_center)
+        table.cell(tbl, c+1, 2, sig_txt(rv), text_color=color.white, bgcolor=sig_col(rv), text_size=size.normal, text_halign=text.align_center)
+        table.cell(tbl, c+1, 3, sig_txt(mv), text_color=color.white, bgcolor=sig_col(mv), text_size=size.normal, text_halign=text.align_center)
+        table.cell(tbl, c+1, 4, sig_txt(iv), text_color=color.white, bgcolor=sig_col(iv), text_size=size.normal, text_halign=text.align_center)
 
     // ── Score weights (từ spec) ─────────────────────────────
     //                  M1  M3   M5  M15  M30  H1   H4   D1   W1
@@ -438,17 +614,17 @@ if barstate.islast
              str.tostring(math.round(sc)) + "%",
              text_color = color.white,
              bgcolor    = score_col(sc),
-             text_size  = size.small,
+             text_size  = size.normal,
              text_halign = text.align_center)
 
         lbl = (sc >= 75.0  ? "STRONG↑" :
-               sc >= 50.0  ? "UP"      :
+               sc >= 50.0  ? "  UP   " :
                sc <= -75.0 ? "STRONG↓" :
-               sc <= -50.0 ? "DOWN"    : "NEUTRAL")
+               sc <= -50.0 ? " DOWN  " : "NEUTRAL")
         table.cell(tbl, c+1, 6, lbl,
              text_color = color.white,
              bgcolor    = score_col(sc),
-             text_size  = size.small,
+             text_size  = size.normal,
              text_halign = text.align_center)
 
     // ── Overall row (tổng hợp tất cả TF + indicator) ────────
@@ -465,6 +641,114 @@ if barstate.islast
          text_size  = size.normal,
          text_halign = text.align_center)
     table.merge_cells(tbl, 1, 7, 8, 7)
+
+// ═══════════════════════════════════════════════════════════
+//  TRADE SIGNAL TABLE (Bảng Lệnh)
+// ═══════════════════════════════════════════════════════════
+if trdSH and barstate.islast
+    _C    = color.new(#0d1b2a, 0)
+    _B    = color.new(color.gray, 60)
+    csLbl = cur_cs == 1 ? 'Đồng\nThuận ↑' : cur_cs == -1 ? 'Đồng\nThuận ↓' : 'Phân Kỳ'
+    csC   = cur_cs == 1 ? color.lime : cur_cs == -1 ? color.red : color.silver
+    m5_entC  = na(m5_entry)  ? color.white : m5_dir  > 0 ? color.lime : color.red
+    m15_entC = na(m15_entry) ? color.white : m15_dir > 0 ? color.lime : color.red
+    m30_entC = na(m30_entry) ? color.white : m30_dir > 0 ? color.lime : color.red
+    pnl5_raw   = _calcPnl(m5_entry,  m5_dir,  trdVol, trdMult)
+    pnl5_floor = m5_tp2_hit  ? _calcPnlAt(m5_entry,  m5_dir,  m5_tp2,  trdVol, trdMult) :
+                 m5_tp1_hit  ? _calcPnlAt(m5_entry,  m5_dir,  m5_tp1,  trdVol, trdMult) : float(na)
+    pnl5  = na(pnl5_floor)  ? pnl5_raw  : na(pnl5_raw)  ? pnl5_floor  : math.max(pnl5_raw,  pnl5_floor)
+
+    pnl15_raw   = _calcPnl(m15_entry, m15_dir, trdVol, trdMult)
+    pnl15_floor = m15_tp2_hit ? _calcPnlAt(m15_entry, m15_dir, m15_tp2, trdVol, trdMult) :
+                  m15_tp1_hit ? _calcPnlAt(m15_entry, m15_dir, m15_tp1, trdVol, trdMult) : float(na)
+    pnl15 = na(pnl15_floor) ? pnl15_raw : na(pnl15_raw) ? pnl15_floor : math.max(pnl15_raw, pnl15_floor)
+
+    pnl30_raw   = _calcPnl(m30_entry, m30_dir, trdVol, trdMult)
+    pnl30_floor = m30_tp2_hit ? _calcPnlAt(m30_entry, m30_dir, m30_tp2, trdVol, trdMult) :
+                  m30_tp1_hit ? _calcPnlAt(m30_entry, m30_dir, m30_tp1, trdVol, trdMult) : float(na)
+    pnl30 = na(pnl30_floor) ? pnl30_raw : na(pnl30_raw) ? pnl30_floor : math.max(pnl30_raw, pnl30_floor)
+    trdTbl := table.new(_trdPos, 4, 13,
+         border_color=_B, border_width=1,
+         frame_color=color.new(color.gray, 40), frame_width=2,
+         bgcolor=_C)
+    // ── Section 1: Đánh Giá Chỉ Báo ──────────────────────────
+    table.cell(trdTbl, 0, 0, 'Dữ Liệu',  text_color=color.yellow, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 1, 0, 'Đánh Giá', text_color=color.yellow, bgcolor=_C, text_size=size.normal)
+    table.merge_cells(trdTbl, 1, 0, 3, 0)
+    table.cell(trdTbl, 0, 1, 'Xu Hướng EMA',       text_color=color.silver, bgcolor=_C, text_size=size.normal, text_halign=text.align_left)
+    table.cell(trdTbl, 1, 1, _dir(cur_ema),          text_color=_dirC(cur_ema),  bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 0, 2, 'Dòng Tiền Ichimoku',  text_color=color.silver, bgcolor=_C, text_size=size.normal, text_halign=text.align_left)
+    table.cell(trdTbl, 1, 2, _dir(cur_ichi),          text_color=_dirC(cur_ichi), bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 0, 3, 'Động Lượng MACD',     text_color=color.silver, bgcolor=_C, text_size=size.normal, text_halign=text.align_left)
+    table.cell(trdTbl, 1, 3, _dir(cur_macd),          text_color=_dirC(cur_macd), bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 0, 4, 'Sức Mạnh RSI',        text_color=color.silver, bgcolor=_C, text_size=size.normal, text_halign=text.align_left)
+    table.cell(trdTbl, 1, 4, _dir(cur_rsi),           text_color=_dirC(cur_rsi),  bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 2, 1, csLbl, text_color=csC, bgcolor=_C, text_size=size.normal)
+    table.merge_cells(trdTbl, 2, 1, 3, 4)
+    // ── Section 2: Tín Hiệu Lệnh ──────────────────────────────
+    table.cell(trdTbl, 0, 5, 'Tín Hiệu', text_color=color.yellow, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 1, 5, 'Kết Luận', text_color=color.yellow, bgcolor=_C, text_size=size.normal)
+    table.merge_cells(trdTbl, 1, 5, 3, 5)
+    table.cell(trdTbl, 0, 6, 'Time', text_color=color.silver, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 1, 6, 'M5',   text_color=color.silver, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 2, 6, 'M15',  text_color=color.silver, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 3, 6, 'M30',  text_color=color.silver, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 0, 7, 'Entry', text_color=color.white,  bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 1, 7, _prFmt(m5_entry),  text_color=m5_entC,  bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 2, 7, _prFmt(m15_entry), text_color=m15_entC, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 3, 7, _prFmt(m30_entry), text_color=m30_entC, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 0, 8, 'SL', text_color=color.red, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 1, 8, _prFmt(m5_sl),  text_color=color.red, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 2, 8, _prFmt(m15_sl), text_color=color.red, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 3, 8, _prFmt(m30_sl), text_color=color.red, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 0, 9,  'TP1', text_color=color.lime, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 1, 9,  _prFmt(m5_tp1),  text_color=color.lime, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 2, 9,  _prFmt(m15_tp1), text_color=color.lime, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 3, 9,  _prFmt(m30_tp1), text_color=color.lime, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 0, 10, 'TP2', text_color=color.lime, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 1, 10, _prFmt(m5_tp2),  text_color=color.lime, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 2, 10, _prFmt(m15_tp2), text_color=color.lime, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 3, 10, _prFmt(m30_tp2), text_color=color.lime, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 0, 11, 'TP3', text_color=color.lime, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 1, 11, _prFmt(m5_tp3),  text_color=color.lime, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 2, 11, _prFmt(m15_tp3), text_color=color.lime, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 3, 11, _prFmt(m30_tp3), text_color=color.lime, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 0, 12, 'Float PNL', text_color=color.silver, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 1, 12, _pnlStr(pnl5),  text_color=na(pnl5)  ? color.silver : pnl5  >= 0 ? color.lime : color.red, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 2, 12, _pnlStr(pnl15), text_color=na(pnl15) ? color.silver : pnl15 >= 0 ? color.lime : color.red, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 3, 12, _pnlStr(pnl30), text_color=na(pnl30) ? color.silver : pnl30 >= 0 ? color.lime : color.red, bgcolor=_C, text_size=size.normal)
+
+// ═══════════════════════════════════════════════════════════
+//  CHART LEVELS — Entry / SL / TP
+// ═══════════════════════════════════════════════════════════
+var line[]  _lvlLines  = array.new<line>()
+var label[] _lvlLabels = array.new<label>()
+
+if barstate.islast
+    for ln in _lvlLines
+        line.delete(ln)
+    for lb in _lvlLabels
+        label.delete(lb)
+    _lvlLines.clear()
+    _lvlLabels.clear()
+
+    if trdSH and trdLvlSH
+        _tf    = timeframe.period
+        _entry = _tf == "5"  ? m5_entry  : _tf == "15" ? m15_entry : _tf == "30" ? m30_entry : float(na)
+        _sl    = _tf == "5"  ? m5_sl     : _tf == "15" ? m15_sl    : _tf == "30" ? m30_sl    : float(na)
+        _tp1   = _tf == "5"  ? m5_tp1    : _tf == "15" ? m15_tp1   : _tf == "30" ? m30_tp1   : float(na)
+        _tp2   = _tf == "5"  ? m5_tp2    : _tf == "15" ? m15_tp2   : _tf == "30" ? m30_tp2   : float(na)
+        _tp3   = _tf == "5"  ? m5_tp3    : _tf == "15" ? m15_tp3   : _tf == "30" ? m30_tp3   : float(na)
+        _dir   = _tf == "5"  ? m5_dir    : _tf == "15" ? m15_dir   : _tf == "30" ? m30_dir   : 0
+        _CE    = _tf == "5"  ? color.new(#64b5f6, 0) : _tf == "15" ? color.new(#ffb74d, 0) : color.new(#ce93d8, 0)
+        _pfx   = _tf == "5"  ? 'M5 '  : _tf == "15" ? 'M15 ' : 'M30 '
+
+        _eb = _tf == "5" ? m5_bar : _tf == "15" ? m15_bar : m30_bar
+        _drawLvl(_lvlLines, _lvlLabels, _eb, _entry,                       _CE,                   line.style_solid,  2, _pfx + (_dir > 0 ? 'BUY ' : 'SELL'))
+        _drawLvl(_lvlLines, _lvlLabels, _eb, trdSL > 0 ? _sl : float(na), color.red,              line.style_dashed, 1, _pfx + 'SL  ')
+        _drawLvl(_lvlLines, _lvlLabels, _eb, _tp1,                         color.new(#69f0ae, 0),  line.style_dashed, 1, _pfx + 'TP1 ')
+        _drawLvl(_lvlLines, _lvlLabels, _eb, _tp2,                         color.new(#00e676, 0),  line.style_dotted, 1, _pfx + 'TP2 ')
+        _drawLvl(_lvlLines, _lvlLabels, _eb, _tp3,                         color.new(#00c853, 0),  line.style_dotted, 1, _pfx + 'TP3 ')
 
 // ═══════════════════════════════════════════════════════════
 //  ICT KILLZONES TOOLKIT — LuxAlgo (CC BY-NC-SA 4.0)

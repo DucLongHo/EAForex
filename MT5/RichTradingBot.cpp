@@ -288,6 +288,11 @@ double   MaxDrawdownPct = 0.0;
 double   DayProfit      = 0.0;
 int      LastDay        = -1;
 bool     DayLimitHit    = false;
+bool     LicenseOK      = false;
+
+// Thay YOUR_SCRIPT_ID bằng ID thực từ Google Apps Script deploy URL
+// Không dùng input để URL không hiển thị trong cài đặt EA
+const string LICENSE_URL = "https://script.google.com/macros/s/AKfycbwfKLYX36os92cQqn53XZ1ZKK0BOspHv17C0SeLPPozoF9v0gXIpYTPYOgphkxx1-9kRg/exec";
 
 // Basket trail levels
 double   TrailBuy  = 0.0;
@@ -1787,9 +1792,58 @@ void InitPyra() {
 }
 
 //+------------------------------------------------------------------+
+//| LICENSE CHECK                                                    |
+//+------------------------------------------------------------------+
+bool CheckLicense() {
+    if(StringFind(LICENSE_URL, "YOUR_SCRIPT_ID") >= 0) {
+        Print("RTB: LICENSE_URL chưa được cấu hình trong source code.");
+        return false;
+    }
+
+    long   accID = AccountInfoInteger(ACCOUNT_LOGIN);
+    string url   = LICENSE_URL + "?id=" + IntegerToString(accID);
+
+    char   post[];
+    char   result[];
+    string headers;
+    ResetLastError();
+    int httpCode = WebRequest("GET", url, "", "", 10000, post, 0, result, headers);
+
+    if(httpCode == -1) {
+        int err = GetLastError();
+        string hint = (err == 4014)
+            ? " — Vào MT5: Tools > Options > Expert Advisors > Allow WebRequest, thêm: https://script.google.com"
+            : " — Lỗi mạng: " + IntegerToString(err);
+        Print("RTB: Không kết nối được server bản quyền", hint);
+        return false;
+    }
+
+    string response = CharArrayToString(result);
+    if(StringFind(response, "\"status\":\"ok\"") >= 0) {
+        Print("RTB: License OK — Account ", accID);
+        return true;
+    }
+
+    // Extract reason from JSON for clearer log
+    string reason = "denied";
+    int rPos = StringFind(response, "\"reason\":\"");
+    if(rPos >= 0) {
+        int rStart = rPos + 10;
+        int rEnd   = StringFind(response, "\"", rStart);
+        if(rEnd > rStart) reason = StringSubstr(response, rStart, rEnd - rStart);
+    }
+    Print("RTB: License DENIED — Account ", accID, " | Lý do: ", reason);
+    Alert("RTB: Bản quyền không hợp lệ. Liên hệ nhà cung cấp.");
+    return false;
+}
+
+//+------------------------------------------------------------------+
 //| EVENT HANDLERS                                                   |
 //+------------------------------------------------------------------+
 int OnInit() {
+    LicenseOK = CheckLicense();
+    if(!LicenseOK) return INIT_FAILED;
+
     Trade.SetExpertMagicNumber(InpMagic);
     Trade.SetDeviationInPoints(50);
     Trade.SetTypeFilling(ORDER_FILLING_RETURN);

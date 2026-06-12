@@ -16,7 +16,7 @@ CTrade    Trade;
 //| ENUMS                                                            |
 //+------------------------------------------------------------------+
 enum ENUM_SIGNAL_MODE  { SIG_EMA, SIG_BZ_ZONE, SIG_ICHIMOKU, SIG_BB, SIG_SIMULATED, SIG_UT_BOT };
-enum ENUM_DIRECTION    { DIR_BOTH, DIR_ONLY_BUY, DIR_ONLY_SELL, DIR_EITHER };
+enum ENUM_DIRECTION    { DIR_BOTH, DIR_ONLY_BUY, DIR_ONLY_SELL };
 enum ENUM_DCA_MODE     { DCA_STOP, DCA_STEP, DCA_STEP_TF };
 enum ENUM_TRAIL_MODE   { TRAIL_BASKET, TRAIL_SINGLE };
 enum ENUM_BOT_MODE     { MODE_AUTO, MODE_SEMI_AUTO };
@@ -233,6 +233,9 @@ input  double        InpTrailActivate = 500.0;        // Points kích hoạt Tra
 input  double        InpTrailStep     = 200.0;        // Bước nhảy SL (points)
 input  double        InpTrailInit     = 300.0;        // SL đầu tiên cách giá (points)
 input  bool          InpTrailShowLine = true;         // Vẽ đường Trail
+input  color         InpTrailBuyColor = clrLimeGreen; // Màu đường Trail Buy
+input  color         InpTrailSellColor= clrTomato;    // Màu đường Trail Sell
+input  int           InpTrailLineWidth= 2;            // Độ dày đường Trail (1-5)
 
 //+------------------------------------------------------------------+
 //| INPUT: EXIT LOGIC                                                |
@@ -243,6 +246,13 @@ input  double  InpCloseLoss    = 0.0;  // Cắt lỗ khi tổng lỗ đạt ($, 
 input  double  InpClosePerPips = 0.0;  // Đóng từng lệnh khi đạt (points, 0=tắt)
 input  double  InpDayMaxLoss   = 0.0;  // Dừng bot khi lỗ ngày đạt ($, 0=tắt)
 input  double  InpDayMaxProfit = 0.0;  // Dừng bot khi lãi ngày đạt ($, 0=tắt)
+
+//+------------------------------------------------------------------+
+//| INPUT: HEDGE FOLLOW WINNER                                       |
+//+------------------------------------------------------------------+
+input group         "══════ HEDGE FOLLOW WINNER ══════"; //
+input  bool    InpHedgeEnable  = false;   // Bật chế độ Hedge Follow Winner
+input  double  InpHedgeCutPts  = 3000.0;  // Cắt chiều âm sau X points từ lệnh gốc
 
 //+------------------------------------------------------------------+
 //| INPUT: PANEL                                                     |
@@ -297,6 +307,13 @@ const string LICENSE_URL = "https://script.google.com/macros/s/AKfycbwfKLYX36os9
 // Basket trail levels
 double   TrailBuy  = 0.0;
 double   TrailSell = 0.0;
+
+// Hedge Follow Winner state
+bool   HedgeCutBuy        = false;
+bool   HedgeCutSell       = false;
+double HedgeInitBuyPrice  = 0.0;
+double HedgeInitSellPrice = 0.0;
+int    HedgeTrendSide     = -1;   // -1=chưa xác định, 0=BUY(xu hướng), 1=SELL(xu hướng)
 
 // GUI prefix
 const string GUI = "RTB_";
@@ -392,6 +409,21 @@ double LastOpenPrice(int posType) {
         if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
         datetime t = (datetime)PositionGetInteger(POSITION_TIME);
         if(t > latest) { latest = t; price = PositionGetDouble(POSITION_PRICE_OPEN); }
+    }
+    return price;
+}
+
+// Earliest opened price for a direction (lệnh mở cũ nhất — dùng làm giá tham chiếu Hedge)
+double FirstOpenPrice(int posType) {
+    double   price  = 0;
+    datetime oldest = (datetime)0x7FFFFFFF;
+    for(int i = PositionsTotal()-1; i >= 0; i--) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(!IsManaged()) continue;
+        if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
+        datetime t = (datetime)PositionGetInteger(POSITION_TIME);
+        if(t < oldest) { oldest = t; price = PositionGetDouble(POSITION_PRICE_OPEN); }
     }
     return price;
 }
@@ -718,6 +750,7 @@ int GetSignal() {
 //| INITIAL ENTRY (OnTick)                                           |
 //+------------------------------------------------------------------+
 void TryOpenBuy() {
+    if(InpHedgeEnable && HedgeCutBuy) return;  // Chiều BUY đã bị cắt — không vào mới
     if(CountBuy() >= InpMaxBuy) return;
     if(CountBuy() > 0) return;   // đã có lệnh → DCA xử lý
     if(OpenOrder(ORDER_TYPE_BUY, InpLotSize, InpTP_Points, InpSL_Points))
@@ -725,6 +758,7 @@ void TryOpenBuy() {
 }
 
 void TryOpenSell() {
+    if(InpHedgeEnable && HedgeCutSell) return;  // Chiều SELL đã bị cắt — không vào mới
     if(CountSell() >= InpMaxSell) return;
     if(CountSell() > 0) return;
     if(OpenOrder(ORDER_TYPE_SELL, InpLotSize, InpTP_Points, InpSL_Points))
@@ -755,7 +789,9 @@ void CheckEntry() {
 //| DCA PRIMARY CHAIN HELPERS (Semi-Auto multi-entry)               |
 //+------------------------------------------------------------------+
 
-// Đếm lệnh DCA do bot mở (magic=InpMagic, comment "RTB|X|Y" với X≠0 hoặc Y≠0)
+// Đếm lệnh DCA do bot mở (magic=InpMagic, comment "RTB|X|Y")
+// Semi-Auto: lệnh gốc là thủ công (magic=0) nên MỌI lệnh bot đều là DCA → không lọc TP/SL
+// Auto:      lệnh gốc cũng có "RTB|0|0" → lọc X≠0 hoặc Y≠0 để loại lệnh gốc
 int CountBotDCA(int posType) {
     int n = 0;
     for(int i = PositionsTotal()-1; i >= 0; i--) {
@@ -766,9 +802,11 @@ int CountBotDCA(int posType) {
         if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
         string cmt = PositionGetString(POSITION_COMMENT);
         if(StringFind(cmt, "RTB|") != 0) continue;
-        string parts[];
-        if(StringSplit(cmt, '|', parts) < 3) continue;
-        if(StringToDouble(parts[1]) == 0 && StringToDouble(parts[2]) == 0) continue;
+        if(InpBotMode != MODE_SEMI_AUTO) {
+            string parts[];
+            if(StringSplit(cmt, '|', parts) < 3) continue;
+            if(StringToDouble(parts[1]) == 0 && StringToDouble(parts[2]) == 0) continue;
+        }
         n++;
     }
     return n;
@@ -889,9 +927,11 @@ double LastPrimaryPrice(int posType) {
         if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
         string cmt = PositionGetString(POSITION_COMMENT);
         if(StringFind(cmt, "RTB|") != 0) continue;
-        string parts[];
-        if(StringSplit(cmt, '|', parts) < 3) continue;
-        if(StringToDouble(parts[1]) == 0 && StringToDouble(parts[2]) == 0) continue;
+        if(InpBotMode != MODE_SEMI_AUTO) {
+            string parts[];
+            if(StringSplit(cmt, '|', parts) < 3) continue;
+            if(StringToDouble(parts[1]) == 0 && StringToDouble(parts[2]) == 0) continue;
+        }
         datetime t = (datetime)PositionGetInteger(POSITION_TIME);
         if(t > latest) { latest = t; price = PositionGetDouble(POSITION_PRICE_OPEN); }
     }
@@ -900,9 +940,76 @@ double LastPrimaryPrice(int posType) {
 }
 
 //+------------------------------------------------------------------+
+//| HEDGE FOLLOW WINNER — CẮT CHIỀU ÂM                              |
+//+------------------------------------------------------------------+
+void CheckHedgeCut() {
+    if(!InpHedgeEnable) return;
+
+    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+    double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+
+    int cntBuy  = CountBuy();
+    int cntSell = CountSell();
+
+    // Reset hoàn toàn khi không còn lệnh nào (vòng mới)
+    if(cntBuy == 0 && cntSell == 0) {
+        if(HedgeCutBuy || HedgeCutSell || HedgeTrendSide >= 0) {
+            Print("RTB: Hedge — reset state (không còn lệnh)");
+            HedgeCutBuy = false; HedgeCutSell = false;
+            HedgeTrendSide = -1;
+        }
+        HedgeInitBuyPrice = 0.0; HedgeInitSellPrice = 0.0;
+        return;
+    }
+
+    // Luôn cập nhật theo lệnh cũ nhất còn sống — đúng khi lệnh gốc bị SL và pyramided còn mở
+    if(cntBuy  > 0) HedgeInitBuyPrice  = FirstOpenPrice(POSITION_TYPE_BUY);
+    if(cntSell > 0) HedgeInitSellPrice = FirstOpenPrice(POSITION_TYPE_SELL);
+
+    // Phát hiện đóng bên ngoài (trailing stop / TP / đóng tay)
+    // → Chỉ block vào lại, KHÔNG CloseAll() chiều còn lại
+    if(!HedgeCutBuy && cntBuy == 0 && HedgeInitBuyPrice > 0) {
+        Print("RTB: Hedge — BUY đóng bên ngoài (trailing/TP) → block vào lại BUY");
+        HedgeCutBuy = true;  HedgeInitBuyPrice = 0.0;
+        return;
+    }
+    if(!HedgeCutSell && cntSell == 0 && HedgeInitSellPrice > 0) {
+        Print("RTB: Hedge — SELL đóng bên ngoài (trailing/TP) → block vào lại SELL");
+        HedgeCutSell = true;  HedgeInitSellPrice = 0.0;
+        return;
+    }
+
+    // Kiểm tra cắt chiều BUY (giá giảm quá X points từ lệnh gốc)
+    if(!HedgeCutBuy && HedgeInitBuyPrice > 0 && cntBuy > 0) {
+        if((HedgeInitBuyPrice - bid) >= InpHedgeCutPts * point) {
+            Print("RTB: Hedge — CẮT tất cả | BUY initPrice=", HedgeInitBuyPrice,
+                  " bid=", bid, " loss=", (HedgeInitBuyPrice - bid) / point, "pts");
+            CloseAll();  // Cắt toàn bộ BUY + SELL
+            HedgeCutBuy  = true;  HedgeInitBuyPrice  = 0.0;
+            HedgeCutSell = true;  HedgeInitSellPrice = 0.0;
+        }
+    }
+
+    // Kiểm tra cắt chiều SELL (giá tăng quá X points từ lệnh gốc)
+    if(!HedgeCutSell && HedgeInitSellPrice > 0 && cntSell > 0) {
+        if((ask - HedgeInitSellPrice) >= InpHedgeCutPts * point) {
+            Print("RTB: Hedge — CẮT tất cả | SELL initPrice=", HedgeInitSellPrice,
+                  " ask=", ask, " loss=", (ask - HedgeInitSellPrice) / point, "pts");
+            CloseAll();  // Cắt toàn bộ BUY + SELL
+            HedgeCutBuy  = true;  HedgeInitBuyPrice  = 0.0;
+            HedgeCutSell = true;  HedgeInitSellPrice = 0.0;
+        }
+    }
+}
+
+//+------------------------------------------------------------------+
 //| DCA LOGIC                                                        |
 //+------------------------------------------------------------------+
 void CheckDCA(int posType) {
+    // Hedge mode: không DCA bất kỳ chiều nào — chỉ trailing stop quản lý thoát
+    if(InpHedgeEnable) return;
+
     if(posType == POSITION_TYPE_BUY  && !InpDCABuyEnable)  return;
     if(posType == POSITION_TYPE_SELL && !InpDCASellEnable) return;
 
@@ -964,6 +1071,9 @@ void CheckDCA(int posType) {
 //| PYRAMIDING (NHỒI DƯƠNG)                                          |
 //+------------------------------------------------------------------+
 void CheckPyramiding(int posType) {
+    // Hedge mode: khi đã xác định chiều xu hướng, chỉ pyramid chiều đó
+    if(InpHedgeEnable && HedgeTrendSide >= 0 && HedgeTrendSide != posType) return;
+
     if(posType == POSITION_TYPE_BUY  && !InpPyraBuyEnable)  return;
     if(posType == POSITION_TYPE_SELL && !InpPyraSellEnable) return;
 
@@ -1036,7 +1146,12 @@ void CheckPyramiding(int posType) {
     double openSL      = hasTierExit ? PYRA_SL[lvl] : InpSL_Points;
 
     Print("RTB: Pyramiding level ", lvl+1, " triggered. pyraCount=", pyraCount);
-    OpenOrder(ord, lot, openTP, openSL, false, hasTierExit);
+    if(OpenOrder(ord, lot, openTP, openSL, false, hasTierExit)) {
+        if(InpHedgeEnable && HedgeTrendSide < 0) {
+            HedgeTrendSide = posType;
+            Print("RTB: Hedge — xu hướng xác định: ", (posType == POSITION_TYPE_BUY ? "BUY" : "SELL"));
+        }
+    }
 }
 
 //+------------------------------------------------------------------+
@@ -1134,16 +1249,26 @@ void CheckTrimming() {
 //+------------------------------------------------------------------+
 void ApplyTrailToPos(ulong tk, int posType, double newSL) {
     if(!PositionSelectByTicket(tk)) return;
-    double curSL = PositionGetDouble(POSITION_SL);
-    double curTP = PositionGetDouble(POSITION_TP);
-    bool   move  = false;
-    if(posType == POSITION_TYPE_BUY  && (curSL == 0 || newSL > curSL)) move = true;
-    if(posType == POSITION_TYPE_SELL && (curSL == 0 || newSL < curSL)) move = true;
-    if(move) Trade.PositionModify(tk, NormalizeDouble(newSL, _Digits), curTP);
+    double curSL   = PositionGetDouble(POSITION_SL);
+    double curTP   = PositionGetDouble(POSITION_TP);
+    double bid     = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    double ask     = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+    double point   = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+    double minDist = (double)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL) * point;
+    double normSL  = NormalizeDouble(newSL, _Digits);
+    // Kiểm tra stops level — broker từ chối nếu SL quá gần giá
+    if(posType == POSITION_TYPE_BUY  && bid - newSL < minDist) return;
+    if(posType == POSITION_TYPE_SELL && newSL - ask < minDist) return;
+    // Đặt server SL về đúng mức trailing, kể cả khi phải hạ DCA SL hiện có.
+    // DCA SL vẫn được bảo vệ bởi software (CheckExit section 2a).
+    // Mục đích: đường SL trên chart khớp với đường trailing, tránh hiển thị 2 đường khác mức.
+    if(curSL != normSL)
+        Trade.PositionModify(tk, normSL, curTP);
 }
 
 void CheckTrailing() {
-    if(!InpTrailEnable) return;
+    bool hedgeTrail = InpHedgeEnable && (HedgeCutBuy || HedgeCutSell);
+    if(!InpTrailEnable && !hedgeTrail) return;
     if(CountAll() < InpTrailMinOrds) return;
 
     double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
@@ -1156,19 +1281,17 @@ void CheckTrailing() {
             double avgBuy = AvgOpenPrice(POSITION_TYPE_BUY);
             if(bid - avgBuy >= InpTrailActivate * point) {
                 double newSL = bid - InpTrailInit * point;
-                bool   moved = false;
-                if(TrailBuy == 0 || newSL >= TrailBuy + InpTrailStep * point) {
+                if(TrailBuy == 0 || newSL >= TrailBuy + InpTrailStep * point)
                     TrailBuy = newSL;
-                    moved = true;
-                }
-                if(moved) {
-                    for(int i = PositionsTotal()-1; i >= 0; i--) {
-                        ulong tk = PositionGetTicket(i);
-                        if(!PositionSelectByTicket(tk)) continue;
-                        if(!IsManaged()) continue;
-                        if((int)PositionGetInteger(POSITION_TYPE) != POSITION_TYPE_BUY) continue;
-                        ApplyTrailToPos(tk, POSITION_TYPE_BUY, TrailBuy);
-                    }
+            }
+            // Apply every second — covers new DCA/Pyra orders opened after trail activated
+            if(TrailBuy > 0) {
+                for(int i = PositionsTotal()-1; i >= 0; i--) {
+                    ulong tk = PositionGetTicket(i);
+                    if(!PositionSelectByTicket(tk)) continue;
+                    if(!IsManaged()) continue;
+                    if((int)PositionGetInteger(POSITION_TYPE) != POSITION_TYPE_BUY) continue;
+                    ApplyTrailToPos(tk, POSITION_TYPE_BUY, TrailBuy);
                 }
             }
         } else { TrailBuy = 0; }
@@ -1178,27 +1301,27 @@ void CheckTrailing() {
             double avgSell = AvgOpenPrice(POSITION_TYPE_SELL);
             if(avgSell - ask >= InpTrailActivate * point) {
                 double newSL = ask + InpTrailInit * point;
-                bool   moved = false;
-                if(TrailSell == 0 || newSL <= TrailSell - InpTrailStep * point) {
+                if(TrailSell == 0 || newSL <= TrailSell - InpTrailStep * point)
                     TrailSell = newSL;
-                    moved = true;
-                }
-                if(moved) {
-                    for(int i = PositionsTotal()-1; i >= 0; i--) {
-                        ulong tk = PositionGetTicket(i);
-                        if(!PositionSelectByTicket(tk)) continue;
-                        if(!IsManaged()) continue;
-                        if((int)PositionGetInteger(POSITION_TYPE) != POSITION_TYPE_SELL) continue;
-                        ApplyTrailToPos(tk, POSITION_TYPE_SELL, TrailSell);
-                    }
+            }
+            // Apply every second — covers new DCA/Pyra orders opened after trail activated
+            if(TrailSell > 0) {
+                for(int i = PositionsTotal()-1; i >= 0; i--) {
+                    ulong tk = PositionGetTicket(i);
+                    if(!PositionSelectByTicket(tk)) continue;
+                    if(!IsManaged()) continue;
+                    if((int)PositionGetInteger(POSITION_TYPE) != POSITION_TYPE_SELL) continue;
+                    ApplyTrailToPos(tk, POSITION_TYPE_SELL, TrailSell);
                 }
             }
         } else { TrailSell = 0; }
 
         // Draw lines
         if(InpTrailShowLine) {
-            if(TrailBuy  > 0) DrawHLine("TrailBuy",  TrailBuy,  clrLimeGreen);
-            if(TrailSell > 0) DrawHLine("TrailSell", TrailSell, clrTomato);
+            if(TrailBuy  > 0) DrawHLine("TrailBuy",  TrailBuy,  InpTrailBuyColor,  InpTrailLineWidth);
+            else ObjectDelete(0, GUI + "TrailBuy");
+            if(TrailSell > 0) DrawHLine("TrailSell", TrailSell, InpTrailSellColor, InpTrailLineWidth);
+            else ObjectDelete(0, GUI + "TrailSell");
         }
 
     } else {
@@ -1236,6 +1359,24 @@ void CheckTrailing() {
 //| EXIT LOGIC                                                       |
 //+------------------------------------------------------------------+
 void CheckExit() {
+    // 0. Software trailing fallback — đóng khi giá vượt qua TrailBuy/TrailSell
+    //    Server SL bị từ chối (invalid stop) khi SL quá gần giá → lệnh mới không có server SL.
+    //    Section này đảm bảo thoát đúng dù server SL không được đặt thành công.
+    if(TrailBuy > 0 || TrailSell > 0) {
+        double _ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+        double _bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+        for(int i = PositionsTotal()-1; i >= 0; i--) {
+            ulong tk = PositionGetTicket(i);
+            if(!PositionSelectByTicket(tk)) continue;
+            if(!IsManaged()) continue;
+            int pt = (int)PositionGetInteger(POSITION_TYPE);
+            if(pt == POSITION_TYPE_BUY  && TrailBuy  > 0 && _bid <= TrailBuy)
+                Trade.PositionClose(tk);
+            else if(pt == POSITION_TYPE_SELL && TrailSell > 0 && _ask >= TrailSell)
+                Trade.PositionClose(tk);
+        }
+    }
+
     // 1. Per-position exit by pips target
     if(InpClosePerPips > 0) {
         double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
@@ -1330,7 +1471,8 @@ void CheckExit() {
     }
 
     // 3. Basket total profit target
-    if(InpCloseProfit > 0) {
+    // Bỏ qua khi Hedge mode đã cắt một chiều — trailing stop quản lý thoát chiều dương
+    if(InpCloseProfit > 0 && !(InpHedgeEnable && (HedgeCutBuy || HedgeCutSell))) {
         if(FloatProfit() >= InpCloseProfit) {
             Print("RTB: CloseProfit target reached. Closing all.");
             CloseAll();
@@ -1339,7 +1481,8 @@ void CheckExit() {
     }
 
     // 4. Basket total loss cut
-    if(InpCloseLoss > 0) {
+    // Bỏ qua khi Hedge mode đang chạy chiều dương — tránh cắt nhầm chiều thắng
+    if(InpCloseLoss > 0 && !(InpHedgeEnable && (HedgeCutBuy || HedgeCutSell))) {
         if(FloatProfit() <= -InpCloseLoss) {
             Print("RTB: CloseLoss limit hit. Closing all.");
             CloseAll();
@@ -1442,14 +1585,14 @@ void CreateBtn(string name, string text, int x, int y, int w, int h, color bgClr
     ObjectSetInteger(0, obj, OBJPROP_STATE,        false);
 }
 
-void DrawHLine(string name, double price, color clr) {
+void DrawHLine(string name, double price, color clr, int width = 1) {
     string obj = GUI + name;
     if(ObjectFind(0, obj) < 0)
         ObjectCreate(0, obj, OBJ_HLINE, 0, 0, price);
     ObjectSetDouble(0,  obj, OBJPROP_PRICE, price);
     ObjectSetInteger(0, obj, OBJPROP_COLOR, clr);
-    ObjectSetInteger(0, obj, OBJPROP_STYLE, STYLE_DASH);
-    ObjectSetInteger(0, obj, OBJPROP_WIDTH, 1);
+    ObjectSetInteger(0, obj, OBJPROP_STYLE, STYLE_SOLID);
+    ObjectSetInteger(0, obj, OBJPROP_WIDTH, width);
 }
 
 void CreateRect(string name, int lx, int ly, int lw, int lh, color bg) {
@@ -1491,6 +1634,7 @@ void UpdateGUI() {
     int PX = InpPanelX;
     int PY = InpPanelY;
     int PW = InpPanelWidth;
+    int hOff = InpHedgeEnable ? 16 : 0;  // Thêm 1 dòng Hedge khi bật
 
     double balance   = AccountInfoDouble(ACCOUNT_BALANCE);
     double equity    = AccountInfoDouble(ACCOUNT_EQUITY);
@@ -1529,7 +1673,6 @@ void UpdateGUI() {
         case DIR_BOTH:      dirName = "▲▼ Both";     dirClr = clrDodgerBlue; break;
         case DIR_ONLY_BUY:  dirName = "▲  Buy Only"; dirClr = clrLimeGreen;  break;
         case DIR_ONLY_SELL: dirName = "▼  Sell Only"; dirClr = clrTomato;    break;
-        case DIR_EITHER:    dirName = "▲▼ Either";   dirClr = clrDodgerBlue; break;
     }
 
     MqlDateTime dt;
@@ -1548,7 +1691,7 @@ void UpdateGUI() {
         ObjectCreate(0, bg, OBJ_RECTANGLE_LABEL, 0, 0, 0);
         ObjectSetInteger(0, bg, OBJPROP_CORNER,      CORNER_LEFT_UPPER);
         ObjectSetInteger(0, bg, OBJPROP_XSIZE,       PW);
-        ObjectSetInteger(0, bg, OBJPROP_YSIZE,       362);
+        ObjectSetInteger(0, bg, OBJPROP_YSIZE,       362 + hOff);
         ObjectSetInteger(0, bg, OBJPROP_BGCOLOR,     C'14,17,26');
         ObjectSetInteger(0, bg, OBJPROP_BORDER_TYPE, BORDER_FLAT);
         ObjectSetInteger(0, bg, OBJPROP_COLOR,       C'50,65,120');
@@ -1558,6 +1701,7 @@ void UpdateGUI() {
     }
     ObjectSetInteger(0, bg, OBJPROP_XDISTANCE, PX);
     ObjectSetInteger(0, bg, OBJPROP_YDISTANCE, PY);
+    ObjectSetInteger(0, bg, OBJPROP_YSIZE,     362 + hOff);
 
     // ── PANEL 2: ĐIỀU KHIỂN ──
     string bg2 = GUI + "BG2";
@@ -1574,7 +1718,7 @@ void UpdateGUI() {
         ObjectSetInteger(0, bg2, OBJPROP_SELECTABLE,  false);
     }
     ObjectSetInteger(0, bg2, OBJPROP_XDISTANCE, PX);
-    ObjectSetInteger(0, bg2, OBJPROP_YDISTANCE, PY + 376);
+    ObjectSetInteger(0, bg2, OBJPROP_YDISTANCE, PY + 376 + hOff);
 
     // ── PANEL 3: THỐNG KÊ ──
     string bg3 = GUI + "BG3";
@@ -1591,7 +1735,7 @@ void UpdateGUI() {
         ObjectSetInteger(0, bg3, OBJPROP_SELECTABLE,  false);
     }
     ObjectSetInteger(0, bg3, OBJPROP_XDISTANCE, PX);
-    ObjectSetInteger(0, bg3, OBJPROP_YDISTANCE, PY + 516);
+    ObjectSetInteger(0, bg3, OBJPROP_YDISTANCE, PY + 516 + hOff);
 
     // ── NỘI DUNG PANEL 1 ──
     int x = PX + 7, y = PY + 5, s = 16;
@@ -1603,6 +1747,30 @@ void UpdateGUI() {
     color  modeClr  = (InpBotMode == MODE_SEMI_AUTO) ? clrOrange    : clrLimeGreen;
     Lbl("Mod",  "Mode   : " + modeName,       x, y, modeClr       );    y += s;
     Lbl("Dir",  "Direct : " + dirName,        x, y, dirClr        );    y += s;
+    if(InpHedgeEnable) {
+        string hedgeText; color hedgeClr;
+        double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+        double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+        double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+        if(HedgeCutBuy && !HedgeCutSell) {
+            hedgeText = "Hedge  : ✕BUY  |  ▼SELL Trail";
+            hedgeClr  = clrLimeGreen;
+        } else if(HedgeCutSell && !HedgeCutBuy) {
+            hedgeText = "Hedge  : ▲BUY Trail  |  ✕SELL";
+            hedgeClr  = clrLimeGreen;
+        } else if(!HedgeCutBuy && !HedgeCutSell) {
+            double buyDist  = (HedgeInitBuyPrice  > 0) ? (HedgeInitBuyPrice  - bid) / point : 0;
+            double sellDist = (HedgeInitSellPrice > 0) ? (ask - HedgeInitSellPrice) / point : 0;
+            if(buyDist > 0 || sellDist > 0)
+                hedgeText = StringFormat("Hedge  : ▲%.0f | ▼%.0f pt", buyDist, sellDist);
+            else
+                hedgeText = "Hedge  : Waiting...";
+            hedgeClr = clrSilver;
+        } else {
+            hedgeText = "Hedge  : Complete"; hedgeClr = C'90,90,90';
+        }
+        Lbl("HdgS", hedgeText, x, y, hedgeClr); y += s;
+    }
     Lbl("L1",   "────────────────────────",   x, y, C'45,58,105'  );    y += s-2;
     Lbl("Bal",  StringFormat("Balance: $%.2f", balance),    x, y, clrSilver); y += s;
     Lbl("Ini",  StringFormat("Initial: $%.2f", InitBalance), x, y, clrSilver); y += s;
@@ -1635,7 +1803,7 @@ void UpdateGUI() {
     Lbl("Tot",  StringFormat("Total  : %d orders", nBuy + nSell), x, y, clrSilver);        y += s;
 
     // ── NỘI DUNG PANEL 2 (Nút điều khiển) ──
-    y = PY + 386;
+    y = PY + 386 + hOff;
     Lbl("P2T", "═══  ĐIỀU KHIỂN LỆNH  ═══", x, y, C'90,140,230', 9); y += s + 2;
 
     int bh  = 22;
@@ -1649,7 +1817,7 @@ void UpdateGUI() {
     CreateBtn("BtnCloseLoss",   "✕ Close Loss",    bx2,  y, bhw, bh, C'140,35,20',  C'210,80,55' );
 
     // ── NỘI DUNG PANEL 3 (Thống kê) ──
-    y = PY + 526;
+    y = PY + 526 + hOff;
     Lbl("P3T", "═══  THỐNG KÊ  ═══", x, y, C'90,140,230', 9); y += s + 2;
 
     color sepClr = C'45,65,120';
@@ -1719,8 +1887,8 @@ void UpdateGUI() {
             ObjectSetInteger(0, bg4, OBJPROP_SELECTABLE,  false);
         }
         ObjectSetInteger(0, bg4, OBJPROP_XDISTANCE, PX);
-        ObjectSetInteger(0, bg4, OBJPROP_YDISTANCE, PY + 673);
-        int y4 = PY + 683;
+        ObjectSetInteger(0, bg4, OBJPROP_YDISTANCE, PY + 673 + hOff);
+        int y4 = PY + 683 + hOff;
         Lbl("P4T", "═══  VÀO LỆNH THỦ CÔNG  ═══", x, y4, C'230,100,100', 9); y4 += s + 2;
         CreateBtn("BtnOpenBuy",  "▲ Open Buy",  PX+7, y4, bhw, bh, C'0,80,20',  C'30,200,80');
         CreateBtn("BtnOpenSell", "▼ Open Sell", bx2,  y4, bhw, bh, C'100,0,0',  C'220,40,40');
@@ -1874,6 +2042,20 @@ int OnInit() {
     LastEntryTime  = 0;
     LastDay        = -1;
 
+    HedgeCutBuy        = false;
+    HedgeCutSell       = false;
+    HedgeInitBuyPrice  = 0.0;
+    HedgeInitSellPrice = 0.0;
+    HedgeTrendSide     = -1;
+    if(InpHedgeEnable) {
+        // Khôi phục sau restart: nếu chỉ còn một chiều → chiều kia đã bị cắt trước đó
+        if(CountBuy() > 0 && CountSell() == 0) { HedgeCutSell = true; Print("RTB: Hedge restart — infer SELL was cut"); }
+        if(CountSell() > 0 && CountBuy() == 0) { HedgeCutBuy  = true; Print("RTB: Hedge restart — infer BUY was cut"); }
+        // Khôi phục trend side từ pyramiding orders còn tồn tại
+        if(CountPyra(POSITION_TYPE_BUY) > 0)       { HedgeTrendSide = POSITION_TYPE_BUY;  Print("RTB: Hedge restart — trend=BUY"); }
+        else if(CountPyra(POSITION_TYPE_SELL) > 0) { HedgeTrendSide = POSITION_TYPE_SELL; Print("RTB: Hedge restart — trend=SELL"); }
+    }
+
     EventSetTimer(1);
     Print("RTB: Initialized. Magic=", InpMagic, " Signal=", EnumToString(InpSignalMode));
     return INIT_SUCCEEDED;
@@ -1894,6 +2076,8 @@ void OnTick() {
     CheckEntry();
     // Stealth TP/SL check runs on every tick for precision
     if(InpStealthMode) CheckExit();
+    // Trailing: chạy mỗi tick để server SL và đường line di chuyển ngay theo giá, không trễ 1 giây
+    if(!DayLimitHit) CheckTrailing();
 }
 
 void OnTimer() {
@@ -1906,12 +2090,12 @@ void OnTimer() {
     // Exit checks (basket close conditions)
     if(!InpStealthMode) CheckExit();
 
+    // Hedge: cắt chiều âm (chạy cả khi DayLimitHit để bảo vệ tài khoản)
+    CheckHedgeCut();
+
     if(!DayLimitHit) {
         // Trimming
         CheckTrimming();
-
-        // Trailing stop
-        CheckTrailing();
 
         // DCA scale-in
         if(CountBuy()  > 0) CheckDCA(POSITION_TYPE_BUY);

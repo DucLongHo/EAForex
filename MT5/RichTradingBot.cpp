@@ -138,11 +138,60 @@ input  double  InpDCA7TP   = 500.0; // DCA T7: TP (points)
 input  double  InpDCA7SL   = 0.0;  // DCA T7: SL (points, 0=tắt)
 
 input group         "══════ DCA - TẦNG 8 ══════"; //
-input  double  InpDCA8Mult = 6.0; // DCA T8: Hệ số Lot
-input  int     InpDCA8Max  = 1; // DCA T8: Max lệnh tổng tại tầng này
+input  double  InpDCA8Mult = 6.0;    // DCA T8: Hệ số Lot
+input  int     InpDCA8Max  = 1;      // DCA T8: Max lệnh tổng tại tầng này
 input  double  InpDCA8Dist = 5000.0; // DCA T8: Khoảng cách (points)
-input  double  InpDCA8TP   = 500.0; // DCA T8: TP (points)
-input  double  InpDCA8SL   = 0.0; // DCA T8: SL (points, 0=tắt)
+input  double  InpDCA8TP   = 500.0;  // DCA T8: TP (points)
+input  double  InpDCA8SL   = 0.0;    // DCA T8: SL (points, 0=tắt)
+
+input group         "══════ DCA - TẦNG 9 ══════"; //
+input  double  InpDCA9Mult = 7.0;    // DCA T9: Hệ số Lot
+input  int     InpDCA9Max  = 1;      // DCA T9: Max lệnh tổng tại tầng này
+input  double  InpDCA9Dist = 5500.0; // DCA T9: Khoảng cách (points)
+input  double  InpDCA9TP   = 500.0;  // DCA T9: TP (points)
+input  double  InpDCA9SL   = 0.0;    // DCA T9: SL (points, 0=tắt)
+
+input group         "══════ DCA - TẦNG 10 ══════"; //
+input  double  InpDCA10Mult = 8.0;    // DCA T10: Hệ số Lot
+input  int     InpDCA10Max  = 1;      // DCA T10: Max lệnh tổng tại tầng này
+input  double  InpDCA10Dist = 6000.0; // DCA T10: Khoảng cách (points)
+input  double  InpDCA10TP   = 500.0;  // DCA T10: TP (points)
+input  double  InpDCA10SL   = 0.0;    // DCA T10: SL (points, 0=tắt)
+
+input group         "══════ DCA - TẦNG 11 ══════"; //
+input  double  InpDCA11Mult = 9.0;    // DCA T11: Hệ số Lot
+input  int     InpDCA11Max  = 1;      // DCA T11: Max lệnh tổng tại tầng này
+input  double  InpDCA11Dist = 6500.0; // DCA T11: Khoảng cách (points)
+input  double  InpDCA11TP   = 500.0;  // DCA T11: TP (points)
+input  double  InpDCA11SL   = 0.0;    // DCA T11: SL (points, 0=tắt)
+
+input group         "══════ DCA - TẦNG 12 ══════"; //
+input  double  InpDCA12Mult = 10.0;   // DCA T12: Hệ số Lot
+input  int     InpDCA12Max  = 1;      // DCA T12: Max lệnh tổng tại tầng này
+input  double  InpDCA12Dist = 7000.0; // DCA T12: Khoảng cách (points)
+input  double  InpDCA12TP   = 500.0;  // DCA T12: TP (points)
+input  double  InpDCA12SL   = 0.0;    // DCA T12: SL (points, 0=tắt)
+
+input group         "══════ DCA - TẦNG 13 ══════"; //
+input  double  InpDCA13Mult = 11.0;   // DCA T13: Hệ số Lot
+input  int     InpDCA13Max  = 1;      // DCA T13: Max lệnh tổng tại tầng này
+input  double  InpDCA13Dist = 7500.0; // DCA T13: Khoảng cách (points)
+input  double  InpDCA13TP   = 500.0;  // DCA T13: TP (points)
+input  double  InpDCA13SL   = 0.0;    // DCA T13: SL (points, 0=tắt)
+
+input group         "══════ DCA - TẦNG 14 ══════"; //
+input  double  InpDCA14Mult = 12.0;   // DCA T14: Hệ số Lot
+input  int     InpDCA14Max  = 1;      // DCA T14: Max lệnh tổng tại tầng này
+input  double  InpDCA14Dist = 8000.0; // DCA T14: Khoảng cách (points)
+input  double  InpDCA14TP   = 500.0;  // DCA T14: TP (points)
+input  double  InpDCA14SL   = 0.0;    // DCA T14: SL (points, 0=tắt)
+
+input group         "══════ DCA - TẦNG 15 ══════"; //
+input  double  InpDCA15Mult = 13.0;   // DCA T15: Hệ số Lot
+input  int     InpDCA15Max  = 1;      // DCA T15: Max lệnh tổng tại tầng này
+input  double  InpDCA15Dist = 8500.0; // DCA T15: Khoảng cách (points)
+input  double  InpDCA15TP   = 500.0;  // DCA T15: TP (points)
+input  double  InpDCA15SL   = 0.0;    // DCA T15: SL (points, 0=tắt)
 
 //+------------------------------------------------------------------+
 //| INPUT: PYRAMIDING (NHỒI DƯƠNG)                                   |
@@ -276,12 +325,12 @@ int      g_ats_ut_signal = 0;
 datetime g_last_bar_ut   = 0;
 
 // DCA config arrays (index 0-7 = level 1-8)
-ENUM_DCA_MODE DCA_Mode[8];
-double        DCA_Mult[8];
-int           DCA_MaxOrd[8];
-double        DCA_Dist[8];
-double        DCA_TP[8];
-double        DCA_SL[8];
+ENUM_DCA_MODE DCA_Mode[15];
+double        DCA_Mult[15];
+int           DCA_MaxOrd[15];
+double        DCA_Dist[15];
+double        DCA_TP[15];
+double        DCA_SL[15];
 
 // Pyramiding config arrays (index 0-7 = level 1-8)
 ENUM_DCA_MODE PYRA_Mode[8];
@@ -307,6 +356,16 @@ const string LICENSE_URL = "https://script.google.com/macros/s/AKfycbwfKLYX36os9
 // Basket trail levels
 double   TrailBuy  = 0.0;
 double   TrailSell = 0.0;
+
+// Persistent DCA tier counters — only reset when all positions of that side close
+int      PeakDCABuy  = 0;
+int      PeakDCASell = 0;
+
+// Per-slot DCA price tracking: re-fill a closed slot only when price bounces back to its entry
+double   DCABuyPrices[15];
+double   DCASellPrices[15];
+bool     DCABuyBounced[15];   // true after price rose above entry since slot closed (BUY)
+bool     DCASellBounced[15];  // true after price fell below entry since slot closed (SELL)
 
 // Hedge Follow Winner state
 bool   HedgeCutBuy        = false;
@@ -1006,65 +1065,162 @@ void CheckHedgeCut() {
 //+------------------------------------------------------------------+
 //| DCA LOGIC                                                        |
 //+------------------------------------------------------------------+
-void CheckDCA(int posType) {
-    // Hedge mode: không DCA bất kỳ chiều nào — chỉ trailing stop quản lý thoát
-    if(InpHedgeEnable) return;
 
+// Returns true if there is a managed open position of posType with open price
+// within 10 points of 'price' (used to detect whether a DCA slot is still live).
+bool HasOpenDCAAt(int posType, double price) {
+    double tol = 10.0 * SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+    for(int i = 0; i < PositionsTotal(); i++) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if((long)PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
+        if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
+        if(MathAbs(PositionGetDouble(POSITION_PRICE_OPEN) - price) <= tol) return true;
+    }
+    return false;
+}
+
+void CheckDCA(int posType) {
+    if(InpHedgeEnable) return;
     if(posType == POSITION_TYPE_BUY  && !InpDCABuyEnable)  return;
     if(posType == POSITION_TYPE_SELL && !InpDCASellEnable) return;
 
     int count = CountPos(posType);
     if(count == 0) return;
 
-    // Semi-Auto với nhiều lệnh thủ công: chỉ DCA cho "lệnh gốc" (cũ nhất).
-    // dcaCount = số DCA bot đã mở; lastPrice = điểm tham chiếu của chuỗi DCA chính.
-    bool multiManual = (InpBotMode == MODE_SEMI_AUTO && CountManual(posType) >= 1);
-    int    dcaCount  = multiManual ? CountBotDCA(posType)     : (count - 1);
-    double lastPrice = multiManual ? LastPrimaryPrice(posType) : LastOpenPrice(posType);
-    if(lastPrice == 0) return;
-
-    int lvl = -1;
-    int cumulative = 0;
-    for(int i = 0; i < 8; i++) {
-        int nextCum = cumulative + DCA_MaxOrd[i];
-        if(dcaCount < nextCum) { lvl = i; break; }
-        cumulative = nextCum;
-    }
-    if(lvl < 0) return;
-    if(DCA_Mode[lvl] == DCA_STOP) return;
-
-    int maxOrds = (posType == POSITION_TYPE_BUY) ? InpMaxBuy : InpMaxSell;
-    if(count >= maxOrds) return;
-
     double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
     double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
     double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-    double dist  = DCA_Dist[lvl] * point;
+    int maxOrds  = (posType == POSITION_TYPE_BUY) ? InpMaxBuy : InpMaxSell;
 
-    bool trigger = false;
-    if(posType == POSITION_TYPE_BUY)
-        trigger = (lastPrice - bid) >= dist;  // Price fell below entry by dist
-    else
-        trigger = (ask - lastPrice) >= dist;  // Price rose above entry by dist
+    // ── SEMI-AUTO (multi-manual): logic cũ, không dùng per-slot tracking ──
+    bool multiManual = (InpBotMode == MODE_SEMI_AUTO && CountManual(posType) >= 1);
+    if(multiManual) {
+        int    dcaCount  = CountBotDCA(posType);
+        double lastPrice = LastPrimaryPrice(posType);
+        if(lastPrice == 0) return;
 
+        int lvl = -1, cum = 0;
+        for(int i = 0; i < 15; i++) {
+            int nc = cum + DCA_MaxOrd[i];
+            if(dcaCount < nc) { lvl = i; break; }
+            cum = nc;
+        }
+        if(lvl < 0 || DCA_Mode[lvl] == DCA_STOP) return;
+        if(count >= maxOrds) return;
+
+        double dist = DCA_Dist[lvl] * point;
+        bool trigger = (posType == POSITION_TYPE_BUY) ? (lastPrice - bid) >= dist
+                                                      : (ask - lastPrice) >= dist;
+        if(!trigger) return;
+        if(DCA_Mode[lvl] == DCA_STEP_TF) {
+            int sig = GetSignal();
+            if(posType == POSITION_TYPE_BUY  && sig != 1)  return;
+            if(posType == POSITION_TYPE_SELL && sig != -1) return;
+        }
+        if(TimeCurrent() - LastOrderTime < InpOrderDelay) return;
+
+        double baseLot = OldestManualLot(posType);
+        if(baseLot <= 0) baseLot = InpLotSize;
+        double lot = NormLot(baseLot * DCA_Mult[lvl]);
+        int ord = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
+        Print("RTB: DCA level ", lvl+1, " triggered dcaCount=", dcaCount, " [primary chain only]");
+        OpenOrder(ord, lot, DCA_TP[lvl], DCA_SL[lvl], true);
+        return;
+    }
+
+    // ── AUTO MODE ──
+    int peak = (posType == POSITION_TYPE_BUY) ? PeakDCABuy : PeakDCASell;
+
+    // 1. Re-fill closed slots when price returns to their original entry
+    for(int slot = 0; slot < peak; slot++) {
+        double slotPrice   = (posType == POSITION_TYPE_BUY) ? DCABuyPrices[slot]   : DCASellPrices[slot];
+        bool   slotBounced = (posType == POSITION_TYPE_BUY) ? DCABuyBounced[slot]  : DCASellBounced[slot];
+        if(slotPrice == 0) continue;
+
+        bool isOpen = HasOpenDCAAt(posType, slotPrice);
+
+        if(!isOpen) {
+            // Track bounce: price must pass above (BUY) or below (SELL) the original entry
+            // before we allow re-fill — prevents immediate re-entry right after SL
+            if(posType == POSITION_TYPE_BUY  && bid > slotPrice) { DCABuyBounced[slot]  = true; slotBounced = true; }
+            if(posType == POSITION_TYPE_SELL && ask < slotPrice) { DCASellBounced[slot] = true; slotBounced = true; }
+
+            if(slotBounced && count < maxOrds) {
+                bool atEntry = (posType == POSITION_TYPE_BUY) ? (bid <= slotPrice) : (ask >= slotPrice);
+                if(atEntry) {
+                    if(TimeCurrent() - LastOrderTime < InpOrderDelay) return;
+
+                    int slotLvl = -1, cum = 0;
+                    for(int i = 0; i < 8; i++) {
+                        int nc = cum + DCA_MaxOrd[i];
+                        if(slot < nc) { slotLvl = i; break; }
+                        cum = nc;
+                    }
+                    if(slotLvl < 0 || DCA_Mode[slotLvl] == DCA_STOP) continue;
+
+                    if(DCA_Mode[slotLvl] == DCA_STEP_TF) {
+                        int sig = GetSignal();
+                        if(posType == POSITION_TYPE_BUY  && sig != 1)  return;
+                        if(posType == POSITION_TYPE_SELL && sig != -1) return;
+                    }
+
+                    double lot = NormLot(InpLotSize * DCA_Mult[slotLvl]);
+                    int ord = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
+                    Print("RTB: Re-fill slot ", slot, " (level ", slotLvl+1, ") price=", slotPrice);
+                    OpenOrder(ord, lot, DCA_TP[slotLvl], DCA_SL[slotLvl], true);
+                    // Reset bounce — next re-fill needs a fresh bounce
+                    if(posType == POSITION_TYPE_BUY) DCABuyBounced[slot]  = false;
+                    else                              DCASellBounced[slot] = false;
+                    return;
+                }
+            }
+        } else {
+            // Slot is open — clear bounce flag so it starts fresh after next close
+            if(posType == POSITION_TYPE_BUY) DCABuyBounced[slot]  = false;
+            else                              DCASellBounced[slot] = false;
+        }
+    }
+
+    // 2. Open next new DCA slot
+    if(count >= maxOrds) return;
+    double lastPrice = LastOpenPrice(posType);
+    if(lastPrice == 0) return;
+
+    int lvl = -1, cumulative = 0;
+    for(int i = 0; i < 15; i++) {
+        int nextCum = cumulative + DCA_MaxOrd[i];
+        if(peak < nextCum) { lvl = i; break; }
+        cumulative = nextCum;
+    }
+    if(lvl < 0 || DCA_Mode[lvl] == DCA_STOP) return;
+
+    double dist = DCA_Dist[lvl] * point;
+    bool trigger = (posType == POSITION_TYPE_BUY) ? (lastPrice - bid) >= dist
+                                                  : (ask - lastPrice) >= dist;
     if(!trigger) return;
 
-    // Step+TF: require same-direction signal confirmation
     if(DCA_Mode[lvl] == DCA_STEP_TF) {
         int sig = GetSignal();
         if(posType == POSITION_TYPE_BUY  && sig != 1)  return;
         if(posType == POSITION_TYPE_SELL && sig != -1) return;
     }
-
     if(TimeCurrent() - LastOrderTime < InpOrderDelay) return;
 
-    double baseLot = multiManual ? OldestManualLot(posType) : InpLotSize;
-    if(baseLot <= 0) baseLot = InpLotSize;
-    double lot = NormLot(baseLot * DCA_Mult[lvl]);
+    // Record price before opening
+    if(peak < 15) {
+        if(posType == POSITION_TYPE_BUY) DCABuyPrices[peak]  = ask;
+        else                              DCASellPrices[peak] = bid;
+    }
+
+    double lot = NormLot(InpLotSize * DCA_Mult[lvl]);
     int    ord = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
-    Print("RTB: DCA level ", lvl+1, " triggered. dcaCount=", dcaCount,
-          multiManual ? " [primary chain only]" : "");
+    Print("RTB: DCA level ", lvl+1, " triggered. peak=", peak);
     OpenOrder(ord, lot, DCA_TP[lvl], DCA_SL[lvl], true);
+
+    if(posType == POSITION_TYPE_BUY) PeakDCABuy++;
+    else                             PeakDCASell++;
 }
 
 //+------------------------------------------------------------------+
@@ -1908,29 +2064,50 @@ void RemoveGUI() { ObjectsDeleteAll(0, GUI); }
 //| INIT DCA ARRAYS                                                  |
 //+------------------------------------------------------------------+
 void InitDCA() {
-    DCA_Mode[0]=InpDCAMode; DCA_Mult[0]=InpDCA1Mult; DCA_MaxOrd[0]=InpDCA1Max;
-    DCA_Dist[0]=InpDCA1Dist; DCA_TP[0]=InpDCA1TP;    DCA_SL[0]=InpDCA1SL;
+    DCA_Mode[0]=InpDCAMode; DCA_Mult[0]=InpDCA1Mult;  DCA_MaxOrd[0]=InpDCA1Max;
+    DCA_Dist[0]=InpDCA1Dist;  DCA_TP[0]=InpDCA1TP;   DCA_SL[0]=InpDCA1SL;
 
-    DCA_Mode[1]=InpDCAMode; DCA_Mult[1]=InpDCA2Mult; DCA_MaxOrd[1]=InpDCA2Max;
-    DCA_Dist[1]=InpDCA2Dist; DCA_TP[1]=InpDCA2TP;    DCA_SL[1]=InpDCA2SL;
+    DCA_Mode[1]=InpDCAMode; DCA_Mult[1]=InpDCA2Mult;  DCA_MaxOrd[1]=InpDCA2Max;
+    DCA_Dist[1]=InpDCA2Dist;  DCA_TP[1]=InpDCA2TP;   DCA_SL[1]=InpDCA2SL;
 
-    DCA_Mode[2]=InpDCAMode; DCA_Mult[2]=InpDCA3Mult; DCA_MaxOrd[2]=InpDCA3Max;
-    DCA_Dist[2]=InpDCA3Dist; DCA_TP[2]=InpDCA3TP;    DCA_SL[2]=InpDCA3SL;
+    DCA_Mode[2]=InpDCAMode; DCA_Mult[2]=InpDCA3Mult;  DCA_MaxOrd[2]=InpDCA3Max;
+    DCA_Dist[2]=InpDCA3Dist;  DCA_TP[2]=InpDCA3TP;   DCA_SL[2]=InpDCA3SL;
 
-    DCA_Mode[3]=InpDCAMode; DCA_Mult[3]=InpDCA4Mult; DCA_MaxOrd[3]=InpDCA4Max;
-    DCA_Dist[3]=InpDCA4Dist; DCA_TP[3]=InpDCA4TP;    DCA_SL[3]=InpDCA4SL;
+    DCA_Mode[3]=InpDCAMode; DCA_Mult[3]=InpDCA4Mult;  DCA_MaxOrd[3]=InpDCA4Max;
+    DCA_Dist[3]=InpDCA4Dist;  DCA_TP[3]=InpDCA4TP;   DCA_SL[3]=InpDCA4SL;
 
-    DCA_Mode[4]=InpDCAMode; DCA_Mult[4]=InpDCA5Mult; DCA_MaxOrd[4]=InpDCA5Max;
-    DCA_Dist[4]=InpDCA5Dist; DCA_TP[4]=InpDCA5TP;    DCA_SL[4]=InpDCA5SL;
+    DCA_Mode[4]=InpDCAMode; DCA_Mult[4]=InpDCA5Mult;  DCA_MaxOrd[4]=InpDCA5Max;
+    DCA_Dist[4]=InpDCA5Dist;  DCA_TP[4]=InpDCA5TP;   DCA_SL[4]=InpDCA5SL;
 
-    DCA_Mode[5]=InpDCAMode; DCA_Mult[5]=InpDCA6Mult; DCA_MaxOrd[5]=InpDCA6Max;
-    DCA_Dist[5]=InpDCA6Dist; DCA_TP[5]=InpDCA6TP;    DCA_SL[5]=InpDCA6SL;
+    DCA_Mode[5]=InpDCAMode; DCA_Mult[5]=InpDCA6Mult;  DCA_MaxOrd[5]=InpDCA6Max;
+    DCA_Dist[5]=InpDCA6Dist;  DCA_TP[5]=InpDCA6TP;   DCA_SL[5]=InpDCA6SL;
 
-    DCA_Mode[6]=InpDCAMode; DCA_Mult[6]=InpDCA7Mult; DCA_MaxOrd[6]=InpDCA7Max;
-    DCA_Dist[6]=InpDCA7Dist; DCA_TP[6]=InpDCA7TP;    DCA_SL[6]=InpDCA7SL;
+    DCA_Mode[6]=InpDCAMode; DCA_Mult[6]=InpDCA7Mult;  DCA_MaxOrd[6]=InpDCA7Max;
+    DCA_Dist[6]=InpDCA7Dist;  DCA_TP[6]=InpDCA7TP;   DCA_SL[6]=InpDCA7SL;
 
-    DCA_Mode[7]=InpDCAMode; DCA_Mult[7]=InpDCA8Mult; DCA_MaxOrd[7]=InpDCA8Max;
-    DCA_Dist[7]=InpDCA8Dist; DCA_TP[7]=InpDCA8TP;    DCA_SL[7]=InpDCA8SL;
+    DCA_Mode[7]=InpDCAMode; DCA_Mult[7]=InpDCA8Mult;  DCA_MaxOrd[7]=InpDCA8Max;
+    DCA_Dist[7]=InpDCA8Dist;  DCA_TP[7]=InpDCA8TP;   DCA_SL[7]=InpDCA8SL;
+
+    DCA_Mode[8]=InpDCAMode; DCA_Mult[8]=InpDCA9Mult;  DCA_MaxOrd[8]=InpDCA9Max;
+    DCA_Dist[8]=InpDCA9Dist;  DCA_TP[8]=InpDCA9TP;   DCA_SL[8]=InpDCA9SL;
+
+    DCA_Mode[9]=InpDCAMode; DCA_Mult[9]=InpDCA10Mult; DCA_MaxOrd[9]=InpDCA10Max;
+    DCA_Dist[9]=InpDCA10Dist; DCA_TP[9]=InpDCA10TP;  DCA_SL[9]=InpDCA10SL;
+
+    DCA_Mode[10]=InpDCAMode; DCA_Mult[10]=InpDCA11Mult; DCA_MaxOrd[10]=InpDCA11Max;
+    DCA_Dist[10]=InpDCA11Dist; DCA_TP[10]=InpDCA11TP;  DCA_SL[10]=InpDCA11SL;
+
+    DCA_Mode[11]=InpDCAMode; DCA_Mult[11]=InpDCA12Mult; DCA_MaxOrd[11]=InpDCA12Max;
+    DCA_Dist[11]=InpDCA12Dist; DCA_TP[11]=InpDCA12TP;  DCA_SL[11]=InpDCA12SL;
+
+    DCA_Mode[12]=InpDCAMode; DCA_Mult[12]=InpDCA13Mult; DCA_MaxOrd[12]=InpDCA13Max;
+    DCA_Dist[12]=InpDCA13Dist; DCA_TP[12]=InpDCA13TP;  DCA_SL[12]=InpDCA13SL;
+
+    DCA_Mode[13]=InpDCAMode; DCA_Mult[13]=InpDCA14Mult; DCA_MaxOrd[13]=InpDCA14Max;
+    DCA_Dist[13]=InpDCA14Dist; DCA_TP[13]=InpDCA14TP;  DCA_SL[13]=InpDCA14SL;
+
+    DCA_Mode[14]=InpDCAMode; DCA_Mult[14]=InpDCA15Mult; DCA_MaxOrd[14]=InpDCA15Max;
+    DCA_Dist[14]=InpDCA15Dist; DCA_TP[14]=InpDCA15TP;  DCA_SL[14]=InpDCA15SL;
 }
 
 void InitPyra() {
@@ -2039,6 +2216,12 @@ int OnInit() {
     MaxDrawdownPct = 0;
     TrailBuy       = 0;
     TrailSell      = 0;
+    PeakDCABuy     = CountBotDCA(POSITION_TYPE_BUY);
+    PeakDCASell    = CountBotDCA(POSITION_TYPE_SELL);
+    ArrayInitialize(DCABuyPrices,   0);
+    ArrayInitialize(DCASellPrices,  0);
+    ArrayInitialize(DCABuyBounced,  false);
+    ArrayInitialize(DCASellBounced, false);
     LastEntryTime  = 0;
     LastDay        = -1;
 
@@ -2084,8 +2267,8 @@ void OnTimer() {
     UpdateDayProfit();
     CheckDayLimit();
 
-    if(CountBuy()  == 0) TrailBuy  = 0;
-    if(CountSell() == 0) TrailSell = 0;
+    if(CountBuy()  == 0) { TrailBuy  = 0; PeakDCABuy  = 0; ArrayInitialize(DCABuyPrices,   0); ArrayInitialize(DCABuyBounced,  false); }
+    if(CountSell() == 0) { TrailSell = 0; PeakDCASell = 0; ArrayInitialize(DCASellPrices,  0); ArrayInitialize(DCASellBounced, false); }
 
     // Exit checks (basket close conditions)
     if(!InpStealthMode) CheckExit();

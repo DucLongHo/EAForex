@@ -362,10 +362,12 @@ int      PeakDCABuy  = 0;
 int      PeakDCASell = 0;
 
 // Per-slot DCA price tracking: re-fill a closed slot only when price bounces back to its entry
-double   DCABuyPrices[15];
-double   DCASellPrices[15];
-bool     DCABuyBounced[15];   // true after price rose above entry since slot closed (BUY)
-bool     DCASellBounced[15];  // true after price fell below entry since slot closed (SELL)
+double   DCABuyPrices[60];    // 15 tiers × max 4 orders each = 60 slots max
+double   DCASellPrices[60];
+bool     DCABuyBounced[60];   // true after price rose above entry since slot closed (BUY)
+bool     DCASellBounced[60];  // true after price fell below entry since slot closed (SELL)
+ulong    DCABuyTickets[60];   // position ticket of current open BUY DCA for each slot (0 = empty)
+ulong    DCASellTickets[60];  // position ticket of current open SELL DCA for each slot (0 = empty)
 
 // Hedge Follow Winner state
 bool   HedgeCutBuy        = false;
@@ -849,8 +851,9 @@ void CheckEntry() {
 //+------------------------------------------------------------------+
 
 // Đếm lệnh DCA do bot mở (magic=InpMagic, comment "RTB|X|Y")
-// Semi-Auto: lệnh gốc là thủ công (magic=0) nên MỌI lệnh bot đều là DCA → không lọc TP/SL
-// Auto:      lệnh gốc cũng có "RTB|0|0" → lọc X≠0 hoặc Y≠0 để loại lệnh gốc
+// Semi-Auto: lệnh gốc là thủ công (magic=0) nên MỌI lệnh RTB| đều là DCA
+// Auto:      lệnh gốc cũng có "RTB|0|0" → đếm tất cả RTB| rồi trừ 1 (lệnh gốc)
+//            Không dùng filter TP/SL vì DCA có thể có TP=SL=0 → comment cũng là "RTB|0|0"
 int CountBotDCA(int posType) {
     int n = 0;
     for(int i = PositionsTotal()-1; i >= 0; i--) {
@@ -861,13 +864,10 @@ int CountBotDCA(int posType) {
         if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
         string cmt = PositionGetString(POSITION_COMMENT);
         if(StringFind(cmt, "RTB|") != 0) continue;
-        if(InpBotMode != MODE_SEMI_AUTO) {
-            string parts[];
-            if(StringSplit(cmt, '|', parts) < 3) continue;
-            if(StringToDouble(parts[1]) == 0 && StringToDouble(parts[2]) == 0) continue;
-        }
         n++;
     }
+    // Auto mode: trừ 1 cho lệnh gốc (cũng có prefix "RTB|")
+    if(InpBotMode != MODE_SEMI_AUTO) n = MathMax(0, n - 1);
     return n;
 }
 
@@ -1066,20 +1066,26 @@ void CheckHedgeCut() {
 //| DCA LOGIC                                                        |
 //+------------------------------------------------------------------+
 
-// Returns true if there is a managed open position of posType with open price
-// within 10 points of 'price' (used to detect whether a DCA slot is still live).
-bool HasOpenDCAAt(int posType, double price) {
-    double tol = 10.0 * SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+// Checks if a DCA slot's position is still open, using ticket (exact) first,
+// falling back to price proximity if ticket is unknown (e.g. after EA restart).
+bool IsSlotOpen(int posType, int slot) {
+    ulong tk = (posType == POSITION_TYPE_BUY) ? DCABuyTickets[slot] : DCASellTickets[slot];
+    if(tk > 0) return PositionSelectByTicket(tk);
+    // Fallback: price-based with tight tolerance for post-restart recovery
+    double slotPrice = (posType == POSITION_TYPE_BUY) ? DCABuyPrices[slot] : DCASellPrices[slot];
+    if(slotPrice == 0) return false;
+    double tol = 50.0 * SymbolInfoDouble(_Symbol, SYMBOL_POINT);
     for(int i = 0; i < PositionsTotal(); i++) {
-        ulong tk = PositionGetTicket(i);
-        if(!PositionSelectByTicket(tk)) continue;
+        ulong ptk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(ptk)) continue;
         if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
         if((long)PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
         if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
-        if(MathAbs(PositionGetDouble(POSITION_PRICE_OPEN) - price) <= tol) return true;
+        if(MathAbs(PositionGetDouble(POSITION_PRICE_OPEN) - slotPrice) <= tol) return true;
     }
     return false;
 }
+
 
 void CheckDCA(int posType) {
     if(InpHedgeEnable) return;
@@ -1139,7 +1145,7 @@ void CheckDCA(int posType) {
         bool   slotBounced = (posType == POSITION_TYPE_BUY) ? DCABuyBounced[slot]  : DCASellBounced[slot];
         if(slotPrice == 0) continue;
 
-        bool isOpen = HasOpenDCAAt(posType, slotPrice);
+        bool isOpen = IsSlotOpen(posType, slot);
 
         if(!isOpen) {
             // Track bounce: price must pass above (BUY) or below (SELL) the original entry
@@ -1148,12 +1154,15 @@ void CheckDCA(int posType) {
             if(posType == POSITION_TYPE_SELL && ask < slotPrice) { DCASellBounced[slot] = true; slotBounced = true; }
 
             if(slotBounced && count < maxOrds) {
-                bool atEntry = (posType == POSITION_TYPE_BUY) ? (bid <= slotPrice) : (ask >= slotPrice);
+                double refillTol = 100.0 * point;
+                bool atEntry = (posType == POSITION_TYPE_BUY) ?
+                    (bid <= slotPrice && bid >= slotPrice - refillTol) :
+                    (ask >= slotPrice && ask <= slotPrice + refillTol);
                 if(atEntry) {
                     if(TimeCurrent() - LastOrderTime < InpOrderDelay) return;
 
                     int slotLvl = -1, cum = 0;
-                    for(int i = 0; i < 8; i++) {
+                    for(int i = 0; i < 15; i++) {
                         int nc = cum + DCA_MaxOrd[i];
                         if(slot < nc) { slotLvl = i; break; }
                         cum = nc;
@@ -1162,17 +1171,19 @@ void CheckDCA(int posType) {
 
                     if(DCA_Mode[slotLvl] == DCA_STEP_TF) {
                         int sig = GetSignal();
-                        if(posType == POSITION_TYPE_BUY  && sig != 1)  return;
-                        if(posType == POSITION_TYPE_SELL && sig != -1) return;
+                        if(posType == POSITION_TYPE_BUY  && sig != 1)  continue;
+                        if(posType == POSITION_TYPE_SELL && sig != -1) continue;
                     }
 
                     double lot = NormLot(InpLotSize * DCA_Mult[slotLvl]);
                     int ord = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
                     Print("RTB: Re-fill slot ", slot, " (level ", slotLvl+1, ") price=", slotPrice);
-                    OpenOrder(ord, lot, DCA_TP[slotLvl], DCA_SL[slotLvl], true);
-                    // Reset bounce — next re-fill needs a fresh bounce
-                    if(posType == POSITION_TYPE_BUY) DCABuyBounced[slot]  = false;
-                    else                              DCASellBounced[slot] = false;
+                    bool ok = OpenOrder(ord, lot, DCA_TP[slotLvl], DCA_SL[slotLvl], true);
+                    ulong newTk = Trade.ResultOrder();
+                    if(ok && newTk > 0) {
+                        if(posType == POSITION_TYPE_BUY) { DCABuyTickets[slot] = newTk; DCABuyBounced[slot]  = false; }
+                        else                              { DCASellTickets[slot] = newTk; DCASellBounced[slot] = false; }
+                    }
                     return;
                 }
             }
@@ -1187,6 +1198,21 @@ void CheckDCA(int posType) {
     if(count >= maxOrds) return;
     double lastPrice = LastOpenPrice(posType);
     if(lastPrice == 0) return;
+
+    // Block new slot nếu có slot đã đóng+bounced mà giá chưa vượt qua cửa sổ re-fill.
+    // Ngăn EA nhảy T5 trong khi T4 đang chờ re-fill ở giá thấp hơn.
+    {
+        double refillTol = 100.0 * point;
+        for(int slot = 0; slot < peak; slot++) {
+            double sp = (posType == POSITION_TYPE_BUY) ? DCABuyPrices[slot] : DCASellPrices[slot];
+            bool   sb = (posType == POSITION_TYPE_BUY) ? DCABuyBounced[slot] : DCASellBounced[slot];
+            if(sp == 0 || !sb || IsSlotOpen(posType, slot)) continue;
+            // Giá còn nằm trên đáy cửa sổ re-fill → chờ re-fill hoặc giá vượt qua
+            bool inOrAboveWindow = (posType == POSITION_TYPE_BUY) ? (bid > sp - refillTol)
+                                                                   : (ask < sp + refillTol);
+            if(inOrAboveWindow) return;
+        }
+    }
 
     int lvl = -1, cumulative = 0;
     for(int i = 0; i < 15; i++) {
@@ -1208,19 +1234,20 @@ void CheckDCA(int posType) {
     }
     if(TimeCurrent() - LastOrderTime < InpOrderDelay) return;
 
-    // Record price before opening
-    if(peak < 15) {
-        if(posType == POSITION_TYPE_BUY) DCABuyPrices[peak]  = ask;
-        else                              DCASellPrices[peak] = bid;
-    }
-
     double lot = NormLot(InpLotSize * DCA_Mult[lvl]);
     int    ord = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
     Print("RTB: DCA level ", lvl+1, " triggered. peak=", peak);
-    OpenOrder(ord, lot, DCA_TP[lvl], DCA_SL[lvl], true);
-
-    if(posType == POSITION_TYPE_BUY) PeakDCABuy++;
-    else                             PeakDCASell++;
+    bool ok = OpenOrder(ord, lot, DCA_TP[lvl], DCA_SL[lvl], true);
+    ulong newTk = Trade.ResultOrder();
+    if(ok && newTk > 0) {
+        if(posType == POSITION_TYPE_BUY) {
+            if(peak < 60) { DCABuyPrices[peak] = bid; DCABuyTickets[peak] = newTk; }
+            PeakDCABuy++;
+        } else {
+            if(peak < 60) { DCASellPrices[peak] = ask; DCASellTickets[peak] = newTk; }
+            PeakDCASell++;
+        }
+    }
 }
 
 //+------------------------------------------------------------------+
@@ -2222,6 +2249,8 @@ int OnInit() {
     ArrayInitialize(DCASellPrices,  0);
     ArrayInitialize(DCABuyBounced,  false);
     ArrayInitialize(DCASellBounced, false);
+    ArrayInitialize(DCABuyTickets,  0);
+    ArrayInitialize(DCASellTickets, 0);
     LastEntryTime  = 0;
     LastDay        = -1;
 
@@ -2267,8 +2296,8 @@ void OnTimer() {
     UpdateDayProfit();
     CheckDayLimit();
 
-    if(CountBuy()  == 0) { TrailBuy  = 0; PeakDCABuy  = 0; ArrayInitialize(DCABuyPrices,   0); ArrayInitialize(DCABuyBounced,  false); }
-    if(CountSell() == 0) { TrailSell = 0; PeakDCASell = 0; ArrayInitialize(DCASellPrices,  0); ArrayInitialize(DCASellBounced, false); }
+    if(CountBuy()  == 0) { TrailBuy  = 0; PeakDCABuy  = 0; ArrayInitialize(DCABuyPrices,  0); ArrayInitialize(DCABuyBounced,  false); ArrayInitialize(DCABuyTickets,  0); }
+    if(CountSell() == 0) { TrailSell = 0; PeakDCASell = 0; ArrayInitialize(DCASellPrices, 0); ArrayInitialize(DCASellBounced, false); ArrayInitialize(DCASellTickets, 0); }
 
     // Exit checks (basket close conditions)
     if(!InpStealthMode) CheckExit();

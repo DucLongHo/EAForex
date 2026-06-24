@@ -348,10 +348,6 @@ double   DayProfit      = 0.0;
 int      LastDay        = -1;
 bool     DayLimitHit    = false;
 
-// Thay YOUR_SCRIPT_ID bằng ID thực từ Google Apps Script deploy URL
-// Không dùng input để URL không hiển thị trong cài đặt EA
-const string LICENSE_URL = "https://script.google.com/macros/s/AKfycbwfKLYX36os92cQqn53XZ1ZKK0BOspHv17C0SeLPPozoF9v0gXIpYTPYOgphkxx1-9kRg/exec";
-
 // Basket trail levels
 double   TrailBuy  = 0.0;
 double   TrailSell = 0.0;
@@ -2237,51 +2233,6 @@ void InitPyra() {
     PYRA_Dist[7]=InpPyra8Dist; PYRA_TP[7]=InpPyra8TP;   PYRA_SL[7]=InpPyra8SL;
 }
 
-//+------------------------------------------------------------------+
-//| LICENSE CHECK                                                    |
-//+------------------------------------------------------------------+
-bool CheckLicense() {
-    if(StringFind(LICENSE_URL, "YOUR_SCRIPT_ID") >= 0) {
-        Print("RTB: LICENSE_URL chưa được cấu hình trong source code.");
-        return false;
-    }
-
-    long   accID = AccountInfoInteger(ACCOUNT_LOGIN);
-    string url   = LICENSE_URL + "?id=" + IntegerToString(accID);
-
-    char   post[];
-    char   result[];
-    string headers;
-    ResetLastError();
-    int httpCode = WebRequest("GET", url, "", "", 10000, post, 0, result, headers);
-
-    if(httpCode == -1) {
-        int err = GetLastError();
-        string hint = (err == 4014)
-            ? " — Vào MT5: Tools > Options > Expert Advisors > Allow WebRequest, thêm: https://script.google.com"
-            : " — Lỗi mạng: " + IntegerToString(err);
-        Print("RTB: Không kết nối được server bản quyền", hint);
-        return false;
-    }
-
-    string response = CharArrayToString(result);
-    if(StringFind(response, "\"status\":\"ok\"") >= 0) {
-        Print("RTB: License OK — Account ", accID);
-        return true;
-    }
-
-    // Extract reason from JSON for clearer log
-    string reason = "denied";
-    int rPos = StringFind(response, "\"reason\":\"");
-    if(rPos >= 0) {
-        int rStart = rPos + 10;
-        int rEnd   = StringFind(response, "\"", rStart);
-        if(rEnd > rStart) reason = StringSubstr(response, rStart, rEnd - rStart);
-    }
-    Print("RTB: License DENIED — Account ", accID, " | Lý do: ", reason);
-    Alert("RTB: Bản quyền không hợp lệ. Liên hệ nhà cung cấp.");
-    return false;
-}
 
 //+------------------------------------------------------------------+
 //| REBUILD DCA STATE FROM DEAL HISTORY (after restart)             |
@@ -2356,26 +2307,21 @@ void RebuildDCAState(int posType) {
         openCount++;
     }
 
-    double priceStep = _Point * 5; // tolerance for price match
+    double priceStep = _Point * 5;
 
     if(posType == POSITION_TYPE_BUY) {
         PeakDCABuy = count;
         for(int s = 0; s < count && s < 60; s++) {
             DCABuyPrices[s] = slotPrices[s];
-            // Try original position ticket first
             DCABuyTickets[s] = PositionSelectByTicket(slotPosIds[s]) ? slotPosIds[s] : 0;
-            // Fallback: find open position at same price (re-fill already filled)
             if(DCABuyTickets[s] == 0) {
                 for(int p = 0; p < openCount; p++) {
                     if(openTks[p] == 0) continue;
                     if(MathAbs(openPrices[p] - slotPrices[s]) < priceStep) {
-                        DCABuyTickets[s] = openTks[p];
-                        openTks[p] = 0; // mark used — prevent assigning same position to two slots
-                        break;
+                        DCABuyTickets[s] = openTks[p]; openTks[p] = 0; break;
                     }
                 }
             } else {
-                // Mark original position as used so price-match doesn't reassign it
                 for(int p = 0; p < openCount; p++) {
                     if(openTks[p] == DCABuyTickets[s]) { openTks[p] = 0; break; }
                 }
@@ -2390,9 +2336,7 @@ void RebuildDCAState(int posType) {
                 for(int p = 0; p < openCount; p++) {
                     if(openTks[p] == 0) continue;
                     if(MathAbs(openPrices[p] - slotPrices[s]) < priceStep) {
-                        DCASellTickets[s] = openTks[p];
-                        openTks[p] = 0;
-                        break;
+                        DCASellTickets[s] = openTks[p]; openTks[p] = 0; break;
                     }
                 }
             } else {
@@ -2409,7 +2353,6 @@ void RebuildDCAState(int posType) {
 //| EVENT HANDLERS                                                   |
 //+------------------------------------------------------------------+
 int OnInit() {
-    if(!CheckLicense()) return INIT_FAILED;
 
     Trade.SetExpertMagicNumber(InpMagic);
     Trade.SetDeviationInPoints(50);
@@ -2453,7 +2396,7 @@ int OnInit() {
         if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
         if(OrderGetInteger(ORDER_MAGIC) != (long)InpMagic) continue;
         string ocmt = OrderGetString(ORDER_COMMENT);
-        if(StringFind(ocmt, "|RF") < 0) continue; // chỉ cancel re-fill orders (có |RF suffix)
+        if(StringFind(ocmt, "|RF") < 0) continue;
         ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
         if(ot == ORDER_TYPE_BUY_LIMIT || ot == ORDER_TYPE_SELL_LIMIT ||
            ot == ORDER_TYPE_BUY_STOP  || ot == ORDER_TYPE_SELL_STOP)

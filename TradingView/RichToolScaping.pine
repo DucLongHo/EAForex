@@ -10,6 +10,9 @@ InpTablePos = input.string("Bottom Left", title="Vị trí bảng",
               "Middle Left", "Middle Center", "Middle Right",
               "Bottom Left", "Bottom Center", "Bottom Right",
               "Left Center"])
+InpTblTextSize = input.string("Auto", title="Cỡ chữ bảng (Auto = tự co theo màn hình)",
+     options=["Auto", "Tiny", "Small", "Normal", "Large"])
+InpMobileMode = input.bool(false, title="Chế độ Mobile (bảng chính chỉ hiện M15/H1/H4/D1)")
 
 disp = display.all - display.status_line
 
@@ -116,9 +119,18 @@ trdTP1   = input.float(10.0, 'TP1 (giá)',  minval=0, step=0.1, group=trdGR)
 trdTP2   = input.float(20.0, 'TP2 (giá)',  minval=0, step=0.1, group=trdGR)
 trdTP3   = input.float(50.0, 'TP3 (giá)',  minval=0, step=0.1, group=trdGR)
 trdLvlSH = input.bool(true, 'Vẽ Entry/SL/TP lên chart', group=trdGR)
+trdTxtSize = input.string('Auto', 'Cỡ chữ bảng lệnh (Auto = tự co theo màn hình)',
+     options=['Auto', 'Tiny', 'Small', 'Normal', 'Large'], group=trdGR)
+trdMobileMode = input.bool(false, 'Chế độ Mobile (chỉ hiện 1 khung giờ)', group=trdGR)
+trdMobileTF   = input.string('M15', 'Khung giờ hiển thị (Mobile)', options=['M5', 'M15', 'M30'], group=trdGR)
 
 _sz(s) =>
     s == "Tiny" ? size.tiny : s == "Small" ? size.small : s == "Normal" ? size.normal : s == "Large" ? size.large : size.huge
+
+// "Auto" (hoặc giá trị lạ) → size.auto: TradingView tự co chữ theo kích thước màn hình/pane,
+// giúp bảng đọc được trên điện thoại thay vì dùng cỡ chữ cố định.
+_tblSz(s) =>
+    s == "Tiny" ? size.tiny : s == "Small" ? size.small : s == "Normal" ? size.normal : s == "Large" ? size.large : size.auto
 
 _buy_style() =>
     InpShape == "Arrow"   ? label.style_arrowup   :
@@ -742,28 +754,41 @@ alertcondition(sig_sell,
      message = "Rich Tool Scaping ▼ SELL — Score xuống dưới −50%")
 
 // ═══════════════════════════════════════════════════════════
-//  TABLE  (10 cột × 8 hàng)
+//  TABLE  (9 cột × 8 hàng, hoặc 5 cột nếu bật Chế độ Mobile)
 // ═══════════════════════════════════════════════════════════
 var table tbl    = na
 var table trdTbl = na
 
 C_HDR = InpTblBg
 C_LBL = InpTblBg
+_tblTxtSz = _tblSz(InpTblTextSize)
+
+// Chế độ Mobile: chỉ giữ 4 khung quan trọng (M15/H1/H4/D1) thay vì đủ 8 khung,
+// giảm bề ngang bảng cho vừa màn hình điện thoại. Index tham chiếu vào các
+// mảng 8-phần-tử theo thứ tự cố định: 0=M1 1=M5 2=M15 3=M30 4=H1 5=H4 6=D1 7=W1
+selCols = InpMobileMode ? array.from(2, 4, 5, 6) : array.from(0, 1, 2, 3, 4, 5, 6, 7)
+nCols   = selCols.size()
 
 if barstate.islast
-    tbl := table.new(_tblPos, 9, 8,
+    tbl := table.new(_tblPos, nCols + 1, 8,
          border_color = color.new(color.gray, 70),
          border_width  = 1,
          frame_color   = color.new(color.gray, 50),
          frame_width   = 1)
 
     // ── Header row ──────────────────────────────────────────
-    tfs = array.from("TF", "M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1")
-    for i = 0 to 8
-        table.cell(tbl, i, 0, array.get(tfs, i),
+    tfNames = array.from("M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1")
+    table.cell(tbl, 0, 0, "TF",
+         text_color = InpTblHdrTxt,
+         bgcolor    = C_HDR,
+         text_size  = _tblTxtSz,
+         text_halign = text.align_center)
+    for idx = 0 to nCols - 1
+        tfIdx = array.get(selCols, idx)
+        table.cell(tbl, idx + 1, 0, array.get(tfNames, tfIdx),
              text_color = InpTblHdrTxt,
              bgcolor    = C_HDR,
-             text_size  = size.normal,
+             text_size  = _tblTxtSz,
              text_halign = text.align_center)
 
     // ── Row labels ──────────────────────────────────────────
@@ -772,7 +797,7 @@ if barstate.islast
         table.cell(tbl, 0, r + 1, array.get(labels, r),
              text_color = InpTblLblTxt,
              bgcolor    = C_LBL,
-             text_size  = size.normal,
+             text_size  = _tblTxtSz,
              text_halign = text.align_left)
 
     // ── Signal arrays ───────────────────────────────────────
@@ -782,15 +807,16 @@ if barstate.islast
     ichi_row = array.from(ichi_m1, ichi_m5, ichi_m15, ichi_m30, ichi_h1, ichi_h4, ichi_d1, ichi_w1)
     cs_row   = array.from(cs_m1,   cs_m5,   cs_m15,   cs_m30f,  cs_h1f,  cs_h4,   cs_d1,   cs_w1)
 
-    for c = 0 to 7
-        ev = array.get(ema_row,  c)
-        rv = array.get(rsi_row,  c)
-        mv = array.get(macd_row, c)
-        iv = array.get(ichi_row, c)
-        table.cell(tbl, c+1, 1, sig_txt(ev), text_color=color.white, bgcolor=sig_col(ev), text_size=size.normal, text_halign=text.align_center)
-        table.cell(tbl, c+1, 2, sig_txt(rv), text_color=color.white, bgcolor=sig_col(rv), text_size=size.normal, text_halign=text.align_center)
-        table.cell(tbl, c+1, 3, sig_txt(mv), text_color=color.white, bgcolor=sig_col(mv), text_size=size.normal, text_halign=text.align_center)
-        table.cell(tbl, c+1, 4, sig_txt(iv), text_color=color.white, bgcolor=sig_col(iv), text_size=size.normal, text_halign=text.align_center)
+    for idx = 0 to nCols - 1
+        tfIdx = array.get(selCols, idx)
+        ev = array.get(ema_row,  tfIdx)
+        rv = array.get(rsi_row,  tfIdx)
+        mv = array.get(macd_row, tfIdx)
+        iv = array.get(ichi_row, tfIdx)
+        table.cell(tbl, idx+1, 1, sig_txt(ev), text_color=color.white, bgcolor=sig_col(ev), text_size=_tblTxtSz, text_halign=text.align_center)
+        table.cell(tbl, idx+1, 2, sig_txt(rv), text_color=color.white, bgcolor=sig_col(rv), text_size=_tblTxtSz, text_halign=text.align_center)
+        table.cell(tbl, idx+1, 3, sig_txt(mv), text_color=color.white, bgcolor=sig_col(mv), text_size=_tblTxtSz, text_halign=text.align_center)
+        table.cell(tbl, idx+1, 4, sig_txt(iv), text_color=color.white, bgcolor=sig_col(iv), text_size=_tblTxtSz, text_halign=text.align_center)
 
     // ── Score weights (từ spec) ─────────────────────────────
     //                  M1  M3   M5  M15  M30  H1   H4   D1   W1
@@ -800,33 +826,34 @@ if barstate.islast
     ichi_wt = array.from( 4,  6,   8,  10,  12,  15,  20,  25)
 
     // ── Score & Signal rows (per TF) ────────────────────────
-    for c = 0 to 7
-        ew = array.get(ema_wt,  c)
-        rw = array.get(rsi_wt,  c)
-        mw = array.get(macd_wt, c)
-        iw = array.get(ichi_wt, c)
+    for idx = 0 to nCols - 1
+        tfIdx = array.get(selCols, idx)
+        ew = array.get(ema_wt,  tfIdx)
+        rw = array.get(rsi_wt,  tfIdx)
+        mw = array.get(macd_wt, tfIdx)
+        iw = array.get(ichi_wt, tfIdx)
         tw = float(ew + rw + mw + iw)
 
-        sc = (float(array.get(ema_row,  c)) * ew +
-              float(array.get(rsi_row,  c)) * rw +
-              float(array.get(macd_row, c)) * mw +
-              float(array.get(ichi_row, c)) * iw) / tw * 100.0
+        sc = (float(array.get(ema_row,  tfIdx)) * ew +
+              float(array.get(rsi_row,  tfIdx)) * rw +
+              float(array.get(macd_row, tfIdx)) * mw +
+              float(array.get(ichi_row, tfIdx)) * iw) / tw * 100.0
 
-        table.cell(tbl, c+1, 5,
+        table.cell(tbl, idx+1, 5,
              str.tostring(math.round(sc)) + "%",
              text_color = color.white,
              bgcolor    = score_col(sc),
-             text_size  = size.normal,
+             text_size  = _tblTxtSz,
              text_halign = text.align_center)
 
-        cs_v = array.get(cs_row, c)
+        cs_v = array.get(cs_row, tfIdx)
         lbl = (cs_v > 0 ? (sc >= 75.0 ? "MẠNH ↑ " : " TĂNG  ") :
                cs_v < 0 ? (sc <= -75.0 ? "MẠNH ↓ " : " GIẢM  ") : " NONE ")
         _sig_bg = cs_v != 0 ? score_col(sc) : InpTblNeutral
-        table.cell(tbl, c+1, 6, lbl,
+        table.cell(tbl, idx+1, 6, lbl,
              text_color  = color.white,
              bgcolor     = _sig_bg,
-             text_size   = size.normal,
+             text_size   = _tblTxtSz,
              text_halign = text.align_center)
 
     // ── Overall row (tổng hợp tất cả TF + indicator) ────────
@@ -840,9 +867,9 @@ if barstate.islast
     table.cell(tbl, 1, 7, overall_lbl,
          text_color = color.white,
          bgcolor    = oc,
-         text_size  = size.normal,
+         text_size  = _tblTxtSz,
          text_halign = text.align_center)
-    table.merge_cells(tbl, 1, 7, 8, 7)
+    table.merge_cells(tbl, 1, 7, nCols, 7)
 
 // ═══════════════════════════════════════════════════════════
 //  TRADE SIGNAL TABLE (Bảng Lệnh)
@@ -850,6 +877,7 @@ if barstate.islast
 if trdSH and barstate.islast
     _C    = color.new(#0d1b2a, 0)
     _B    = color.new(color.gray, 60)
+    _trdTxtSz = _tblSz(trdTxtSize)
     csLbl = cur_cs == 1 ? 'Đồng\nThuận ↑' : cur_cs == -1 ? 'Đồng\nThuận ↓' : 'Phân Kỳ'
     csC   = cur_cs == 1 ? color.lime : cur_cs == -1 ? color.red : color.silver
     m5_entC  = na(m5_entry)  ? color.white : m5_dir  > 0 ? color.lime : color.red
@@ -872,56 +900,90 @@ if trdSH and barstate.islast
                   m30_tp2_hit ? _calcPnlAt(m30_entry, m30_dir, m30_tp2, trdVol, trdMult) :
                   m30_tp1_hit ? _calcPnlAt(m30_entry, m30_dir, m30_tp1, trdVol, trdMult) : float(na)
     pnl30 = m30_tp3_hit ? pnl30_floor : na(pnl30_floor) ? pnl30_raw : na(pnl30_raw) ? pnl30_floor : math.max(pnl30_raw, pnl30_floor)
+
+    // Chế độ Mobile: chọn 1 khung giờ duy nhất thay vì hiện cả M5/M15/M30 cùng lúc
+    sel_entry = trdMobileTF == 'M5' ? m5_entry : trdMobileTF == 'M15' ? m15_entry : m30_entry
+    sel_entC  = trdMobileTF == 'M5' ? m5_entC  : trdMobileTF == 'M15' ? m15_entC  : m30_entC
+    sel_sl    = trdMobileTF == 'M5' ? m5_sl    : trdMobileTF == 'M15' ? m15_sl    : m30_sl
+    sel_tp1   = trdMobileTF == 'M5' ? m5_tp1   : trdMobileTF == 'M15' ? m15_tp1   : m30_tp1
+    sel_tp2   = trdMobileTF == 'M5' ? m5_tp2   : trdMobileTF == 'M15' ? m15_tp2   : m30_tp2
+    sel_tp3   = trdMobileTF == 'M5' ? m5_tp3   : trdMobileTF == 'M15' ? m15_tp3   : m30_tp3
+    sel_pnl   = trdMobileTF == 'M5' ? pnl5     : trdMobileTF == 'M15' ? pnl15     : pnl30
+
     trdTbl := table.new(_trdPos, 4, 13,
          border_color=_B, border_width=1,
          frame_color=color.new(color.gray, 40), frame_width=2,
          bgcolor=_C)
     // ── Section 1: Đánh Giá Chỉ Báo ──────────────────────────
-    table.cell(trdTbl, 0, 0, 'Dữ Liệu',  text_color=color.yellow, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 1, 0, 'Đánh Giá', text_color=color.yellow, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 0, 0, 'Dữ Liệu',  text_color=color.yellow, bgcolor=_C, text_size=_trdTxtSz)
+    table.cell(trdTbl, 1, 0, 'Đánh Giá', text_color=color.yellow, bgcolor=_C, text_size=_trdTxtSz)
     table.merge_cells(trdTbl, 1, 0, 3, 0)
-    table.cell(trdTbl, 0, 1, 'Xu Hướng EMA',       text_color=color.silver, bgcolor=_C, text_size=size.normal, text_halign=text.align_left)
-    table.cell(trdTbl, 1, 1, _dir(cur_ema),          text_color=_dirC(cur_ema),  bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 0, 2, 'Dòng Tiền Ichimoku',  text_color=color.silver, bgcolor=_C, text_size=size.normal, text_halign=text.align_left)
-    table.cell(trdTbl, 1, 2, _dir(cur_ichi),          text_color=_dirC(cur_ichi), bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 0, 3, 'Động Lượng MACD',     text_color=color.silver, bgcolor=_C, text_size=size.normal, text_halign=text.align_left)
-    table.cell(trdTbl, 1, 3, _dir(cur_macd),          text_color=_dirC(cur_macd), bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 0, 4, 'Sức Mạnh RSI',        text_color=color.silver, bgcolor=_C, text_size=size.normal, text_halign=text.align_left)
-    table.cell(trdTbl, 1, 4, _dir(cur_rsi),           text_color=_dirC(cur_rsi),  bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 2, 1, csLbl, text_color=csC, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 0, 1, 'Xu Hướng EMA',       text_color=color.silver, bgcolor=_C, text_size=_trdTxtSz, text_halign=text.align_left)
+    table.cell(trdTbl, 1, 1, _dir(cur_ema),          text_color=_dirC(cur_ema),  bgcolor=_C, text_size=_trdTxtSz)
+    table.cell(trdTbl, 0, 2, 'Dòng Tiền Ichimoku',  text_color=color.silver, bgcolor=_C, text_size=_trdTxtSz, text_halign=text.align_left)
+    table.cell(trdTbl, 1, 2, _dir(cur_ichi),          text_color=_dirC(cur_ichi), bgcolor=_C, text_size=_trdTxtSz)
+    table.cell(trdTbl, 0, 3, 'Động Lượng MACD',     text_color=color.silver, bgcolor=_C, text_size=_trdTxtSz, text_halign=text.align_left)
+    table.cell(trdTbl, 1, 3, _dir(cur_macd),          text_color=_dirC(cur_macd), bgcolor=_C, text_size=_trdTxtSz)
+    table.cell(trdTbl, 0, 4, 'Sức Mạnh RSI',        text_color=color.silver, bgcolor=_C, text_size=_trdTxtSz, text_halign=text.align_left)
+    table.cell(trdTbl, 1, 4, _dir(cur_rsi),           text_color=_dirC(cur_rsi),  bgcolor=_C, text_size=_trdTxtSz)
+    table.cell(trdTbl, 2, 1, csLbl, text_color=csC, bgcolor=_C, text_size=_trdTxtSz)
     table.merge_cells(trdTbl, 2, 1, 3, 4)
     // ── Section 2: Tín Hiệu Lệnh ──────────────────────────────
-    table.cell(trdTbl, 0, 5, 'Tín Hiệu', text_color=color.yellow, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 1, 5, 'Kết Luận', text_color=color.yellow, bgcolor=_C, text_size=size.normal)
+    table.cell(trdTbl, 0, 5, 'Tín Hiệu', text_color=color.yellow, bgcolor=_C, text_size=_trdTxtSz)
+    table.cell(trdTbl, 1, 5, 'Kết Luận', text_color=color.yellow, bgcolor=_C, text_size=_trdTxtSz)
     table.merge_cells(trdTbl, 1, 5, 3, 5)
-    table.cell(trdTbl, 0, 6, 'Time', text_color=color.silver, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 1, 6, 'M5',   text_color=color.silver, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 2, 6, 'M15',  text_color=color.silver, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 3, 6, 'M30',  text_color=color.silver, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 0, 7, 'Entry', text_color=color.white,  bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 1, 7, _prFmt(m5_entry),  text_color=m5_entC,  bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 2, 7, _prFmt(m15_entry), text_color=m15_entC, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 3, 7, _prFmt(m30_entry), text_color=m30_entC, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 0, 8, 'SL', text_color=color.red, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 1, 8, _prFmt(na(m5_entry)  ? float(na) : m5_sl),  text_color=color.red, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 2, 8, _prFmt(na(m15_entry) ? float(na) : m15_sl), text_color=color.red, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 3, 8, _prFmt(na(m30_entry) ? float(na) : m30_sl), text_color=color.red, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 0, 9,  'TP1', text_color=color.lime, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 1, 9,  _prFmt(na(m5_entry)  ? float(na) : m5_tp1),  text_color=color.lime, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 2, 9,  _prFmt(na(m15_entry) ? float(na) : m15_tp1), text_color=color.lime, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 3, 9,  _prFmt(na(m30_entry) ? float(na) : m30_tp1), text_color=color.lime, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 0, 10, 'TP2', text_color=color.lime, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 1, 10, _prFmt(na(m5_entry)  ? float(na) : m5_tp2),  text_color=color.lime, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 2, 10, _prFmt(na(m15_entry) ? float(na) : m15_tp2), text_color=color.lime, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 3, 10, _prFmt(na(m30_entry) ? float(na) : m30_tp2), text_color=color.lime, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 0, 11, 'TP3', text_color=color.lime, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 1, 11, _prFmt(na(m5_entry)  ? float(na) : m5_tp3),  text_color=color.lime, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 2, 11, _prFmt(na(m15_entry) ? float(na) : m15_tp3), text_color=color.lime, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 3, 11, _prFmt(na(m30_entry) ? float(na) : m30_tp3), text_color=color.lime, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 0, 12, 'Float PNL', text_color=color.silver, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 1, 12, _pnlStr(pnl5),  text_color=na(pnl5)  ? color.silver : pnl5  >= 0 ? color.lime : color.red, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 2, 12, _pnlStr(pnl15), text_color=na(pnl15) ? color.silver : pnl15 >= 0 ? color.lime : color.red, bgcolor=_C, text_size=size.normal)
-    table.cell(trdTbl, 3, 12, _pnlStr(pnl30), text_color=na(pnl30) ? color.silver : pnl30 >= 0 ? color.lime : color.red, bgcolor=_C, text_size=size.normal)
+    if trdMobileMode
+        // Chỉ 1 khung giờ, ô dữ liệu gộp cả 3 cột (1-3) cho dễ đọc trên điện thoại
+        table.cell(trdTbl, 0, 6, 'Time', text_color=color.silver, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 1, 6, trdMobileTF, text_color=color.silver, bgcolor=_C, text_size=_trdTxtSz)
+        table.merge_cells(trdTbl, 1, 6, 3, 6)
+        table.cell(trdTbl, 0, 7, 'Entry', text_color=color.white, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 1, 7, _prFmt(sel_entry), text_color=sel_entC, bgcolor=_C, text_size=_trdTxtSz)
+        table.merge_cells(trdTbl, 1, 7, 3, 7)
+        table.cell(trdTbl, 0, 8, 'SL', text_color=color.red, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 1, 8, _prFmt(na(sel_entry) ? float(na) : sel_sl), text_color=color.red, bgcolor=_C, text_size=_trdTxtSz)
+        table.merge_cells(trdTbl, 1, 8, 3, 8)
+        table.cell(trdTbl, 0, 9, 'TP1', text_color=color.lime, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 1, 9, _prFmt(na(sel_entry) ? float(na) : sel_tp1), text_color=color.lime, bgcolor=_C, text_size=_trdTxtSz)
+        table.merge_cells(trdTbl, 1, 9, 3, 9)
+        table.cell(trdTbl, 0, 10, 'TP2', text_color=color.lime, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 1, 10, _prFmt(na(sel_entry) ? float(na) : sel_tp2), text_color=color.lime, bgcolor=_C, text_size=_trdTxtSz)
+        table.merge_cells(trdTbl, 1, 10, 3, 10)
+        table.cell(trdTbl, 0, 11, 'TP3', text_color=color.lime, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 1, 11, _prFmt(na(sel_entry) ? float(na) : sel_tp3), text_color=color.lime, bgcolor=_C, text_size=_trdTxtSz)
+        table.merge_cells(trdTbl, 1, 11, 3, 11)
+        table.cell(trdTbl, 0, 12, 'Float PNL', text_color=color.silver, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 1, 12, _pnlStr(sel_pnl), text_color=na(sel_pnl) ? color.silver : sel_pnl >= 0 ? color.lime : color.red, bgcolor=_C, text_size=_trdTxtSz)
+        table.merge_cells(trdTbl, 1, 12, 3, 12)
+    else
+        table.cell(trdTbl, 0, 6, 'Time', text_color=color.silver, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 1, 6, 'M5',   text_color=color.silver, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 2, 6, 'M15',  text_color=color.silver, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 3, 6, 'M30',  text_color=color.silver, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 0, 7, 'Entry', text_color=color.white,  bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 1, 7, _prFmt(m5_entry),  text_color=m5_entC,  bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 2, 7, _prFmt(m15_entry), text_color=m15_entC, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 3, 7, _prFmt(m30_entry), text_color=m30_entC, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 0, 8, 'SL', text_color=color.red, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 1, 8, _prFmt(na(m5_entry)  ? float(na) : m5_sl),  text_color=color.red, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 2, 8, _prFmt(na(m15_entry) ? float(na) : m15_sl), text_color=color.red, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 3, 8, _prFmt(na(m30_entry) ? float(na) : m30_sl), text_color=color.red, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 0, 9,  'TP1', text_color=color.lime, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 1, 9,  _prFmt(na(m5_entry)  ? float(na) : m5_tp1),  text_color=color.lime, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 2, 9,  _prFmt(na(m15_entry) ? float(na) : m15_tp1), text_color=color.lime, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 3, 9,  _prFmt(na(m30_entry) ? float(na) : m30_tp1), text_color=color.lime, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 0, 10, 'TP2', text_color=color.lime, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 1, 10, _prFmt(na(m5_entry)  ? float(na) : m5_tp2),  text_color=color.lime, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 2, 10, _prFmt(na(m15_entry) ? float(na) : m15_tp2), text_color=color.lime, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 3, 10, _prFmt(na(m30_entry) ? float(na) : m30_tp2), text_color=color.lime, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 0, 11, 'TP3', text_color=color.lime, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 1, 11, _prFmt(na(m5_entry)  ? float(na) : m5_tp3),  text_color=color.lime, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 2, 11, _prFmt(na(m15_entry) ? float(na) : m15_tp3), text_color=color.lime, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 3, 11, _prFmt(na(m30_entry) ? float(na) : m30_tp3), text_color=color.lime, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 0, 12, 'Float PNL', text_color=color.silver, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 1, 12, _pnlStr(pnl5),  text_color=na(pnl5)  ? color.silver : pnl5  >= 0 ? color.lime : color.red, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 2, 12, _pnlStr(pnl15), text_color=na(pnl15) ? color.silver : pnl15 >= 0 ? color.lime : color.red, bgcolor=_C, text_size=_trdTxtSz)
+        table.cell(trdTbl, 3, 12, _pnlStr(pnl30), text_color=na(pnl30) ? color.silver : pnl30 >= 0 ? color.lime : color.red, bgcolor=_C, text_size=_trdTxtSz)
 
 // ═══════════════════════════════════════════════════════════
 //  CHART LEVELS — Entry / SL / TP

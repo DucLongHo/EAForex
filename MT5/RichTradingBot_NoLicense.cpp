@@ -87,6 +87,8 @@ input group         "══════ DCA - CÀI ĐẶT CHUNG ═════�
 input  ENUM_DCA_MODE InpDCAMode     = DCA_STEP; // DCA: Chế độ (áp dụng cho tất cả tầng)
 input  bool          InpDCABuyEnable  = true;   // DCA: Bật DCA chiều Buy
 input  bool          InpDCASellEnable = true;   // DCA: Bật DCA chiều Sell
+input  bool          InpDCAArithEnable = false; // DCA: Bật Vol Cấp Số Cộng (bỏ qua Hệ số Lot từng tầng)
+input  double        InpDCAArithStep   = 0.01;  // DCA: Cộng thêm Vol mỗi lệnh DCA sau (lots)
 
 input group         "══════ DCA - TẦNG 1 ══════"; //
 input  double  InpDCA1Mult = 1.5;    // DCA T1: Hệ số Lot
@@ -587,6 +589,15 @@ double NormLot(double lot) {
     double stepL = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
     lot = MathRound(lot / stepL) * stepL;
     return MathMax(minL, MathMin(maxL, lot));
+}
+
+// Lot của lệnh DCA thứ orderIdx1 (1-based: 1=lệnh DCA đầu tiên).
+// InpDCAArithEnable=true  → baseLot + orderIdx1 * InpDCAArithStep (bỏ qua hệ số tầng)
+// InpDCAArithEnable=false → baseLot * DCA_Mult[lvl] (hệ số tầng như cũ)
+double DCAOrderLot(double baseLot, int orderIdx1, int lvl) {
+    if(InpDCAArithEnable)
+        return NormLot(baseLot + orderIdx1 * InpDCAArithStep);
+    return NormLot(baseLot * DCA_Mult[lvl]);
 }
 
 //+------------------------------------------------------------------+
@@ -1149,7 +1160,7 @@ void CheckDCA(int posType) {
 
         double baseLot = OldestManualLot(posType);
         if(baseLot <= 0) baseLot = InpLotSize;
-        double lot = NormLot(baseLot * DCA_Mult[lvl]);
+        double lot = DCAOrderLot(baseLot, dcaCount + 1, lvl);
         int ord = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
         Print("RTB: DCA level ", lvl+1, " triggered dcaCount=", dcaCount, " [primary chain only]");
         OpenOrder(ord, lot, DCA_TP[lvl], DCA_SL[lvl], true);
@@ -1225,7 +1236,7 @@ void CheckDCA(int posType) {
                     if(posType == POSITION_TYPE_SELL && sig != -1) continue;
                 }
 
-                double lot = NormLot(InpLotSize * DCA_Mult[slotLvl]);
+                double lot = DCAOrderLot(InpLotSize, slot + 1, slotLvl);
                 // |RF suffix marks re-fill orders so RebuildDCAState can skip them (they aren't new slots)
                 string cmt = (DCA_TP[slotLvl] == 0 && DCA_SL[slotLvl] == 0)
                     ? "RTB|0|0|D|RF"
@@ -1299,7 +1310,7 @@ void CheckDCA(int posType) {
     }
     if(TimeCurrent() - LastOrderTime < InpOrderDelay) return;
 
-    double lot = NormLot(InpLotSize * DCA_Mult[lvl]);
+    double lot = DCAOrderLot(InpLotSize, peak + 1, lvl);
     int    ord = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
     Print("RTB: DCA level ", lvl+1, " triggered. peak=", peak);
     bool ok = OpenOrder(ord, lot, DCA_TP[lvl], DCA_SL[lvl], true);
@@ -1453,26 +1464,51 @@ void CheckTrimming() {
         }
     }
 
-    // Hedging trim: close pairs of best+worst up to min(MaxWin, MaxLoss)
+    // Hedging trim: 1 best covers up to InpTrimMaxLoss worst positions per cycle
+    // MaxWin controls how many such cycles to attempt per second
     if(InpTrimHedge) {
-        int pairs  = MathMin(InpTrimMaxLoss, InpTrimMaxWin);
-        int closed = 0;
-        for(int n = 0; n < pairs; n++) {
-            ulong worstTk = WorstTicket();
-            ulong bestTk  = BestTicket();
-            if(worstTk == 0 || bestTk == 0 || worstTk == bestTk) break;
-            if(!PositionSelectByTicket(bestTk))  break;
+        int closedCycles = 0;
+        for(int w = 0; w < InpTrimMaxWin; w++) {
+            ulong bestTk = BestTicket();
+            if(bestTk == 0 || !PositionSelectByTicket(bestTk)) break;
             double bestP = PositionGetDouble(POSITION_PROFIT);
-            if(!PositionSelectByTicket(worstTk)) break;
-            double worstP = PositionGetDouble(POSITION_PROFIT);
-            if(bestP + worstP >= InpTrimTarget) {
-                Trade.PositionClose(worstTk);
+
+            // Collect up to InpTrimMaxLoss worst tickets (excluding bestTk and already picked)
+            ulong  worstTks[8];
+            int    wn      = 0;
+            double worstSum = 0;
+            ulong  excluded[9];
+            int    exCount = 1;
+            excluded[0] = bestTk;
+
+            for(int n = 0; n < InpTrimMaxLoss; n++) {
+                ulong  wtk  = 0;
+                double wval = 0;
+                for(int i = PositionsTotal()-1; i >= 0; i--) {
+                    ulong tk = PositionGetTicket(i);
+                    if(!PositionSelectByTicket(tk)) continue;
+                    if(!IsManaged()) continue;
+                    bool skip = false;
+                    for(int e = 0; e < exCount; e++) if(tk == excluded[e]) { skip = true; break; }
+                    if(skip) continue;
+                    double p = PositionGetDouble(POSITION_PROFIT);
+                    if(wtk == 0 || p < wval) { wtk = tk; wval = p; }
+                }
+                if(wtk == 0) break;
+                worstTks[wn] = wtk;
+                worstSum    += wval;
+                excluded[exCount++] = wtk;
+                wn++;
+            }
+
+            if(wn > 0 && bestP + worstSum >= InpTrimTarget) {
                 Trade.PositionClose(bestTk);
-                closed++;
+                for(int i = 0; i < wn; i++) Trade.PositionClose(worstTks[i]);
+                closedCycles++;
             } else break;
         }
-        if(closed > 0) {
-            Print("RTB: Hedge trim, pairs=", closed);
+        if(closedCycles > 0) {
+            Print("RTB: Hedge trim cycles=", closedCycles, " x up to ", InpTrimMaxLoss, " losers");
             return;
         }
     }
@@ -1777,14 +1813,16 @@ void UpdateDayProfit() {
 //+------------------------------------------------------------------+
 void CheckDayLimit() {
     if(DayLimitHit) return;
-    if(InpDayMaxLoss > 0 && DayProfit <= -InpDayMaxLoss) {
-        Print("RTB: Day loss limit $", InpDayMaxLoss, " hit. DayProfit=", DayProfit, ". Closing all.");
+    // Dùng equity = lãi đã chốt hôm nay + floating hiện tại (phản ứng ngay dù chưa đóng lệnh)
+    double equity = DayProfit + FloatProfit();
+    if(InpDayMaxLoss > 0 && equity <= -InpDayMaxLoss) {
+        Print("RTB: Day loss limit $", InpDayMaxLoss, " hit. equity=", equity, ". Closing all.");
         CloseAll();
         DayLimitHit = true;
         return;
     }
-    if(InpDayMaxProfit > 0 && DayProfit >= InpDayMaxProfit) {
-        Print("RTB: Day profit target $", InpDayMaxProfit, " hit. DayProfit=", DayProfit, ". Closing all.");
+    if(InpDayMaxProfit > 0 && equity >= InpDayMaxProfit) {
+        Print("RTB: Day profit target $", InpDayMaxProfit, " hit. equity=", equity, ". Closing all.");
         CloseAll();
         DayLimitHit = true;
     }

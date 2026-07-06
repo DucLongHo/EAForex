@@ -26,6 +26,7 @@ enum ENUM_BOT_MODE     { MODE_AUTO, MODE_SEMI_AUTO };
 //+------------------------------------------------------------------+
 input group         "══════ CÀI ĐẶT CƠ BẢN ══════"; //
 input  ENUM_BOT_MODE InpBotMode = MODE_AUTO;  // Chế độ: Tự động / Bán tự động
+input  bool    InpAllowServerConnect = false; // Cho phép kết nối Server đồng bộ config (cần đồng thời BotMode=Tự Động)
 input  double  InpLotSize      = 0.01;    // Lots ban đầu
 input  bool    InpUseTakeProfit= true;    // Dùng Take Profit (Use_TP)
 input  bool    InpUseStopLoss  = false;   // Dùng Stop Loss (Use_SL)
@@ -383,6 +384,51 @@ int    HedgeTrendSide     = -1;   // -1=chưa xác định, 0=BUY(xu hướng), 
 const string GUI = "RTB_";
 
 //+------------------------------------------------------------------+
+//| REMOTE CONFIG SYNC — Telegram trigger + Google Sheets store      |
+//| Master (đổi Input) → Sheet + Telegram "CONFIG_UPDATE|v".         |
+//| Slave  → poll getChat (pinned) mỗi ~10s → tải Sheet nếu đổi.     |
+//| Đổi TELEGRAM_BOT_TOKEN / TELEGRAM_CHANNEL_ID trước khi dùng.     |
+//+------------------------------------------------------------------+
+const string TELEGRAM_BOT_TOKEN  = "8806634347:AAFoLoo8P4DGwMbmaTNitpuXcsZ_2Z9Y7_I";      // từ BotFather
+const string TELEGRAM_CHANNEL_ID = "-1004371899741";     // dạng -100xxxxxxxxxx
+
+bool   g_IsMaster        = false;   // xác định qua field "role" trong response CheckLicense()
+bool   g_SyncAllowed     = false;   // = InpAllowServerConnect && InpBotMode==MODE_AUTO — tắt 1 trong 2 là ngắt hẳn Remote Config Sync
+long   g_ConfigVersion   = 0;       // version config đang áp dụng (đã tải)
+long   g_LastSeenVersion = 0;       // version thấy lần cuối qua pinned message (Telegram)
+int    g_SyncTick        = 0;       // đếm giây để throttle polling trong OnTimer()
+int    g_SyncFallbackTick= 0;       // đếm giây cho safety-net resync định kỳ (bỏ qua Telegram)
+
+// Mirror globals cho các Input được đồng bộ từ xa (Slave ghi đè, Master chỉ đọc lại từ Input).
+// KHÔNG mirror các tham số tạo indicator handle (EMA/BB/Ichimoku period, ATR period, SignalTF)
+// vì đổi các giá trị đó cần release + tạo lại handle — rủi ro không tương xứng, giữ nguyên Input.
+ENUM_SIGNAL_MODE g_SignalMode;
+ENUM_DIRECTION   g_Direction;
+int              g_UTKeyValue;
+
+bool   g_UseTakeProfit, g_UseStopLoss, g_StealthMode;
+int    g_OrderDelay;
+double g_TP_Points, g_SL_Points;
+
+bool   g_DCABuyEnable, g_DCASellEnable, g_DCAArithEnable;
+double g_DCAArithStep;
+bool   g_PyraBuyEnable, g_PyraSellEnable;
+
+bool   g_TrimEnable, g_TrimHedge, g_PartialTrim, g_TrimByDayProfit;
+int    g_TrimTrigger, g_TrimMaxLoss, g_TrimMaxWin;
+double g_TrimTarget, g_PartialTrimDD;
+
+bool             g_TrailEnable;
+ENUM_TRAIL_MODE  g_TrailMode;
+int              g_TrailMinOrds;
+double           g_TrailActivate, g_TrailStep, g_TrailInit;
+
+double g_CloseProfit, g_CloseLoss, g_ClosePerPips, g_DayMaxLoss, g_DayMaxProfit;
+
+bool   g_HedgeEnable;
+double g_HedgeCutPts;
+
+//+------------------------------------------------------------------+
 //| UTILITY FUNCTIONS                                                |
 //+------------------------------------------------------------------+
 
@@ -596,17 +642,17 @@ double NormLot(double lot) {
 }
 
 // Lot của lệnh DCA thứ orderIdx1 (1-based: 1=lệnh DCA đầu tiên).
-// InpDCAArithEnable=true  → baseLot + orderIdx1 * InpDCAArithStep (bỏ qua hệ số tầng)
-// InpDCAArithEnable=false → baseLot * DCA_Mult[lvl] (hệ số tầng như cũ)
+// g_DCAArithEnable=true  → baseLot + orderIdx1 * g_DCAArithStep (bỏ qua hệ số tầng)
+// g_DCAArithEnable=false → baseLot * DCA_Mult[lvl] (hệ số tầng như cũ)
 double DCAOrderLot(double baseLot, int orderIdx1, int lvl) {
-    if(InpDCAArithEnable)
-        return NormLot(baseLot + orderIdx1 * InpDCAArithStep);
+    if(g_DCAArithEnable)
+        return NormLot(baseLot + orderIdx1 * g_DCAArithStep);
     return NormLot(baseLot * DCA_Mult[lvl]);
 }
 
 //+------------------------------------------------------------------+
 //| OPEN ORDER                                                       |
-//| isDCA=false, isPyra=false : theo InpUseTakeProfit/SL, comment "RTB|0|0" |
+//| isDCA=false, isPyra=false : theo g_UseTakeProfit/SL, comment "RTB|0|0" |
 //| isDCA=true  : server TP/SL nếu > 0; comment "RTB|tp|sl"        |
 //|               nếu tp=sl=0 → comment "RTB|0|0|D" (phân biệt gốc)|
 //| isPyra=true : comment "RTP|tp|sl"; nếu tp=sl=0 → "RTP|0|0|P"  |
@@ -621,27 +667,27 @@ bool OpenOrder(int ordType, double lot, double tp_pts = 0, double sl_pts = 0,
     double price, tp = 0, sl = 0;
 
     bool autoExit = (isDCA || isPyra);
-    bool applyTP  = autoExit ? (tp_pts > 0) : (InpUseTakeProfit && tp_pts > 0);
-    bool applySL  = autoExit ? (sl_pts > 0) : (InpUseStopLoss   && sl_pts > 0);
+    bool applyTP  = autoExit ? (tp_pts > 0) : (g_UseTakeProfit && tp_pts > 0);
+    bool applySL  = autoExit ? (sl_pts > 0) : (g_UseStopLoss   && sl_pts > 0);
 
     if(ordType == ORDER_TYPE_BUY) {
         price = ask;
-        if(applyTP && !InpStealthMode)
+        if(applyTP && !g_StealthMode)
             tp = NormalizeDouble(price + tp_pts * point, _Digits);
-        if(applySL && !InpStealthMode)
+        if(applySL && !g_StealthMode)
             sl = NormalizeDouble(price - sl_pts * point, _Digits);
     } else {
         price = bid;
-        if(applyTP && !InpStealthMode)
+        if(applyTP && !g_StealthMode)
             tp = NormalizeDouble(price - tp_pts * point, _Digits);
-        if(applySL && !InpStealthMode)
+        if(applySL && !g_StealthMode)
             sl = NormalizeDouble(price + sl_pts * point, _Digits);
     }
 
     string comment;
     if(isPyra) {
         if(tp_pts == 0 && sl_pts == 0)
-            comment = "RTP|0|0|P";  // Pyramiding không có tier TP/SL — section 2b dùng InpTP_Points
+            comment = "RTP|0|0|P";  // Pyramiding không có tier TP/SL — section 2b dùng g_TP_Points
         else
             comment = StringFormat("RTP|%.0f|%.0f", tp_pts, sl_pts);
     } else if(isDCA) {
@@ -768,7 +814,7 @@ void WarmupATS(int bars) {
        CopyClose(_Symbol, InpSignalTF, 0, need, cls) < need) return;
     double ats = 0.0;
     for(int i = bars; i >= 1; i--) {
-        double s=cls[i], sp=cls[i+1], nl=InpUTKeyValue*atr[i];
+        double s=cls[i], sp=cls[i+1], nl=g_UTKeyValue*atr[i];
         if     (s>ats&&sp>ats) ats=MathMax(ats,s-nl);
         else if(s<ats&&sp<ats) ats=MathMin(ats,s+nl);
         else if(s>ats)          ats=s-nl;
@@ -788,7 +834,7 @@ int SignalUTBot() {
 
     double src      = iClose(_Symbol, InpSignalTF, 1);
     double src_prev = iClose(_Symbol, InpSignalTF, 2);
-    double nLoss    = InpUTKeyValue * atr[0];
+    double nLoss    = g_UTKeyValue * atr[0];
     double ats_prev = g_ats_ut;
 
     if     (src > ats_prev && src_prev > ats_prev) g_ats_ut = MathMax(ats_prev, src - nLoss);
@@ -803,14 +849,14 @@ int SignalUTBot() {
 }
 
 int SignalSimulated() {
-    if(InpDirection == DIR_ONLY_BUY)  return  1;
-    if(InpDirection == DIR_ONLY_SELL) return -1;
+    if(g_Direction == DIR_ONLY_BUY)  return  1;
+    if(g_Direction == DIR_ONLY_SELL) return -1;
     return 2; // Both/Either: signal = 2 → mở cả BUY lẫn SELL
 }
 
 int GetSignal() {
     int sig = 0;
-    switch(InpSignalMode) {
+    switch(g_SignalMode) {
         case SIG_EMA:       sig = SignalEMA();       break;
         case SIG_BZ_ZONE:   sig = SignalBZZone();    break;
         case SIG_ICHIMOKU:  sig = SignalIchimoku();  break;
@@ -818,10 +864,10 @@ int GetSignal() {
         case SIG_SIMULATED: sig = SignalSimulated(); break;
         case SIG_UT_BOT:    sig = SignalUTBot();    break;
     }
-    // SIG_SIMULATED đã tự filter theo InpDirection — chỉ apply cho các strategy khác
-    if(InpSignalMode != SIG_SIMULATED) {
-        if(InpDirection == DIR_ONLY_BUY  && sig < 0) return 0;
-        if(InpDirection == DIR_ONLY_SELL && sig > 0) return 0;
+    // SIG_SIMULATED đã tự filter theo g_Direction — chỉ apply cho các strategy khác
+    if(g_SignalMode != SIG_SIMULATED) {
+        if(g_Direction == DIR_ONLY_BUY  && sig < 0) return 0;
+        if(g_Direction == DIR_ONLY_SELL && sig > 0) return 0;
     }
     return sig;
 }
@@ -844,27 +890,27 @@ void ResetDCAState(int posType) {
 }
 
 void TryOpenBuy() {
-    if(InpHedgeEnable && HedgeCutBuy) return;
+    if(g_HedgeEnable && HedgeCutBuy) return;
     if(CountBuy() >= InpMaxBuy) return;
     if(CountBuy() > 0) return;
     ResetDCAState(POSITION_TYPE_BUY);
-    if(OpenOrder(ORDER_TYPE_BUY, InpLotSize, InpTP_Points, InpSL_Points))
+    if(OpenOrder(ORDER_TYPE_BUY, InpLotSize, g_TP_Points, g_SL_Points))
         LastEntryTime = TimeCurrent();
 }
 
 void TryOpenSell() {
-    if(InpHedgeEnable && HedgeCutSell) return;
+    if(g_HedgeEnable && HedgeCutSell) return;
     if(CountSell() >= InpMaxSell) return;
     if(CountSell() > 0) return;
     ResetDCAState(POSITION_TYPE_SELL);
-    if(OpenOrder(ORDER_TYPE_SELL, InpLotSize, InpTP_Points, InpSL_Points))
+    if(OpenOrder(ORDER_TYPE_SELL, InpLotSize, g_TP_Points, g_SL_Points))
         LastEntryTime = TimeCurrent();
 }
 
 void CheckEntry() {
     if(DayLimitHit) return;
     if(InpBotMode == MODE_SEMI_AUTO) return;
-    if(TimeCurrent() - LastEntryTime < InpOrderDelay) return;
+    if(TimeCurrent() - LastEntryTime < g_OrderDelay) return;
 
     int sig = GetSignal();
     if(sig == 0) return;
@@ -1037,7 +1083,7 @@ double LastPrimaryPrice(int posType) {
 //| HEDGE FOLLOW WINNER — CẮT CHIỀU ÂM                              |
 //+------------------------------------------------------------------+
 void CheckHedgeCut() {
-    if(!InpHedgeEnable) return;
+    if(!g_HedgeEnable) return;
 
     double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
     double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
@@ -1076,7 +1122,7 @@ void CheckHedgeCut() {
 
     // Kiểm tra cắt chiều BUY (giá giảm quá X points từ lệnh gốc)
     if(!HedgeCutBuy && HedgeInitBuyPrice > 0 && cntBuy > 0) {
-        if((HedgeInitBuyPrice - bid) >= InpHedgeCutPts * point) {
+        if((HedgeInitBuyPrice - bid) >= g_HedgeCutPts * point) {
             Print("RTB: Hedge — CẮT tất cả | BUY initPrice=", HedgeInitBuyPrice,
                   " bid=", bid, " loss=", (HedgeInitBuyPrice - bid) / point, "pts");
             CloseAll();  // Cắt toàn bộ BUY + SELL
@@ -1087,7 +1133,7 @@ void CheckHedgeCut() {
 
     // Kiểm tra cắt chiều SELL (giá tăng quá X points từ lệnh gốc)
     if(!HedgeCutSell && HedgeInitSellPrice > 0 && cntSell > 0) {
-        if((ask - HedgeInitSellPrice) >= InpHedgeCutPts * point) {
+        if((ask - HedgeInitSellPrice) >= g_HedgeCutPts * point) {
             Print("RTB: Hedge — CẮT tất cả | SELL initPrice=", HedgeInitSellPrice,
                   " ask=", ask, " loss=", (ask - HedgeInitSellPrice) / point, "pts");
             CloseAll();  // Cắt toàn bộ BUY + SELL
@@ -1123,9 +1169,9 @@ bool IsSlotOpen(int posType, int slot) {
 
 
 void CheckDCA(int posType) {
-    if(InpHedgeEnable) return;
-    if(posType == POSITION_TYPE_BUY  && !InpDCABuyEnable)  return;
-    if(posType == POSITION_TYPE_SELL && !InpDCASellEnable) return;
+    if(g_HedgeEnable) return;
+    if(posType == POSITION_TYPE_BUY  && !g_DCABuyEnable)  return;
+    if(posType == POSITION_TYPE_SELL && !g_DCASellEnable) return;
 
     int count = CountPos(posType);
     if(count == 0) return;
@@ -1160,7 +1206,7 @@ void CheckDCA(int posType) {
             if(posType == POSITION_TYPE_BUY  && sig != 1)  return;
             if(posType == POSITION_TYPE_SELL && sig != -1) return;
         }
-        if(TimeCurrent() - LastOrderTime < InpOrderDelay) return;
+        if(TimeCurrent() - LastOrderTime < g_OrderDelay) return;
 
         double baseLot = OldestManualLot(posType);
         if(baseLot <= 0) baseLot = InpLotSize;
@@ -1224,7 +1270,7 @@ void CheckDCA(int posType) {
             // BUY  (fills at ASK): ASK > slotPrice → BuyLimit  | ASK < slotPrice → BuyStop
             // SELL (fills at BID): BID < slotPrice → SellLimit | BID > slotPrice → SellStop
             if(count < maxOrds) {
-                if(TimeCurrent() - LastOrderTime < InpOrderDelay) continue;
+                if(TimeCurrent() - LastOrderTime < g_OrderDelay) continue;
 
                 int slotLvl = -1, cum = 0;
                 for(int i = 0; i < 15; i++) {
@@ -1312,7 +1358,7 @@ void CheckDCA(int posType) {
         if(posType == POSITION_TYPE_BUY  && sig != 1)  return;
         if(posType == POSITION_TYPE_SELL && sig != -1) return;
     }
-    if(TimeCurrent() - LastOrderTime < InpOrderDelay) return;
+    if(TimeCurrent() - LastOrderTime < g_OrderDelay) return;
 
     double lot = DCAOrderLot(InpLotSize, peak + 1, lvl);
     int    ord = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
@@ -1338,10 +1384,10 @@ void CheckDCA(int posType) {
 //+------------------------------------------------------------------+
 void CheckPyramiding(int posType) {
     // Hedge mode: khi đã xác định chiều xu hướng, chỉ pyramid chiều đó
-    if(InpHedgeEnable && HedgeTrendSide >= 0 && HedgeTrendSide != posType) return;
+    if(g_HedgeEnable && HedgeTrendSide >= 0 && HedgeTrendSide != posType) return;
 
-    if(posType == POSITION_TYPE_BUY  && !InpPyraBuyEnable)  return;
-    if(posType == POSITION_TYPE_SELL && !InpPyraSellEnable) return;
+    if(posType == POSITION_TYPE_BUY  && !g_PyraBuyEnable)  return;
+    if(posType == POSITION_TYPE_SELL && !g_PyraSellEnable) return;
 
     int count = CountPos(posType);
     if(count == 0) return;
@@ -1392,7 +1438,7 @@ void CheckPyramiding(int posType) {
         if(posType == POSITION_TYPE_SELL && sig != -1) return;
     }
 
-    if(TimeCurrent() - LastOrderTime < InpOrderDelay) return;
+    if(TimeCurrent() - LastOrderTime < g_OrderDelay) return;
 
     double baseLotPyra;
     if(InpBotMode == MODE_SEMI_AUTO && CountManual(posType) >= 1) {
@@ -1409,12 +1455,12 @@ void CheckPyramiding(int posType) {
     // Khi PYRA_TP=PYRA_SL=0 (cả hai): fallback toàn bộ sang InpTP/SL_Points
     // Nếu chỉ một trong hai bằng 0: dùng đúng giá trị tier (0 = không đặt)
     bool   noTierExit = (PYRA_TP[lvl] == 0 && PYRA_SL[lvl] == 0);
-    double openTP     = noTierExit ? InpTP_Points : PYRA_TP[lvl];
-    double openSL     = noTierExit ? InpSL_Points : PYRA_SL[lvl];
+    double openTP     = noTierExit ? g_TP_Points : PYRA_TP[lvl];
+    double openSL     = noTierExit ? g_SL_Points : PYRA_SL[lvl];
 
     Print("RTB: Pyramiding level ", lvl+1, " triggered. pyraCount=", pyraCount);
     if(OpenOrder(ord, lot, openTP, openSL, false, true)) {
-        if(InpHedgeEnable && HedgeTrendSide < 0) {
+        if(g_HedgeEnable && HedgeTrendSide < 0) {
             HedgeTrendSide = posType;
             Print("RTB: Hedge — xu hướng xác định: ", (posType == POSITION_TYPE_BUY ? "BUY" : "SELL"));
         }
@@ -1425,19 +1471,19 @@ void CheckPyramiding(int posType) {
 //| ORDER TRIMMING                                                   |
 //+------------------------------------------------------------------+
 void CheckTrimming() {
-    if(!InpTrimEnable) return;
-    if(CountAll() < InpTrimTrigger) return;
+    if(!g_TrimEnable) return;
+    if(CountAll() < g_TrimTrigger) return;
 
     double balance = AccountInfoDouble(ACCOUNT_BALANCE);
     double equity  = AccountInfoDouble(ACCOUNT_EQUITY);
 
     // Partial trim: by drawdown%
-    if(InpPartialTrim && balance > 0) {
+    if(g_PartialTrim && balance > 0) {
         double ddPct = (balance - equity) / balance * 100.0;
-        if(ddPct > InpPartialTrimDD) {
+        if(ddPct > g_PartialTrimDD) {
             int closed = 0;
-            for(int n = 0; n < InpTrimMaxLoss; n++) {
-                if(CountAll() < InpTrimTrigger) break;
+            for(int n = 0; n < g_TrimMaxLoss; n++) {
+                if(CountAll() < g_TrimTrigger) break;
                 ulong tk = WorstTicket();
                 if(tk == 0) break;
                 Trade.PositionClose(tk);
@@ -1451,9 +1497,9 @@ void CheckTrimming() {
     }
 
     // Trim by day profit: if today's closed profit > |worst floating loss|
-    if(InpTrimByDayProfit) {
+    if(g_TrimByDayProfit) {
         int closed = 0;
-        for(int n = 0; n < InpTrimMaxLoss; n++) {
+        for(int n = 0; n < g_TrimMaxLoss; n++) {
             ulong worstTk = WorstTicket();
             if(worstTk == 0 || !PositionSelectByTicket(worstTk)) break;
             double worstP = PositionGetDouble(POSITION_PROFIT);
@@ -1468,16 +1514,16 @@ void CheckTrimming() {
         }
     }
 
-    // Hedging trim: 1 best covers up to InpTrimMaxLoss worst positions per cycle
+    // Hedging trim: 1 best covers up to g_TrimMaxLoss worst positions per cycle
     // MaxWin controls how many such cycles to attempt per second
-    if(InpTrimHedge) {
+    if(g_TrimHedge) {
         int closedCycles = 0;
-        for(int w = 0; w < InpTrimMaxWin; w++) {
+        for(int w = 0; w < g_TrimMaxWin; w++) {
             ulong bestTk = BestTicket();
             if(bestTk == 0 || !PositionSelectByTicket(bestTk)) break;
             double bestP = PositionGetDouble(POSITION_PROFIT);
 
-            // Collect up to InpTrimMaxLoss worst tickets (excluding bestTk and already picked)
+            // Collect up to g_TrimMaxLoss worst tickets (excluding bestTk and already picked)
             ulong  worstTks[8];
             int    wn      = 0;
             double worstSum = 0;
@@ -1485,7 +1531,7 @@ void CheckTrimming() {
             int    exCount = 1;
             excluded[0] = bestTk;
 
-            for(int n = 0; n < InpTrimMaxLoss; n++) {
+            for(int n = 0; n < g_TrimMaxLoss; n++) {
                 ulong  wtk  = 0;
                 double wval = 0;
                 for(int i = PositionsTotal()-1; i >= 0; i--) {
@@ -1505,28 +1551,28 @@ void CheckTrimming() {
                 wn++;
             }
 
-            if(wn > 0 && bestP + worstSum >= InpTrimTarget) {
+            if(wn > 0 && bestP + worstSum >= g_TrimTarget) {
                 Trade.PositionClose(bestTk);
                 for(int i = 0; i < wn; i++) Trade.PositionClose(worstTks[i]);
                 closedCycles++;
             } else break;
         }
         if(closedCycles > 0) {
-            Print("RTB: Hedge trim cycles=", closedCycles, " x up to ", InpTrimMaxLoss, " losers");
+            Print("RTB: Hedge trim cycles=", closedCycles, " x up to ", g_TrimMaxLoss, " losers");
             return;
         }
     }
 
     // Same-direction trim: use aggregate floating profit vs target
-    if(InpTrimTarget > 0) {
+    if(g_TrimTarget > 0) {
         int closed = 0;
-        for(int n = 0; n < InpTrimMaxLoss; n++) {
+        for(int n = 0; n < g_TrimMaxLoss; n++) {
             double totalProfit = FloatProfit();
-            if(totalProfit < InpTrimTarget) break;
+            if(totalProfit < g_TrimTarget) break;
             ulong worstTk = WorstTicket();
             if(worstTk == 0 || !PositionSelectByTicket(worstTk)) break;
             double worstP = PositionGetDouble(POSITION_PROFIT);
-            if((totalProfit + worstP) >= InpTrimTarget) {
+            if((totalProfit + worstP) >= g_TrimTarget) {
                 Trade.PositionClose(worstTk);
                 closed++;
             } else break;
@@ -1559,21 +1605,21 @@ void ApplyTrailToPos(ulong tk, int posType, double newSL) {
 }
 
 void CheckTrailing() {
-    bool hedgeTrail = InpHedgeEnable && (HedgeCutBuy || HedgeCutSell);
-    if(!InpTrailEnable && !hedgeTrail) return;
-    if(CountAll() < InpTrailMinOrds) return;
+    bool hedgeTrail = g_HedgeEnable && (HedgeCutBuy || HedgeCutSell);
+    if(!g_TrailEnable && !hedgeTrail) return;
+    if(CountAll() < g_TrailMinOrds) return;
 
     double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
     double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
     double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
 
-    if(InpTrailMode == TRAIL_BASKET) {
+    if(g_TrailMode == TRAIL_BASKET) {
         // --- BUY BASKET ---
         if(CountBuy() > 0) {
             double avgBuy = AvgOpenPrice(POSITION_TYPE_BUY);
-            if(bid - avgBuy >= InpTrailActivate * point) {
-                double newSL = bid - InpTrailInit * point;
-                if(TrailBuy == 0 || newSL >= TrailBuy + InpTrailStep * point)
+            if(bid - avgBuy >= g_TrailActivate * point) {
+                double newSL = bid - g_TrailInit * point;
+                if(TrailBuy == 0 || newSL >= TrailBuy + g_TrailStep * point)
                     TrailBuy = newSL;
             }
             // Apply every second — covers new DCA/Pyra orders opened after trail activated
@@ -1591,9 +1637,9 @@ void CheckTrailing() {
         // --- SELL BASKET ---
         if(CountSell() > 0) {
             double avgSell = AvgOpenPrice(POSITION_TYPE_SELL);
-            if(avgSell - ask >= InpTrailActivate * point) {
-                double newSL = ask + InpTrailInit * point;
-                if(TrailSell == 0 || newSL <= TrailSell - InpTrailStep * point)
+            if(avgSell - ask >= g_TrailActivate * point) {
+                double newSL = ask + g_TrailInit * point;
+                if(TrailSell == 0 || newSL <= TrailSell - g_TrailStep * point)
                     TrailSell = newSL;
             }
             // Apply every second — covers new DCA/Pyra orders opened after trail activated
@@ -1628,18 +1674,18 @@ void CheckTrailing() {
 
             if(pt == POSITION_TYPE_BUY) {
                 double profitPts = (bid - openPrice) / point;
-                if(profitPts >= InpTrailActivate) {
-                    double newSL = bid - InpTrailInit * point;
+                if(profitPts >= g_TrailActivate) {
+                    double newSL = bid - g_TrailInit * point;
                     double curSL = PositionGetDouble(POSITION_SL);
-                    if(curSL == 0 || newSL >= curSL + InpTrailStep * point)
+                    if(curSL == 0 || newSL >= curSL + g_TrailStep * point)
                         ApplyTrailToPos(tk, POSITION_TYPE_BUY, newSL);
                 }
             } else {
                 double profitPts = (openPrice - ask) / point;
-                if(profitPts >= InpTrailActivate) {
-                    double newSL = ask + InpTrailInit * point;
+                if(profitPts >= g_TrailActivate) {
+                    double newSL = ask + g_TrailInit * point;
                     double curSL = PositionGetDouble(POSITION_SL);
-                    if(curSL == 0 || newSL <= curSL - InpTrailStep * point)
+                    if(curSL == 0 || newSL <= curSL - g_TrailStep * point)
                         ApplyTrailToPos(tk, POSITION_TYPE_SELL, newSL);
                 }
             }
@@ -1670,7 +1716,7 @@ void CheckExit() {
     }
 
     // 1. Per-position exit by pips target
-    if(InpClosePerPips > 0) {
+    if(g_ClosePerPips > 0) {
         double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
         double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
         double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
@@ -1684,7 +1730,7 @@ void CheckExit() {
             double opn   = PositionGetDouble(POSITION_PRICE_OPEN);
             double ppts  = (pt == POSITION_TYPE_BUY) ? (bid - opn) / point : (opn - ask) / point;
 
-            if(ppts >= InpClosePerPips)
+            if(ppts >= g_ClosePerPips)
                 Trade.PositionClose(tk);
         }
     }
@@ -1726,7 +1772,7 @@ void CheckExit() {
     }
 
     // 2b. Stealth TP/SL — lệnh gốc, chỉ chạy khi Stealth Mode bật
-    if(InpStealthMode) {
+    if(g_StealthMode) {
         double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
         double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
         double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
@@ -1748,16 +1794,16 @@ void CheckExit() {
             int    pt  = (int)PositionGetInteger(POSITION_TYPE);
             double opn = PositionGetDouble(POSITION_PRICE_OPEN);
 
-            // Stealth Mode thay thế hoàn toàn server TP/SL — không phụ thuộc InpUseTakeProfit/SL
+            // Stealth Mode thay thế hoàn toàn server TP/SL — không phụ thuộc g_UseTakeProfit/SL
             if(pt == POSITION_TYPE_BUY) {
-                if(InpTP_Points > 0 && bid >= opn + InpTP_Points * point)
+                if(g_TP_Points > 0 && bid >= opn + g_TP_Points * point)
                     { Trade.PositionClose(tk); continue; }
-                if(InpSL_Points > 0 && bid <= opn - InpSL_Points * point)
+                if(g_SL_Points > 0 && bid <= opn - g_SL_Points * point)
                     Trade.PositionClose(tk);
             } else {
-                if(InpTP_Points > 0 && ask <= opn - InpTP_Points * point)
+                if(g_TP_Points > 0 && ask <= opn - g_TP_Points * point)
                     { Trade.PositionClose(tk); continue; }
-                if(InpSL_Points > 0 && ask >= opn + InpSL_Points * point)
+                if(g_SL_Points > 0 && ask >= opn + g_SL_Points * point)
                     Trade.PositionClose(tk);
             }
         }
@@ -1765,8 +1811,8 @@ void CheckExit() {
 
     // 3. Basket total profit target
     // Bỏ qua khi Hedge mode đã cắt một chiều — trailing stop quản lý thoát chiều dương
-    if(InpCloseProfit > 0 && !(InpHedgeEnable && (HedgeCutBuy || HedgeCutSell))) {
-        if(FloatProfit() >= InpCloseProfit) {
+    if(g_CloseProfit > 0 && !(g_HedgeEnable && (HedgeCutBuy || HedgeCutSell))) {
+        if(FloatProfit() >= g_CloseProfit) {
             Print("RTB: CloseProfit target reached. Closing all.");
             CloseAll();
             return;
@@ -1775,8 +1821,8 @@ void CheckExit() {
 
     // 4. Basket total loss cut
     // Bỏ qua khi Hedge mode đang chạy chiều dương — tránh cắt nhầm chiều thắng
-    if(InpCloseLoss > 0 && !(InpHedgeEnable && (HedgeCutBuy || HedgeCutSell))) {
-        if(FloatProfit() <= -InpCloseLoss) {
+    if(g_CloseLoss > 0 && !(g_HedgeEnable && (HedgeCutBuy || HedgeCutSell))) {
+        if(FloatProfit() <= -g_CloseLoss) {
             Print("RTB: CloseLoss limit hit. Closing all.");
             CloseAll();
             return;
@@ -1819,14 +1865,14 @@ void CheckDayLimit() {
     if(DayLimitHit) return;
     // Dùng equity = lãi đã chốt hôm nay + floating hiện tại (phản ứng ngay dù chưa đóng lệnh)
     double equity = DayProfit + FloatProfit();
-    if(InpDayMaxLoss > 0 && equity <= -InpDayMaxLoss) {
-        Print("RTB: Day loss limit $", InpDayMaxLoss, " hit. equity=", equity, ". Closing all.");
+    if(g_DayMaxLoss > 0 && equity <= -g_DayMaxLoss) {
+        Print("RTB: Day loss limit $", g_DayMaxLoss, " hit. equity=", equity, ". Closing all.");
         CloseAll();
         DayLimitHit = true;
         return;
     }
-    if(InpDayMaxProfit > 0 && equity >= InpDayMaxProfit) {
-        Print("RTB: Day profit target $", InpDayMaxProfit, " hit. equity=", equity, ". Closing all.");
+    if(g_DayMaxProfit > 0 && equity >= g_DayMaxProfit) {
+        Print("RTB: Day profit target $", g_DayMaxProfit, " hit. equity=", equity, ". Closing all.");
         CloseAll();
         DayLimitHit = true;
     }
@@ -1929,7 +1975,7 @@ void UpdateGUI() {
     int PX = InpPanelX;
     int PY = InpPanelY;
     int PW = InpPanelWidth;
-    int hOff = InpHedgeEnable ? 16 : 0;  // Thêm 1 dòng Hedge khi bật
+    int hOff = g_HedgeEnable ? 16 : 0;  // Thêm 1 dòng Hedge khi bật
 
     double balance   = AccountInfoDouble(ACCOUNT_BALANCE);
     double equity    = AccountInfoDouble(ACCOUNT_EQUITY);
@@ -1953,7 +1999,7 @@ void UpdateGUI() {
     if(ddPct > MaxDrawdownPct) MaxDrawdownPct = ddPct;
 
     string sigName = "";
-    switch(InpSignalMode) {
+    switch(g_SignalMode) {
         case SIG_EMA:       sigName = "EMA 34+89";      break;
         case SIG_BZ_ZONE:   sigName = "BZ Zone";        break;
         case SIG_ICHIMOKU:  sigName = "Ichimoku";       break;
@@ -1964,7 +2010,7 @@ void UpdateGUI() {
 
     string dirName = "";
     color  dirClr  = clrSilver;
-    switch(InpDirection) {
+    switch(g_Direction) {
         case DIR_BOTH:      dirName = "▲▼ Both";     dirClr = clrDodgerBlue; break;
         case DIR_ONLY_BUY:  dirName = "▲  Buy Only"; dirClr = clrLimeGreen;  break;
         case DIR_ONLY_SELL: dirName = "▼  Sell Only"; dirClr = clrTomato;    break;
@@ -2040,9 +2086,10 @@ void UpdateGUI() {
     Lbl("Sig",  "Signal : " + sigName,        x, y, clrYellow     );    y += s;
     string modeName = (InpBotMode == MODE_SEMI_AUTO) ? "Ban Tu Dong" : "Tu Dong";
     color  modeClr  = (InpBotMode == MODE_SEMI_AUTO) ? clrOrange    : clrLimeGreen;
-    Lbl("Mod",  "Mode   : " + modeName,       x, y, modeClr       );    y += s;
+    string roleTxt  = g_IsMaster ? " | MASTER" : " | SLAVE";
+    Lbl("Mod",  "Mode   : " + modeName + roleTxt, x, y, modeClr    );    y += s;
     Lbl("Dir",  "Direct : " + dirName,        x, y, dirClr        );    y += s;
-    if(InpHedgeEnable) {
+    if(g_HedgeEnable) {
         string hedgeText; color hedgeClr;
         double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
         double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
@@ -2077,7 +2124,7 @@ void UpdateGUI() {
             lmtText = "Day Lmt: !! STOP !!";
             lmtClr  = clrTomato;
         } else {
-            lmtText = StringFormat("Day Lmt: L$%.0f / P$%.0f", InpDayMaxLoss, InpDayMaxProfit);
+            lmtText = StringFormat("Day Lmt: L$%.0f / P$%.0f", g_DayMaxLoss, g_DayMaxProfit);
             lmtClr  = C'90,90,90';
         }
         Lbl("DayLmt", lmtText, x, y, lmtClr);
@@ -2304,7 +2351,10 @@ bool CheckLicense() {
 
     string response = CharArrayToString(result);
     if(StringFind(response, "\"status\":\"ok\"") >= 0) {
-        Print("RTB: License OK — Account ", accID);
+        // Role đọc từ cùng response license — Apps Script so sánh accID với cell MasterAccountID.
+        // Thiếu/lỗi field "role" → mặc định Slave (an toàn hơn: một EA tự nhận nhầm Master mới nguy hiểm).
+        g_IsMaster = (StringFind(response, "\"role\":\"master\"") >= 0);
+        Print("RTB: License OK — Account ", accID, " | Role: ", g_IsMaster ? "MASTER" : "SLAVE");
         return true;
     }
 
@@ -2319,6 +2369,265 @@ bool CheckLicense() {
     Print("RTB: License DENIED — Account ", accID, " | Lý do: ", reason);
     Alert("RTB: Bản quyền không hợp lệ. Liên hệ nhà cung cấp.");
     return false;
+}
+
+//+------------------------------------------------------------------+
+//| REMOTE CONFIG SYNC                                               |
+//| Payload: chuỗi giá trị phân cách ";" theo ĐÚNG thứ tự cố định.   |
+//| Cả Push (build) và Pull (parse) đều dùng chung 1 thứ tự — đổi    |
+//| thứ tự/field phải sửa đồng thời cả hai và biên dịch lại mọi máy. |
+//+------------------------------------------------------------------+
+string BuildConfigPayload(long version) {
+    string s = IntegerToString(version) + ";";
+
+    s += IntegerToString((int)g_SignalMode) + ";" + IntegerToString((int)g_Direction) + ";" +
+         IntegerToString(g_UTKeyValue) + ";";
+
+    s += (g_UseTakeProfit ? "1" : "0") + string(";") + (g_UseStopLoss ? "1" : "0") + ";" +
+         (g_StealthMode ? "1" : "0") + ";" + IntegerToString(g_OrderDelay) + ";" +
+         DoubleToString(g_TP_Points, 1) + ";" + DoubleToString(g_SL_Points, 1) + ";";
+
+    s += IntegerToString((int)DCA_Mode[0]) + ";" +
+         (g_DCABuyEnable ? "1" : "0") + ";" + (g_DCASellEnable ? "1" : "0") + ";" +
+         (g_DCAArithEnable ? "1" : "0") + ";" + DoubleToString(g_DCAArithStep, 2) + ";";
+
+    s += IntegerToString((int)PYRA_Mode[0]) + ";" +
+         (g_PyraBuyEnable ? "1" : "0") + ";" + (g_PyraSellEnable ? "1" : "0") + ";";
+
+    for(int i = 0; i < 15; i++)
+        s += DoubleToString(DCA_Mult[i], 2) + ";" + IntegerToString(DCA_MaxOrd[i]) + ";" +
+             DoubleToString(DCA_Dist[i], 1) + ";" + DoubleToString(DCA_TP[i], 1) + ";" +
+             DoubleToString(DCA_SL[i], 1) + ";";
+
+    for(int i = 0; i < 8; i++)
+        s += DoubleToString(PYRA_Mult[i], 2) + ";" + IntegerToString(PYRA_MaxOrd[i]) + ";" +
+             DoubleToString(PYRA_Dist[i], 1) + ";" + DoubleToString(PYRA_TP[i], 1) + ";" +
+             DoubleToString(PYRA_SL[i], 1) + ";";
+
+    s += (g_TrimEnable ? "1" : "0") + string(";") + (g_TrimHedge ? "1" : "0") + ";" +
+         IntegerToString(g_TrimTrigger) + ";" + DoubleToString(g_TrimTarget, 2) + ";" +
+         IntegerToString(g_TrimMaxLoss) + ";" + IntegerToString(g_TrimMaxWin) + ";" +
+         (g_PartialTrim ? "1" : "0") + ";" + DoubleToString(g_PartialTrimDD, 2) + ";" +
+         (g_TrimByDayProfit ? "1" : "0") + ";";
+
+    s += (g_TrailEnable ? "1" : "0") + string(";") + IntegerToString((int)g_TrailMode) + ";" +
+         IntegerToString(g_TrailMinOrds) + ";" + DoubleToString(g_TrailActivate, 1) + ";" +
+         DoubleToString(g_TrailStep, 1) + ";" + DoubleToString(g_TrailInit, 1) + ";";
+
+    s += DoubleToString(g_CloseProfit, 2) + ";" + DoubleToString(g_CloseLoss, 2) + ";" +
+         DoubleToString(g_ClosePerPips, 1) + ";" + DoubleToString(g_DayMaxLoss, 2) + ";" +
+         DoubleToString(g_DayMaxProfit, 2) + ";";
+
+    s += (g_HedgeEnable ? "1" : "0") + string(";") + DoubleToString(g_HedgeCutPts, 1);
+    return s;
+}
+
+// Tổng số field theo BuildConfigPayload(): 1 version + 3 signal + 6 base + 5 dca-flags +
+// 3 pyra-flags + 15*5 DCA tiers + 8*5 PYRA tiers + 9 trim + 6 trail + 5 exit + 2 hedge = 155
+#define RTB_CONFIG_FIELD_COUNT 155
+
+bool ApplyConfigPayload(string data) {
+    string f[];
+    int n = StringSplit(data, ';', f);
+    if(n < RTB_CONFIG_FIELD_COUNT) {
+        Print("RTB: Config payload thiếu field (n=", n, ", cần ", RTB_CONFIG_FIELD_COUNT, "), bỏ qua.");
+        return false;
+    }
+
+    int idx = 0;
+    long newVersion = StringToInteger(f[idx++]);
+
+    g_SignalMode = (ENUM_SIGNAL_MODE)StringToInteger(f[idx++]);
+    g_Direction  = (ENUM_DIRECTION)StringToInteger(f[idx++]);
+    g_UTKeyValue = (int)StringToInteger(f[idx++]);
+
+    g_UseTakeProfit = (f[idx++] == "1");
+    g_UseStopLoss   = (f[idx++] == "1");
+    g_StealthMode   = (f[idx++] == "1");
+    g_OrderDelay    = (int)StringToInteger(f[idx++]);
+    g_TP_Points     = StringToDouble(f[idx++]);
+    g_SL_Points     = StringToDouble(f[idx++]);
+
+    ENUM_DCA_MODE dcaMode = (ENUM_DCA_MODE)StringToInteger(f[idx++]);
+    g_DCABuyEnable   = (f[idx++] == "1");
+    g_DCASellEnable  = (f[idx++] == "1");
+    g_DCAArithEnable = (f[idx++] == "1");
+    g_DCAArithStep   = StringToDouble(f[idx++]);
+
+    ENUM_DCA_MODE pyraMode = (ENUM_DCA_MODE)StringToInteger(f[idx++]);
+    g_PyraBuyEnable  = (f[idx++] == "1");
+    g_PyraSellEnable = (f[idx++] == "1");
+
+    for(int i = 0; i < 15; i++) {
+        DCA_Mode[i]   = dcaMode;
+        DCA_Mult[i]   = StringToDouble(f[idx++]);
+        DCA_MaxOrd[i] = (int)StringToInteger(f[idx++]);
+        DCA_Dist[i]   = StringToDouble(f[idx++]);
+        DCA_TP[i]     = StringToDouble(f[idx++]);
+        DCA_SL[i]     = StringToDouble(f[idx++]);
+    }
+    for(int i = 0; i < 8; i++) {
+        PYRA_Mode[i]   = pyraMode;
+        PYRA_Mult[i]   = StringToDouble(f[idx++]);
+        PYRA_MaxOrd[i] = (int)StringToInteger(f[idx++]);
+        PYRA_Dist[i]   = StringToDouble(f[idx++]);
+        PYRA_TP[i]     = StringToDouble(f[idx++]);
+        PYRA_SL[i]     = StringToDouble(f[idx++]);
+    }
+
+    g_TrimEnable      = (f[idx++] == "1");
+    g_TrimHedge       = (f[idx++] == "1");
+    g_TrimTrigger     = (int)StringToInteger(f[idx++]);
+    g_TrimTarget      = StringToDouble(f[idx++]);
+    g_TrimMaxLoss     = (int)StringToInteger(f[idx++]);
+    g_TrimMaxWin      = (int)StringToInteger(f[idx++]);
+    g_PartialTrim     = (f[idx++] == "1");
+    g_PartialTrimDD   = StringToDouble(f[idx++]);
+    g_TrimByDayProfit = (f[idx++] == "1");
+
+    g_TrailEnable   = (f[idx++] == "1");
+    g_TrailMode     = (ENUM_TRAIL_MODE)StringToInteger(f[idx++]);
+    g_TrailMinOrds  = (int)StringToInteger(f[idx++]);
+    g_TrailActivate = StringToDouble(f[idx++]);
+    g_TrailStep     = StringToDouble(f[idx++]);
+    g_TrailInit     = StringToDouble(f[idx++]);
+
+    g_CloseProfit  = StringToDouble(f[idx++]);
+    g_CloseLoss    = StringToDouble(f[idx++]);
+    g_ClosePerPips = StringToDouble(f[idx++]);
+    g_DayMaxLoss   = StringToDouble(f[idx++]);
+    g_DayMaxProfit = StringToDouble(f[idx++]);
+
+    g_HedgeEnable = (f[idx++] == "1");
+    g_HedgeCutPts = StringToDouble(f[idx++]);
+
+    g_ConfigVersion = newVersion;
+    Print("RTB: Config applied — version=", newVersion, " (", idx, " fields)");
+    return true;
+}
+
+// Chuyển string → char[] thủ công (khớp kiểu char dùng bởi WebRequest trong file này,
+// tránh lẫn với StringToCharArray() vốn trả về uchar[]).
+void StringToCharBody(string s, char &arr[]) {
+    int len = StringLen(s);
+    ArrayResize(arr, len);
+    for(int i = 0; i < len; i++)
+        arr[i] = (char)StringGetCharacter(s, i);
+}
+
+// Gửi tin nhắn "CONFIG_UPDATE_<version>" lên channel rồi ghim — Slave đọc qua getChat (pinned_message),
+// an toàn cho nhiều Slave cùng đọc song song (khác với getUpdates vốn "tiêu thụ" hàng đợi dùng chung).
+bool TelegramSendAndPin(long version) {
+    if(StringFind(TELEGRAM_BOT_TOKEN, "YOUR_BOT_TOKEN") >= 0) {
+        Print("RTB: TELEGRAM_BOT_TOKEN chưa được cấu hình — bỏ qua bước trigger Telegram.");
+        return false;
+    }
+
+    string text = "CONFIG_UPDATE_" + IntegerToString(version);
+    string sendUrl = "https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN +
+                      "/sendMessage?chat_id=" + TELEGRAM_CHANNEL_ID +
+                      "&text=" + text + "&disable_notification=true";
+
+    char post[]; char result[]; string headers;
+    ResetLastError();
+    int httpCode = WebRequest("GET", sendUrl, "", "", 10000, post, 0, result, headers);
+    if(httpCode != 200) {
+        Print("RTB: Telegram sendMessage lỗi httpCode=", httpCode, " err=", GetLastError());
+        return false;
+    }
+
+    string resp = CharArrayToString(result);
+    int mp = StringFind(resp, "\"message_id\":");
+    if(mp < 0) return false;
+    int mStart = mp + 13;
+    int mEnd   = StringFind(resp, ",", mStart);
+    if(mEnd < 0) mEnd = StringFind(resp, "}", mStart);
+    string msgId = StringSubstr(resp, mStart, mEnd - mStart);
+
+    string pinUrl = "https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN +
+                     "/pinChatMessage?chat_id=" + TELEGRAM_CHANNEL_ID +
+                     "&message_id=" + msgId + "&disable_notification=true";
+    char post2[]; char result2[]; string headers2;
+    ResetLastError();
+    WebRequest("GET", pinUrl, "", "", 10000, post2, 0, result2, headers2);
+    return true;
+}
+
+// MASTER: ghi payload lên Google Sheet rồi bắn trigger Telegram. Gọi khi vừa đổi Input.
+bool PushConfigToCloud() {
+    if(StringFind(LICENSE_URL, "YOUR_SCRIPT_ID") >= 0) return false;
+
+    long   version = (long)TimeGMT();
+    string payload = BuildConfigPayload(version);
+
+    char post[];
+    StringToCharBody(payload, post);
+    char result[];
+    string headers;
+    ResetLastError();
+    string url = LICENSE_URL + "?action=setconfig&id=" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN));
+    int httpCode = WebRequest("POST", url, "", "", 10000, post, ArraySize(post), result, headers);
+    if(httpCode == -1) {
+        Print("RTB: PushConfig — lỗi ghi Sheet, err=", GetLastError());
+        return false;
+    }
+    Print("RTB: PushConfig — đã ghi Sheet, version=", version);
+
+    if(!TelegramSendAndPin(version))
+        Print("RTB: PushConfig — Telegram lỗi, nhưng Sheet đã cập nhật (Slave tự resync định kỳ sẽ bắt kịp).");
+
+    g_ConfigVersion   = version;
+    g_LastSeenVersion = version;
+    return true;
+}
+
+// SLAVE: đọc pinned message trên channel, so version, tải Sheet nếu có bản mới.
+bool CheckConfigTrigger() {
+    if(StringFind(TELEGRAM_BOT_TOKEN, "YOUR_BOT_TOKEN") >= 0) return false;
+
+    string url = "https://api.telegram.org/bot" + TELEGRAM_BOT_TOKEN + "/getChat?chat_id=" + TELEGRAM_CHANNEL_ID;
+    char post[]; char result[]; string headers;
+    ResetLastError();
+    int httpCode = WebRequest("GET", url, "", "", 10000, post, 0, result, headers);
+    if(httpCode != 200) return false;
+
+    string resp = CharArrayToString(result);
+    int tp = StringFind(resp, "CONFIG_UPDATE_");
+    if(tp < 0) return false;
+
+    int vStart = tp + 14;
+    int vEnd   = vStart;
+    int rlen   = StringLen(resp);
+    while(vEnd < rlen) {
+        ushort ch = StringGetCharacter(resp, vEnd);
+        if(ch < '0' || ch > '9') break;
+        vEnd++;
+    }
+    if(vEnd <= vStart) return false;
+
+    long version = StringToInteger(StringSubstr(resp, vStart, vEnd - vStart));
+    if(version == g_LastSeenVersion) return false; // đã xử lý bản này rồi
+
+    g_LastSeenVersion = version;
+    return PullConfigFromCloud();
+}
+
+// SLAVE: tải payload mới nhất từ Sheet và áp dụng — gọi trực tiếp (safety-net định kỳ) hoặc
+// sau khi CheckConfigTrigger() phát hiện version mới qua Telegram.
+bool PullConfigFromCloud() {
+    if(StringFind(LICENSE_URL, "YOUR_SCRIPT_ID") >= 0) return false;
+
+    string url = LICENSE_URL + "?action=getconfig&id=" + IntegerToString(AccountInfoInteger(ACCOUNT_LOGIN));
+    char post[]; char result[]; string headers;
+    ResetLastError();
+    int httpCode = WebRequest("GET", url, "", "", 10000, post, 0, result, headers);
+    if(httpCode == -1) {
+        Print("RTB: PullConfig — lỗi mạng, err=", GetLastError());
+        return false;
+    }
+
+    string payload = CharArrayToString(result);
+    return ApplyConfigPayload(payload);
 }
 
 //+------------------------------------------------------------------+
@@ -2449,6 +2758,23 @@ void RebuildDCAState(int posType) {
 int OnInit() {
     if(!CheckLicense()) return INIT_FAILED;
 
+    // Khởi tạo mirror = giá trị Input hiện tại. Master: luôn đúng (Input là nguồn thật).
+    // Slave: đây là baseline tạm thời, sẽ bị ghi đè bởi PullConfigFromCloud() bên dưới.
+    g_SignalMode = InpSignalMode; g_Direction = InpDirection; g_UTKeyValue = InpUTKeyValue;
+    g_UseTakeProfit = InpUseTakeProfit; g_UseStopLoss = InpUseStopLoss; g_StealthMode = InpStealthMode;
+    g_OrderDelay = InpOrderDelay; g_TP_Points = InpTP_Points; g_SL_Points = InpSL_Points;
+    g_DCABuyEnable = InpDCABuyEnable; g_DCASellEnable = InpDCASellEnable;
+    g_DCAArithEnable = InpDCAArithEnable; g_DCAArithStep = InpDCAArithStep;
+    g_PyraBuyEnable = InpPyraBuyEnable; g_PyraSellEnable = InpPyraSellEnable;
+    g_TrimEnable = InpTrimEnable; g_TrimHedge = InpTrimHedge; g_TrimTrigger = InpTrimTrigger;
+    g_TrimTarget = InpTrimTarget; g_TrimMaxLoss = InpTrimMaxLoss; g_TrimMaxWin = InpTrimMaxWin;
+    g_PartialTrim = InpPartialTrim; g_PartialTrimDD = InpPartialTrimDD; g_TrimByDayProfit = InpTrimByDayProfit;
+    g_TrailEnable = InpTrailEnable; g_TrailMode = InpTrailMode; g_TrailMinOrds = InpTrailMinOrds;
+    g_TrailActivate = InpTrailActivate; g_TrailStep = InpTrailStep; g_TrailInit = InpTrailInit;
+    g_CloseProfit = InpCloseProfit; g_CloseLoss = InpCloseLoss; g_ClosePerPips = InpClosePerPips;
+    g_DayMaxLoss = InpDayMaxLoss; g_DayMaxProfit = InpDayMaxProfit;
+    g_HedgeEnable = InpHedgeEnable; g_HedgeCutPts = InpHedgeCutPts;
+
     Trade.SetExpertMagicNumber(InpMagic);
     Trade.SetDeviationInPoints(50);
     Trade.SetTypeFilling(ORDER_FILLING_RETURN);
@@ -2510,7 +2836,7 @@ int OnInit() {
     HedgeInitBuyPrice  = 0.0;
     HedgeInitSellPrice = 0.0;
     HedgeTrendSide     = -1;
-    if(InpHedgeEnable) {
+    if(g_HedgeEnable) {
         // Khôi phục sau restart: nếu chỉ còn một chiều → chiều kia đã bị cắt trước đó
         if(CountBuy() > 0 && CountSell() == 0) { HedgeCutSell = true; Print("RTB: Hedge restart — infer SELL was cut"); }
         if(CountSell() > 0 && CountBuy() == 0) { HedgeCutBuy  = true; Print("RTB: Hedge restart — infer BUY was cut"); }
@@ -2520,7 +2846,24 @@ int OnInit() {
     }
 
     EventSetTimer(1);
-    Print("RTB: Initialized. Magic=", InpMagic, " Signal=", EnumToString(InpSignalMode));
+
+    // Remote Config Sync chỉ hoạt động khi CẢ HAI: InpAllowServerConnect=true VÀ BotMode=Tự Động.
+    // Thiếu 1 trong 2 → ngắt hẳn, không gọi Sheet/Telegram ở bất kỳ đâu (OnInit lẫn OnTimer).
+    g_SyncAllowed = (InpAllowServerConnect && InpBotMode == MODE_AUTO);
+
+    if(!g_SyncAllowed) {
+        Print("RTB: Remote Config Sync TẮT (cần InpAllowServerConnect=true VÀ BotMode=Tự Động).");
+    } else if(g_IsMaster) {
+        // Master chỉ đẩy khi vừa đổi Input (bấm OK) — không đẩy khi đổi symbol/timeframe/recompile.
+        if(UninitializeReason() == REASON_PARAMETERS) {
+            if(PushConfigToCloud()) Print("RTB: Config đã đẩy lên Cloud (Master).");
+        }
+    } else {
+        // Slave luôn tải bản mới nhất ngay lúc khởi động, không chạy tạm với giá trị Input cũ.
+        if(PullConfigFromCloud()) Print("RTB: Config đã tải từ Cloud (Slave), version=", g_ConfigVersion);
+    }
+
+    Print("RTB: Initialized. Magic=", InpMagic, " Signal=", EnumToString(g_SignalMode));
     return INIT_SUCCEEDED;
 }
 
@@ -2538,7 +2881,7 @@ void OnTick() {
     // Entry signals only fire when no position exists for that direction
     CheckEntry();
     // Stealth TP/SL check runs on every tick for precision
-    if(InpStealthMode) CheckExit();
+    if(g_StealthMode) CheckExit();
     // Trailing: chạy mỗi tick để server SL và đường line di chuyển ngay theo giá, không trễ 1 giây
     if(!DayLimitHit) CheckTrailing();
 }
@@ -2551,7 +2894,7 @@ void OnTimer() {
     if(CountSell() == 0) ResetDCAState(POSITION_TYPE_SELL);
 
     // Exit checks (basket close conditions)
-    if(!InpStealthMode) CheckExit();
+    if(!g_StealthMode) CheckExit();
 
     // Hedge: cắt chiều âm (chạy cả khi DayLimitHit để bảo vệ tài khoản)
     CheckHedgeCut();
@@ -2567,6 +2910,18 @@ void OnTimer() {
         // Pyramiding (add to winners)
         if(CountBuy()  > 0) CheckPyramiding(POSITION_TYPE_BUY);
         if(CountSell() > 0) CheckPyramiding(POSITION_TYPE_SELL);
+    }
+
+    // Remote config sync — chỉ Slave polling, và chỉ khi g_SyncAllowed (InpAllowServerConnect + BotMode=Auto).
+    if(g_SyncAllowed && !g_IsMaster) {
+        if(++g_SyncTick >= 10) {                  // ~10 giây: kiểm tra trigger Telegram
+            g_SyncTick = 0;
+            CheckConfigTrigger();
+        }
+        if(++g_SyncFallbackTick >= 600) {         // ~10 phút: safety-net, tự tải dù không có trigger
+            g_SyncFallbackTick = 0;
+            PullConfigFromCloud();
+        }
     }
 
     // GUI refresh every second
@@ -2591,8 +2946,8 @@ void OnChartEvent(const int id, const long& lparam, const double& dparam, const 
     else if(sparam == GUI + "BtnCloseSell")   CloseAll(POSITION_TYPE_SELL);
     else if(sparam == GUI + "BtnCloseProfit") CloseAllProfit();
     else if(sparam == GUI + "BtnCloseLoss")   CloseAllLoss();
-    else if(sparam == GUI + "BtnOpenBuy")  { if(!DayLimitHit) OpenOrder(ORDER_TYPE_BUY,  InpLotSize, InpTP_Points, InpSL_Points); }
-    else if(sparam == GUI + "BtnOpenSell") { if(!DayLimitHit) OpenOrder(ORDER_TYPE_SELL, InpLotSize, InpTP_Points, InpSL_Points); }
+    else if(sparam == GUI + "BtnOpenBuy")  { if(!DayLimitHit) OpenOrder(ORDER_TYPE_BUY,  InpLotSize, g_TP_Points, g_SL_Points); }
+    else if(sparam == GUI + "BtnOpenSell") { if(!DayLimitHit) OpenOrder(ORDER_TYPE_SELL, InpLotSize, g_TP_Points, g_SL_Points); }
     else return;
     ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
     ChartRedraw(0);

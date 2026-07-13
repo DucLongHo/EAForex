@@ -27,6 +27,7 @@ enum ENUM_BOT_MODE     { MODE_AUTO, MODE_SEMI_AUTO };
 input group         "══════ CÀI ĐẶT CƠ BẢN ══════"; //
 input  ENUM_BOT_MODE InpBotMode = MODE_AUTO;  // Chế độ: Tự động / Bán tự động
 input  bool    InpAllowServerConnect = false; // Cho phép kết nối Server đồng bộ config (cần đồng thời BotMode=Tự Động)
+input  bool    InpBotEnabled   = true;    // Bật Bot (tắt = đóng toàn bộ lệnh + dừng mọi hoạt động, đồng bộ qua Master)
 input  double  InpLotSize      = 0.01;    // Lots ban đầu
 input  bool    InpUseTakeProfit= true;    // Dùng Take Profit (Use_TP)
 input  bool    InpUseStopLoss  = false;   // Dùng Stop Loss (Use_SL)
@@ -394,6 +395,9 @@ const string TELEGRAM_CHANNEL_ID = "-1004371899741";     // dạng -100xxxxxxxxx
 
 bool   g_IsMaster        = false;   // xác định qua field "role" trong response CheckLicense()
 bool   g_SyncAllowed     = false;   // = InpAllowServerConnect && InpBotMode==MODE_AUTO — tắt 1 trong 2 là ngắt hẳn Remote Config Sync
+bool   g_BotEnabled      = true;    // = InpBotEnabled (Master) hoặc giá trị đồng bộ từ Master (Slave) — false = đóng hết + dừng mọi hoạt động
+datetime g_LastBotToggleClick = 0;  // debounce nút BtnBotToggle — chặn spam request + tránh trùng version (TimeGMT() phân giải 1 giây)
+datetime g_LastCloudOK        = 0;  // lần cuối liên lạc Cloud thành công (Telegram hoặc Sheets) — hiển thị trạng thái Sync trên GUI
 long   g_ConfigVersion   = 0;       // version config đang áp dụng (đã tải)
 long   g_LastSeenVersion = 0;       // version thấy lần cuối qua pinned message (Telegram)
 int    g_SyncTick        = 0;       // đếm giây để throttle polling trong OnTimer()
@@ -909,6 +913,7 @@ void TryOpenSell() {
 
 void CheckEntry() {
     if(DayLimitHit) return;
+    if(!g_BotEnabled) return;
     if(InpBotMode == MODE_SEMI_AUTO) return;
     if(TimeCurrent() - LastEntryTime < g_OrderDelay) return;
 
@@ -1975,7 +1980,8 @@ void UpdateGUI() {
     int PX = InpPanelX;
     int PY = InpPanelY;
     int PW = InpPanelWidth;
-    int hOff = g_HedgeEnable ? 16 : 0;  // Thêm 1 dòng Hedge khi bật
+    int hOff   = g_HedgeEnable ? 16 : 0;  // Thêm 1 dòng Hedge khi bật
+    int botOff = g_IsMaster    ? 26 : 0;  // Thêm 1 hàng nút Bot Toggle khi là Master
 
     double balance   = AccountInfoDouble(ACCOUNT_BALANCE);
     double equity    = AccountInfoDouble(ACCOUNT_EQUITY);
@@ -2032,7 +2038,7 @@ void UpdateGUI() {
         ObjectCreate(0, bg, OBJ_RECTANGLE_LABEL, 0, 0, 0);
         ObjectSetInteger(0, bg, OBJPROP_CORNER,      CORNER_LEFT_UPPER);
         ObjectSetInteger(0, bg, OBJPROP_XSIZE,       PW);
-        ObjectSetInteger(0, bg, OBJPROP_YSIZE,       362 + hOff);
+        ObjectSetInteger(0, bg, OBJPROP_YSIZE,       378 + hOff);
         ObjectSetInteger(0, bg, OBJPROP_BGCOLOR,     C'14,17,26');
         ObjectSetInteger(0, bg, OBJPROP_BORDER_TYPE, BORDER_FLAT);
         ObjectSetInteger(0, bg, OBJPROP_COLOR,       C'50,65,120');
@@ -2042,7 +2048,7 @@ void UpdateGUI() {
     }
     ObjectSetInteger(0, bg, OBJPROP_XDISTANCE, PX);
     ObjectSetInteger(0, bg, OBJPROP_YDISTANCE, PY);
-    ObjectSetInteger(0, bg, OBJPROP_YSIZE,     362 + hOff);
+    ObjectSetInteger(0, bg, OBJPROP_YSIZE,     378 + hOff);
 
     // ── PANEL 2: ĐIỀU KHIỂN ──
     string bg2 = GUI + "BG2";
@@ -2050,7 +2056,7 @@ void UpdateGUI() {
         ObjectCreate(0, bg2, OBJ_RECTANGLE_LABEL, 0, 0, 0);
         ObjectSetInteger(0, bg2, OBJPROP_CORNER,      CORNER_LEFT_UPPER);
         ObjectSetInteger(0, bg2, OBJPROP_XSIZE,       PW);
-        ObjectSetInteger(0, bg2, OBJPROP_YSIZE,       110);
+        ObjectSetInteger(0, bg2, OBJPROP_YSIZE,       110 + botOff);
         ObjectSetInteger(0, bg2, OBJPROP_BGCOLOR,     C'17,21,32');
         ObjectSetInteger(0, bg2, OBJPROP_BORDER_TYPE, BORDER_FLAT);
         ObjectSetInteger(0, bg2, OBJPROP_COLOR,       C'65,90,160');
@@ -2059,7 +2065,7 @@ void UpdateGUI() {
         ObjectSetInteger(0, bg2, OBJPROP_SELECTABLE,  false);
     }
     ObjectSetInteger(0, bg2, OBJPROP_XDISTANCE, PX);
-    ObjectSetInteger(0, bg2, OBJPROP_YDISTANCE, PY + 376 + hOff);
+    ObjectSetInteger(0, bg2, OBJPROP_YDISTANCE, PY + 392 + hOff);
 
     // ── PANEL 3: THỐNG KÊ ──
     string bg3 = GUI + "BG3";
@@ -2076,7 +2082,7 @@ void UpdateGUI() {
         ObjectSetInteger(0, bg3, OBJPROP_SELECTABLE,  false);
     }
     ObjectSetInteger(0, bg3, OBJPROP_XDISTANCE, PX);
-    ObjectSetInteger(0, bg3, OBJPROP_YDISTANCE, PY + 516 + hOff);
+    ObjectSetInteger(0, bg3, OBJPROP_YDISTANCE, PY + 532 + hOff + botOff);
 
     // ── NỘI DUNG PANEL 1 ──
     int x = PX + 7, y = PY + 5, s = 16;
@@ -2087,8 +2093,18 @@ void UpdateGUI() {
     string modeName = (InpBotMode == MODE_SEMI_AUTO) ? "Ban Tu Dong" : "Tu Dong";
     color  modeClr  = (InpBotMode == MODE_SEMI_AUTO) ? clrOrange    : clrLimeGreen;
     string roleTxt  = g_IsMaster ? " | MASTER" : " | SLAVE";
+    if(!g_BotEnabled) { modeName = "!! BOT TAT !!"; modeClr = clrTomato; }
     Lbl("Mod",  "Mode   : " + modeName + roleTxt, x, y, modeClr    );    y += s;
     Lbl("Dir",  "Direct : " + dirName,        x, y, dirClr        );    y += s;
+    {
+        string syncTxt; color syncClr;
+        if(!g_SyncAllowed)          { syncTxt = "OFF";         syncClr = C'90,90,90';  }
+        else if(g_IsMaster)        { syncTxt = "MASTER";       syncClr = clrDodgerBlue; }
+        else if(g_LastCloudOK == 0) { syncTxt = "Connecting..."; syncClr = clrYellow;   }
+        else if(TimeCurrent() - g_LastCloudOK <= 30) { syncTxt = "OK";   syncClr = clrLimeGreen; }
+        else                        { syncTxt = "LOST";        syncClr = clrTomato;    }
+        Lbl("Sync", "Sync   : " + syncTxt, x, y, syncClr);
+    }                                                                       y += s;
     if(g_HedgeEnable) {
         string hedgeText; color hedgeClr;
         double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
@@ -2145,13 +2161,26 @@ void UpdateGUI() {
     Lbl("Tot",  StringFormat("Total  : %d orders", nBuy + nSell), x, y, clrSilver);        y += s;
 
     // ── NỘI DUNG PANEL 2 (Nút điều khiển) ──
-    y = PY + 386 + hOff;
+    y = PY + 402 + hOff;
     Lbl("P2T", "═══  ĐIỀU KHIỂN LỆNH  ═══", x, y, C'90,140,230', 9); y += s + 2;
 
     int bh  = 22;
     int bfw = PW - 18;              // full-width button
     int bhw = (PW - 24) / 2;        // half-width button
     int bx2 = PX + 7 + bhw + 4;     // x of second button in a row
+
+    // Nút Bật/Tắt Bot — chỉ hiện trên Master (nhấn = tương đương đổi InpBotEnabled rồi OK:
+    // tự CloseAll() nếu vừa tắt, rồi đẩy lên Cloud cho mọi Slave nếu g_SyncAllowed).
+    if(g_IsMaster) {
+        string botTxt = g_BotEnabled ? "  Bot: ON" : "  Bot: OFF";
+        color  botBg  = g_BotEnabled ? C'0,90,30'   : C'120,20,20';
+        color  botBd  = g_BotEnabled ? C'40,190,90' : C'220,60,60';
+        CreateBtn("BtnBotToggle", botTxt, PX+7, y, bfw, bh, botBg, botBd);
+        y += bh + 4;   // Chỉ chừa chỗ khi thực sự có nút (Master) — Slave không có khoảng trống thừa
+    } else {
+        ObjectDelete(0, GUI + "BtnBotToggle");
+    }
+
     CreateBtn("BtnCloseAll",    "  Close All",     PX+7, y, bfw, bh, C'20,60,150',  C'80,130,230'); y += bh + 4;
     CreateBtn("BtnCloseBuy",    "▲ Close Buy",     PX+7, y, bhw, bh, C'0,105,45',   C'45,185,90' );
     CreateBtn("BtnCloseProfit", "$ Close Profit",  bx2,  y, bhw, bh, C'0,110,100',  C'40,190,170'); y += bh + 4;
@@ -2159,7 +2188,7 @@ void UpdateGUI() {
     CreateBtn("BtnCloseLoss",   "✕ Close Loss",    bx2,  y, bhw, bh, C'140,35,20',  C'210,80,55' );
 
     // ── NỘI DUNG PANEL 3 (Thống kê) ──
-    y = PY + 526 + hOff;
+    y = PY + 542 + hOff + botOff;
     Lbl("P3T", "═══  THỐNG KÊ  ═══", x, y, C'90,140,230', 9); y += s + 2;
 
     color sepClr = C'45,65,120';
@@ -2229,8 +2258,8 @@ void UpdateGUI() {
             ObjectSetInteger(0, bg4, OBJPROP_SELECTABLE,  false);
         }
         ObjectSetInteger(0, bg4, OBJPROP_XDISTANCE, PX);
-        ObjectSetInteger(0, bg4, OBJPROP_YDISTANCE, PY + 673 + hOff);
-        int y4 = PY + 683 + hOff;
+        ObjectSetInteger(0, bg4, OBJPROP_YDISTANCE, PY + 689 + hOff + botOff);
+        int y4 = PY + 699 + hOff + botOff;
         Lbl("P4T", "═══  VÀO LỆNH THỦ CÔNG  ═══", x, y4, C'230,100,100', 9); y4 += s + 2;
         CreateBtn("BtnOpenBuy",  "▲ Open Buy",  PX+7, y4, bhw, bh, C'0,80,20',  C'30,200,80');
         CreateBtn("BtnOpenSell", "▼ Open Sell", bx2,  y4, bhw, bh, C'100,0,0',  C'220,40,40');
@@ -2419,12 +2448,25 @@ string BuildConfigPayload(long version) {
          DoubleToString(g_DayMaxProfit, 2) + ";";
 
     s += (g_HedgeEnable ? "1" : "0") + string(";") + DoubleToString(g_HedgeCutPts, 1);
+
+    s += ";" + string(g_BotEnabled ? "1" : "0");   // field cuối — xem ghi chú tại RTB_CONFIG_FIELD_COUNT
     return s;
 }
 
 // Tổng số field theo BuildConfigPayload(): 1 version + 3 signal + 6 base + 5 dca-flags +
-// 3 pyra-flags + 15*5 DCA tiers + 8*5 PYRA tiers + 9 trim + 6 trail + 5 exit + 2 hedge = 155
-#define RTB_CONFIG_FIELD_COUNT 155
+// 3 pyra-flags + 15*5 DCA tiers + 8*5 PYRA tiers + 9 trim + 6 trail + 5 exit + 2 hedge
+// + 1 BotEnabled (field cuối, thêm sau nên đặt ở cuối để không xáo trộn vị trí các field cũ) = 156
+#define RTB_CONFIG_FIELD_COUNT 156
+
+// Bot vừa chuyển true→false (từ Master, qua payload hoặc từ chính Input của Master) → đóng hết ngay.
+// false→false hoặc true→true: không làm gì thêm (tránh gọi CloseAll() lặp lại vô ích).
+void ApplyBotEnabled(bool newVal) {
+    if(g_BotEnabled && !newVal) {
+        Print("RTB: Bot bị TẮT (BotEnabled=false) — đóng toàn bộ lệnh.");
+        CloseAll();
+    }
+    g_BotEnabled = newVal;
+}
 
 bool ApplyConfigPayload(string data) {
     string f[];
@@ -2501,6 +2543,8 @@ bool ApplyConfigPayload(string data) {
     g_HedgeEnable = (f[idx++] == "1");
     g_HedgeCutPts = StringToDouble(f[idx++]);
 
+    ApplyBotEnabled(f[idx++] == "1");   // field cuối — tự CloseAll() nếu vừa chuyển true→false
+
     g_ConfigVersion = newVersion;
     Print("RTB: Config applied — version=", newVersion, " (", idx, " fields)");
     return true;
@@ -2571,6 +2615,7 @@ bool PushConfigToCloud() {
         Print("RTB: PushConfig — lỗi ghi Sheet, err=", GetLastError());
         return false;
     }
+    g_LastCloudOK = TimeCurrent();
     Print("RTB: PushConfig — đã ghi Sheet, version=", version);
 
     if(!TelegramSendAndPin(version))
@@ -2590,6 +2635,7 @@ bool CheckConfigTrigger() {
     ResetLastError();
     int httpCode = WebRequest("GET", url, "", "", 10000, post, 0, result, headers);
     if(httpCode != 200) return false;
+    g_LastCloudOK = TimeCurrent();
 
     string resp = CharArrayToString(result);
     int tp = StringFind(resp, "CONFIG_UPDATE_");
@@ -2625,6 +2671,7 @@ bool PullConfigFromCloud() {
         Print("RTB: PullConfig — lỗi mạng, err=", GetLastError());
         return false;
     }
+    g_LastCloudOK = TimeCurrent();
 
     string payload = CharArrayToString(result);
     return ApplyConfigPayload(payload);
@@ -2775,6 +2822,13 @@ int OnInit() {
     g_DayMaxLoss = InpDayMaxLoss; g_DayMaxProfit = InpDayMaxProfit;
     g_HedgeEnable = InpHedgeEnable; g_HedgeCutPts = InpHedgeCutPts;
 
+    // BotEnabled: Master dùng thẳng Input của chính nó (tự phát hiện chuyển true→false → CloseAll()).
+    // Slave: chỉ gán baseline tạm — giá trị thật + việc phát hiện chuyển trạng thái do
+    // PullConfigFromCloud()/ApplyConfigPayload() xử lý ngay bên dưới, tránh CloseAll() sớm nhầm
+    // theo Input cục bộ (thường không ai chỉnh tay trên Slave) trước khi kịp tải giá trị thật.
+    if(g_IsMaster) ApplyBotEnabled(InpBotEnabled);
+    else           g_BotEnabled = InpBotEnabled;
+
     Trade.SetExpertMagicNumber(InpMagic);
     Trade.SetDeviationInPoints(50);
     Trade.SetTypeFilling(ORDER_FILLING_RETURN);
@@ -2899,7 +2953,7 @@ void OnTimer() {
     // Hedge: cắt chiều âm (chạy cả khi DayLimitHit để bảo vệ tài khoản)
     CheckHedgeCut();
 
-    if(!DayLimitHit) {
+    if(!DayLimitHit && g_BotEnabled) {
         // Trimming
         CheckTrimming();
 
@@ -2946,8 +3000,22 @@ void OnChartEvent(const int id, const long& lparam, const double& dparam, const 
     else if(sparam == GUI + "BtnCloseSell")   CloseAll(POSITION_TYPE_SELL);
     else if(sparam == GUI + "BtnCloseProfit") CloseAllProfit();
     else if(sparam == GUI + "BtnCloseLoss")   CloseAllLoss();
-    else if(sparam == GUI + "BtnOpenBuy")  { if(!DayLimitHit) OpenOrder(ORDER_TYPE_BUY,  InpLotSize, g_TP_Points, g_SL_Points); }
-    else if(sparam == GUI + "BtnOpenSell") { if(!DayLimitHit) OpenOrder(ORDER_TYPE_SELL, InpLotSize, g_TP_Points, g_SL_Points); }
+    else if(sparam == GUI + "BtnOpenBuy")  { if(!DayLimitHit && g_BotEnabled) OpenOrder(ORDER_TYPE_BUY,  InpLotSize, g_TP_Points, g_SL_Points); }
+    else if(sparam == GUI + "BtnOpenSell") { if(!DayLimitHit && g_BotEnabled) OpenOrder(ORDER_TYPE_SELL, InpLotSize, g_TP_Points, g_SL_Points); }
+    else if(sparam == GUI + "BtnBotToggle" && g_IsMaster) {
+        // Debounce 2s: chặn spam WebRequest khi bấm liên tục, đồng thời đảm bảo 2 lần bấm
+        // liên tiếp không bao giờ rơi cùng 1 giây (TimeGMT() dùng làm version chỉ phân giải 1s).
+        if(TimeCurrent() - g_LastBotToggleClick < 2) {
+            Print("RTB: Bỏ qua click Bot Toggle — bấm quá nhanh (debounce 2 giây).");
+        } else {
+            g_LastBotToggleClick = TimeCurrent();
+            // Tương đương đổi InpBotEnabled rồi bấm OK: tự CloseAll() nếu vừa tắt (qua ApplyBotEnabled),
+            // rồi đẩy lên Cloud cho mọi Slave — chỉ khi Remote Config Sync đang được phép chạy.
+            ApplyBotEnabled(!g_BotEnabled);
+            if(g_SyncAllowed) PushConfigToCloud();
+            UpdateGUI();
+        }
+    }
     else return;
     ObjectSetInteger(0, sparam, OBJPROP_STATE, false);
     ChartRedraw(0);

@@ -330,7 +330,6 @@ double   g_ats_ut        = 0.0;
 int      g_ats_ut_signal = 0;
 datetime g_last_bar_ut   = 0;
 
-// DCA config arrays (index 0-7 = level 1-8)
 ENUM_DCA_MODE DCA_Mode[15];
 double        DCA_Mult[15];
 int           DCA_MaxOrd[15];
@@ -338,7 +337,6 @@ double        DCA_Dist[15];
 double        DCA_TP[15];
 double        DCA_SL[15];
 
-// Pyramiding config arrays (index 0-7 = level 1-8)
 ENUM_DCA_MODE PYRA_Mode[8];
 double        PYRA_Mult[8];
 int           PYRA_MaxOrd[8];
@@ -354,19 +352,19 @@ double   DayProfit      = 0.0;
 int      LastDay        = -1;
 bool     DayLimitHit    = false;
 
-// Thay YOUR_SCRIPT_ID bằng ID thực từ Google Apps Script deploy URL
-// Không dùng input để URL không hiển thị trong cài đặt EA
 const string LICENSE_URL = "https://script.google.com/macros/s/AKfycbwfKLYX36os92cQqn53XZ1ZKK0BOspHv17C0SeLPPozoF9v0gXIpYTPYOgphkxx1-9kRg/exec";
 
-// Basket trail levels
 double   TrailBuy  = 0.0;
 double   TrailSell = 0.0;
 
-// Persistent DCA tier counters — only reset when all positions of that side close
+double   OrigBuyPrice   = 0.0;
+double   OrigSellPrice  = 0.0;
+ulong    OrigBuyLimitTk  = 0;
+ulong    OrigSellLimitTk = 0;
+
 int      PeakDCABuy  = 0;
 int      PeakDCASell = 0;
 
-// Per-slot DCA price tracking: re-fill a closed slot only when price bounces back to its entry
 double   DCABuyPrices[];
 double   DCASellPrices[];
 bool     DCABuyBounced[];
@@ -376,20 +374,16 @@ ulong    DCASellTickets[];
 ulong    DCABuyLimitTk[];
 ulong    DCASellLimitTk[];
 
-// Hedge Follow Winner state
 bool   HedgeCutBuy        = false;
 bool   HedgeCutSell       = false;
 double HedgeInitBuyPrice  = 0.0;
 double HedgeInitSellPrice = 0.0;
-int    HedgeTrendSide     = -1;   // -1=chưa xác định, 0=BUY(xu hướng), 1=SELL(xu hướng)
+int    HedgeTrendSide     = -1;
 
-// Calendar panel state
 bool g_CalExpanded = false;
 int  g_CalYear     = 0;
 int  g_CalMonth    = 0;
 
-// Cache kết quả từng ô ngày — ngày đã qua không đổi nữa nên chỉ tính 1 lần/tháng đang xem;
-// chỉ ô "hôm nay" được tính lại (có throttle) vì lệnh vẫn có thể đóng thêm trong ngày.
 int    g_CalCacheYear  = 0;
 int    g_CalCacheMonth = 0;
 bool   g_CalCacheDone[42];
@@ -398,7 +392,6 @@ double g_CalCacheLot[42];
 datetime g_CalLastTodayCalc = 0;
 #define RTB_CAL_TODAY_THROTTLE_SEC 3
 
-// GUI prefix
 const string GUI = "RTB_";
 
 //+------------------------------------------------------------------+
@@ -407,26 +400,21 @@ const string GUI = "RTB_";
 //| Slave  → poll getChat (pinned) mỗi ~10s → tải Sheet nếu đổi.     |
 //| Đổi TELEGRAM_BOT_TOKEN / TELEGRAM_CHANNEL_ID trước khi dùng.     |
 //+------------------------------------------------------------------+
-const string TELEGRAM_BOT_TOKEN  = "8806634347:AAFoLoo8P4DGwMbmaTNitpuXcsZ_2Z9Y7_I";      // từ BotFather
-const string TELEGRAM_CHANNEL_ID = "-1004371899741";     // dạng -100xxxxxxxxxx
+const string TELEGRAM_BOT_TOKEN  = "8806634347:AAFoLoo8P4DGwMbmaTNitpuXcsZ_2Z9Y7_I";
+const string TELEGRAM_CHANNEL_ID = "-1004371899741";
 
-// Timeout WebRequest — giảm từ 10s xuống 5s để tránh treo OnTick/OnTimer quá lâu khi mạng chậm
-// (WebRequest chạy đồng bộ, cùng luồng với toàn bộ logic DCA/Trailing/Exit).
 #define RTB_HTTP_TIMEOUT_MS 5000
 
-bool   g_IsMaster        = false;   // xác định qua field "role" trong response CheckLicense()
-bool   g_SyncAllowed     = false;   // = InpAllowServerConnect && InpBotMode==MODE_AUTO — tắt 1 trong 2 là ngắt hẳn Remote Config Sync
-bool   g_BotEnabled      = true;    // = InpBotEnabled (Master) hoặc giá trị đồng bộ từ Master (Slave) — false = đóng hết + dừng mọi hoạt động
-datetime g_LastBotToggleClick = 0;  // debounce nút BtnBotToggle — chặn spam request + tránh trùng version (TimeGMT() phân giải 1 giây)
-datetime g_LastCloudOK        = 0;  // lần cuối liên lạc Cloud thành công (Telegram hoặc Sheets) — hiển thị trạng thái Sync trên GUI
-long   g_ConfigVersion   = 0;       // version config đang áp dụng (đã tải)
-long   g_LastSeenVersion = 0;       // version thấy lần cuối qua pinned message (Telegram)
-int    g_SyncTick        = 0;       // đếm giây để throttle polling trong OnTimer()
-int    g_SyncFallbackTick= 0;       // đếm giây cho safety-net resync định kỳ (bỏ qua Telegram)
+bool   g_IsMaster        = false;
+bool   g_SyncAllowed     = false;
+bool   g_BotEnabled      = true;
+datetime g_LastBotToggleClick = 0;
+datetime g_LastCloudOK        = 0;
+long   g_ConfigVersion   = 0;
+long   g_LastSeenVersion = 0;
+int    g_SyncTick        = 0;
+int    g_SyncFallbackTick= 0;
 
-// Mirror globals cho các Input được đồng bộ từ xa (Slave ghi đè, Master chỉ đọc lại từ Input).
-// KHÔNG mirror các tham số tạo indicator handle (EMA/BB/Ichimoku period, ATR period, SignalTF)
-// vì đổi các giá trị đó cần release + tạo lại handle — rủi ro không tương xứng, giữ nguyên Input.
 ENUM_SIGNAL_MODE g_SignalMode;
 ENUM_DIRECTION   g_Direction;
 int              g_UTKeyValue;
@@ -457,8 +445,6 @@ double g_HedgeCutPts;
 //| UTILITY FUNCTIONS                                                |
 //+------------------------------------------------------------------+
 
-// Returns true if the currently-selected position should be managed.
-// In Semi-Auto mode: also includes manually opened positions (magic == 0).
 bool IsManaged() {
     if(PositionGetString(POSITION_SYMBOL) != _Symbol) return false;
     long magic = PositionGetInteger(POSITION_MAGIC);
@@ -482,7 +468,6 @@ int CountBuy()  { return CountPos(POSITION_TYPE_BUY);  }
 int CountSell() { return CountPos(POSITION_TYPE_SELL); }
 int CountAll()  { return CountBuy() + CountSell(); }
 
-// Đếm lệnh thủ công (magic=0) cùng chiều trên symbol này
 int CountManual(int posType) {
     int n = 0;
     for(int i = PositionsTotal()-1; i >= 0; i--) {
@@ -496,7 +481,6 @@ int CountManual(int posType) {
     return n;
 }
 
-// Đếm pyramiding orders theo comment prefix "RTP|" — restart-safe, không lẫn với DCA
 int CountPyra(int posType) {
     int n = 0;
     for(int i = PositionsTotal()-1; i >= 0; i--) {
@@ -533,7 +517,6 @@ double TotalLot(int posType) {
     return lot;
 }
 
-// Last opened price for a direction (most recently opened position)
 double LastOpenPrice(int posType) {
     double   price = 0;
     datetime latest = 0;
@@ -548,7 +531,6 @@ double LastOpenPrice(int posType) {
     return price;
 }
 
-// Earliest opened price for a direction (lệnh mở cũ nhất — dùng làm giá tham chiếu Hedge)
 double FirstOpenPrice(int posType) {
     double   price  = 0;
     datetime oldest = (datetime)0x7FFFFFFF;
@@ -563,7 +545,6 @@ double FirstOpenPrice(int posType) {
     return price;
 }
 
-// Weighted average open price
 double AvgOpenPrice(int posType) {
     double totalLot = 0, totalCost = 0;
     for(int i = PositionsTotal()-1; i >= 0; i--) {
@@ -579,7 +560,6 @@ double AvgOpenPrice(int posType) {
     return (totalLot > 0) ? totalCost / totalLot : 0;
 }
 
-// Ticket of position with worst (most negative) floating profit
 ulong WorstTicket() {
     ulong  tk_worst = 0;
     double worst    = 0;
@@ -593,7 +573,6 @@ ulong WorstTicket() {
     return tk_worst;
 }
 
-// Best (most positive) ticket
 ulong BestTicket() {
     ulong  tk_best = 0;
     double best    = 0;
@@ -622,6 +601,40 @@ void CloseAll(int posType = -1) {
     for(int i = 0; i < count; i++)
         Trade.PositionClose(tickets[i]);
     Trade.SetAsyncMode(false);
+
+    // Huỷ luôn các lệnh chờ Limit/Stop (refill + tầng mới DCA) đang neo GTC — Close All phải
+    // dọn sạch cả lệnh chờ, không chỉ vị thế đang mở, tránh sót lệnh treo sau khi bấm nút.
+    for(int i = OrdersTotal()-1; i >= 0; i--) {
+        ulong otk = OrderGetTicket(i);
+        if(otk == 0 || !OrderSelect(otk)) continue;
+        if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
+        long magic = OrderGetInteger(ORDER_MAGIC);
+        bool managed = (magic == (long)InpMagic) || (InpBotMode == MODE_SEMI_AUTO && magic == 0);
+        if(!managed) continue;
+        ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+        bool isBuyType  = (ot == ORDER_TYPE_BUY_LIMIT  || ot == ORDER_TYPE_BUY_STOP);
+        bool isSellType = (ot == ORDER_TYPE_SELL_LIMIT || ot == ORDER_TYPE_SELL_STOP);
+        if(!isBuyType && !isSellType) continue;
+        if(posType == POSITION_TYPE_BUY  && !isBuyType)  continue;
+        if(posType == POSITION_TYPE_SELL && !isSellType) continue;
+        Trade.OrderDelete(otk);
+    }
+
+    // Xoá luôn tracking nội bộ (peak/slot) cho chiều vừa đóng — nếu không, DCABuyLimitTk/
+    // DCASellLimitTk vẫn còn ticket cũ (đã huỷ ở trên) khiến HasPendingDCA() tưởng vẫn còn lệnh
+    // chờ thật, chặn TryOpenBuy()/TryOpenSell() mở lại lệnh mới dù sàn đã sạch hoàn toàn.
+    if(posType < 0 || posType == POSITION_TYPE_BUY) {
+        TrailBuy = 0; PeakDCABuy = 0;
+        ArrayInitialize(DCABuyPrices, 0); ArrayInitialize(DCABuyBounced, false);
+        ArrayInitialize(DCABuyTickets, 0); ArrayInitialize(DCABuyLimitTk, 0);
+        OrigBuyPrice = 0; OrigBuyLimitTk = 0;
+    }
+    if(posType < 0 || posType == POSITION_TYPE_SELL) {
+        TrailSell = 0; PeakDCASell = 0;
+        ArrayInitialize(DCASellPrices, 0); ArrayInitialize(DCASellBounced, false);
+        ArrayInitialize(DCASellTickets, 0); ArrayInitialize(DCASellLimitTk, 0);
+        OrigSellPrice = 0; OrigSellLimitTk = 0;
+    }
 }
 
 void CloseAllProfit() {
@@ -666,9 +679,6 @@ double NormLot(double lot) {
     return MathMax(minL, MathMin(maxL, lot));
 }
 
-// Lot của lệnh DCA thứ orderIdx1 (1-based: 1=lệnh DCA đầu tiên).
-// g_DCAArithEnable=true  → baseLot + orderIdx1 * g_DCAArithStep (bỏ qua hệ số tầng)
-// g_DCAArithEnable=false → baseLot * DCA_Mult[lvl] (hệ số tầng như cũ)
 double DCAOrderLot(double baseLot, int orderIdx1, int lvl) {
     if(g_DCAArithEnable)
         return NormLot(baseLot + orderIdx1 * g_DCAArithStep);
@@ -712,12 +722,12 @@ bool OpenOrder(int ordType, double lot, double tp_pts = 0, double sl_pts = 0,
     string comment;
     if(isPyra) {
         if(tp_pts == 0 && sl_pts == 0)
-            comment = "RTP|0|0|P";  // Pyramiding không có tier TP/SL — section 2b dùng g_TP_Points
+            comment = "RTP|0|0|P";
         else
             comment = StringFormat("RTP|%.0f|%.0f", tp_pts, sl_pts);
     } else if(isDCA) {
         if(tp_pts == 0 && sl_pts == 0)
-            comment = "RTB|0|0|D";  // DCA không có TP/SL — phân biệt với lệnh gốc "RTB|0|0"
+            comment = "RTB|0|0|D";
         else
             comment = StringFormat("RTB|%.0f|%.0f", tp_pts, sl_pts);
     }
@@ -745,7 +755,6 @@ bool OpenOrder(int ordType, double lot, double tp_pts = 0, double sl_pts = 0,
 //| ENTRY SIGNALS                                                    |
 //+------------------------------------------------------------------+
 
-// Returns +1 = BUY, -1 = SELL, 0 = no signal
 int SignalEMA() {
     double fast[], slow[];
     ArraySetAsSeries(fast, true);
@@ -756,11 +765,9 @@ int SignalEMA() {
     double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
     double price = (double)iClose(_Symbol, InpSignalTF, 0);
 
-    // Golden / Death cross
     bool crossUp   = fast[2] < slow[2] && fast[1] > slow[1];
     bool crossDown = fast[2] > slow[2] && fast[1] < slow[1];
 
-    // Pullback to EMA34: price within InpEMAPullbackPts of EMA34
     bool trendUp   = fast[0] > slow[0];
     bool trendDown = fast[0] < slow[0];
     bool pullBuy   = trendUp   && MathAbs(price - fast[0]) <= InpEMAPullbackPts * point;
@@ -774,7 +781,6 @@ int SignalEMA() {
 int SignalBZZone() {
     MqlRates r[];
     ArraySetAsSeries(r, true);
-    // Read 3 closed candles (index 1-3)
     if(CopyRates(_Symbol, InpSignalTF, 1, 3, r) < 3) return 0;
 
     bool allGreen = r[0].close > r[0].open && r[1].close > r[1].open && r[2].close > r[2].open;
@@ -782,7 +788,7 @@ int SignalBZZone() {
 
     if(allGreen) return  1;
     if(allRed)   return -1;
-    return 0; // Gray = no signal
+    return 0;
 }
 
 int SignalIchimoku() {
@@ -800,11 +806,10 @@ int SignalIchimoku() {
     if(CopyBuffer(hIchi, 4, 0, 3, chikou)  < 3) return 0;
 
     double price    = (double)iClose(_Symbol, InpSignalTF, 0);
-    double pastPrice= (double)iClose(_Symbol, InpSignalTF, InpIchiKijun); // Chikou lag
+    double pastPrice= (double)iClose(_Symbol, InpSignalTF, InpIchiKijun);
     double kumoTop  = MathMax(spanA[0], spanB[0]);
     double kumoBot  = MathMin(spanA[0], spanB[0]);
 
-    // Tenkan cross Kijun (golden = buy, death = sell) on bar[2] vs [1]
     bool tkCrossUp  = tenkan[2] < kijun[2] && tenkan[1] > kijun[1];
     bool tkCrossDown= tenkan[2] > kijun[2] && tenkan[1] < kijun[1];
 
@@ -825,8 +830,8 @@ int SignalBB() {
 
     double closeBar1 = (double)iClose(_Symbol, InpSignalTF, 1);
 
-    if(closeBar1 <= lower[1]) return  1;  // Touch/breach lower band → BUY
-    if(closeBar1 >= upper[1]) return -1;  // Touch/breach upper band → SELL
+    if(closeBar1 <= lower[1]) return  1;
+    if(closeBar1 >= upper[1]) return -1;
     return 0;
 }
 
@@ -876,7 +881,7 @@ int SignalUTBot() {
 int SignalSimulated() {
     if(g_Direction == DIR_ONLY_BUY)  return  1;
     if(g_Direction == DIR_ONLY_SELL) return -1;
-    return 2; // Both/Either: signal = 2 → mở cả BUY lẫn SELL
+    return 2;
 }
 
 int GetSignal() {
@@ -889,7 +894,6 @@ int GetSignal() {
         case SIG_SIMULATED: sig = SignalSimulated(); break;
         case SIG_UT_BOT:    sig = SignalUTBot();    break;
     }
-    // SIG_SIMULATED đã tự filter theo g_Direction — chỉ apply cho các strategy khác
     if(g_SignalMode != SIG_SIMULATED) {
         if(g_Direction == DIR_ONLY_BUY  && sig < 0) return 0;
         if(g_Direction == DIR_ONLY_SELL && sig > 0) return 0;
@@ -902,34 +906,68 @@ int GetSignal() {
 //+------------------------------------------------------------------+
 void ResetDCAState(int posType) {
     if(posType == POSITION_TYPE_BUY) {
-        for(int i = 0; i < ArraySize(DCABuyLimitTk); i++) { if(DCABuyLimitTk[i] > 0) Trade.OrderDelete(DCABuyLimitTk[i]); }
+        for(int i = 0; i < ArraySize(DCABuyLimitTk); i++) {
+            if(DCABuyLimitTk[i] > 0 && !Trade.OrderDelete(DCABuyLimitTk[i]))
+                Print("RTB: ResetDCAState huỷ lệnh chờ BUY ticket=", DCABuyLimitTk[i], " thất bại, err=", GetLastError());
+        }
+        if(OrigBuyLimitTk > 0 && !Trade.OrderDelete(OrigBuyLimitTk))
+            Print("RTB: ResetDCAState huỷ lệnh chờ gốc BUY ticket=", OrigBuyLimitTk, " thất bại, err=", GetLastError());
         TrailBuy = 0; PeakDCABuy = 0;
         ArrayInitialize(DCABuyPrices, 0); ArrayInitialize(DCABuyBounced, false);
         ArrayInitialize(DCABuyTickets, 0); ArrayInitialize(DCABuyLimitTk, 0);
+        OrigBuyPrice = 0; OrigBuyLimitTk = 0;
     } else {
-        for(int i = 0; i < ArraySize(DCASellLimitTk); i++) { if(DCASellLimitTk[i] > 0) Trade.OrderDelete(DCASellLimitTk[i]); }
+        for(int i = 0; i < ArraySize(DCASellLimitTk); i++) {
+            if(DCASellLimitTk[i] > 0 && !Trade.OrderDelete(DCASellLimitTk[i]))
+                Print("RTB: ResetDCAState huỷ lệnh chờ SELL ticket=", DCASellLimitTk[i], " thất bại, err=", GetLastError());
+        }
+        if(OrigSellLimitTk > 0 && !Trade.OrderDelete(OrigSellLimitTk))
+            Print("RTB: ResetDCAState huỷ lệnh chờ gốc SELL ticket=", OrigSellLimitTk, " thất bại, err=", GetLastError());
         TrailSell = 0; PeakDCASell = 0;
         ArrayInitialize(DCASellPrices, 0); ArrayInitialize(DCASellBounced, false);
         ArrayInitialize(DCASellTickets, 0); ArrayInitialize(DCASellLimitTk, 0);
+        OrigSellPrice = 0; OrigSellLimitTk = 0;
     }
+}
+
+// Còn lệnh chờ DCA nào đang neo GTC không (chặn ResetDCAState xoá nhầm khi count vị thế = 0)
+bool HasPendingDCA(int posType) {
+    int peak = (posType == POSITION_TYPE_BUY) ? PeakDCABuy : PeakDCASell;
+    for(int i = 0; i < peak; i++) {
+        ulong tk = (posType == POSITION_TYPE_BUY) ? DCABuyLimitTk[i] : DCASellLimitTk[i];
+        if(tk > 0) return true;
+    }
+    return false;
 }
 
 void TryOpenBuy() {
     if(g_HedgeEnable && HedgeCutBuy) return;
     if(CountBuy() >= InpMaxBuy) return;
     if(CountBuy() > 0) return;
+    if(HasPendingDCA(POSITION_TYPE_BUY)) return;
+    if(OrigBuyLimitTk > 0) return;
     ResetDCAState(POSITION_TYPE_BUY);
-    if(OpenOrder(ORDER_TYPE_BUY, InpLotSize, g_TP_Points, g_SL_Points))
+    if(OpenOrder(ORDER_TYPE_BUY, InpLotSize, g_TP_Points, g_SL_Points)) {
         LastEntryTime = TimeCurrent();
+        ulong tk = Trade.ResultOrder();
+        OrigBuyPrice = (tk > 0 && PositionSelectByTicket(tk))
+            ? PositionGetDouble(POSITION_PRICE_OPEN) : SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+    }
 }
 
 void TryOpenSell() {
     if(g_HedgeEnable && HedgeCutSell) return;
     if(CountSell() >= InpMaxSell) return;
     if(CountSell() > 0) return;
+    if(HasPendingDCA(POSITION_TYPE_SELL)) return;
+    if(OrigSellLimitTk > 0) return;
     ResetDCAState(POSITION_TYPE_SELL);
-    if(OpenOrder(ORDER_TYPE_SELL, InpLotSize, g_TP_Points, g_SL_Points))
+    if(OpenOrder(ORDER_TYPE_SELL, InpLotSize, g_TP_Points, g_SL_Points)) {
         LastEntryTime = TimeCurrent();
+        ulong tk = Trade.ResultOrder();
+        OrigSellPrice = (tk > 0 && PositionSelectByTicket(tk))
+            ? PositionGetDouble(POSITION_PRICE_OPEN) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    }
 }
 
 void CheckEntry() {
@@ -942,8 +980,6 @@ void CheckEntry() {
     if(sig == 0) return;
 
     if(sig == 2) {
-        // Simulated Both/Either: mở BUY và SELL độc lập
-        // Mỗi hướng tự quản lý DCA/Trail/Trim riêng
         TryOpenBuy();
         TryOpenSell();
         return;
@@ -957,10 +993,6 @@ void CheckEntry() {
 //| DCA PRIMARY CHAIN HELPERS (Semi-Auto multi-entry)               |
 //+------------------------------------------------------------------+
 
-// Đếm lệnh DCA do bot mở (magic=InpMagic, comment "RTB|X|Y")
-// Semi-Auto: lệnh gốc là thủ công (magic=0) nên MỌI lệnh RTB| đều là DCA
-// Auto:      lệnh gốc cũng có "RTB|0|0" → đếm tất cả RTB| rồi trừ 1 (lệnh gốc)
-//            Không dùng filter TP/SL vì DCA có thể có TP=SL=0 → comment cũng là "RTB|0|0"
 int CountBotDCA(int posType) {
     int n = 0;
     for(int i = PositionsTotal()-1; i >= 0; i--) {
@@ -973,12 +1005,10 @@ int CountBotDCA(int posType) {
         if(StringFind(cmt, "RTB|") != 0) continue;
         n++;
     }
-    // Auto mode: trừ 1 cho lệnh gốc (cũng có prefix "RTB|")
     if(InpBotMode != MODE_SEMI_AUTO) n = MathMax(0, n - 1);
     return n;
 }
 
-// Giá mở của lệnh thủ công CŨ NHẤT (lệnh gốc của user) cùng chiều
 double OldestManualPrice(int posType) {
     double   price  = 0;
     datetime oldest = (datetime)0x7FFFFFFF;
@@ -994,7 +1024,6 @@ double OldestManualPrice(int posType) {
     return price;
 }
 
-// Lot của lệnh thủ công CŨ NHẤT (lệnh gốc của user) cùng chiều
 double OldestManualLot(int posType) {
     double   lot    = 0;
     datetime oldest = (datetime)0x7FFFFFFF;
@@ -1010,7 +1039,6 @@ double OldestManualLot(int posType) {
     return lot;
 }
 
-// Giá cực trị trong các lệnh thủ công: BUY → thấp nhất, SELL → cao nhất
 double ExtremeManualPrice(int posType) {
     double extreme = 0;
     for(int i = PositionsTotal()-1; i >= 0; i--) {
@@ -1028,7 +1056,6 @@ double ExtremeManualPrice(int posType) {
     return extreme;
 }
 
-// Giá của lệnh pyramiding (RTP|) gần nhất do bot mở cùng chiều
 double LastPyraPrice(int posType) {
     double   price  = 0;
     datetime latest = 0;
@@ -1045,7 +1072,6 @@ double LastPyraPrice(int posType) {
     return price;
 }
 
-// Lot của lệnh pyramiding (RTP|) gần nhất cùng chiều
 double LastPyraLot(int posType) {
     double   lot    = 0;
     datetime latest = 0;
@@ -1062,7 +1088,6 @@ double LastPyraLot(int posType) {
     return lot;
 }
 
-// Lot của lệnh thủ công có giá cực trị: BUY → thấp nhất, SELL → cao nhất
 double ExtremeManualLot(int posType) {
     double extreme = 0, lot = 0;
     for(int i = PositionsTotal()-1; i >= 0; i--) {
@@ -1081,7 +1106,6 @@ double ExtremeManualLot(int posType) {
     return lot;
 }
 
-// Điểm tham chiếu DCA: lệnh DCA bot gần nhất → fallback lệnh thủ công cũ nhất
 double LastPrimaryPrice(int posType) {
     double   price  = 0;
     datetime latest = 0;
@@ -1093,11 +1117,9 @@ double LastPrimaryPrice(int posType) {
         if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
         string cmt = PositionGetString(POSITION_COMMENT);
         if(StringFind(cmt, "RTB|") != 0) continue;
-        if(InpBotMode != MODE_SEMI_AUTO) {
-            string parts[];
-            if(StringSplit(cmt, '|', parts) < 3) continue;
-            if(StringToDouble(parts[1]) == 0 && StringToDouble(parts[2]) == 0) continue;
-        }
+        string parts[];
+        if(StringSplit(cmt, '|', parts) < 3) continue;
+        if(StringToDouble(parts[1]) == 0 && StringToDouble(parts[2]) == 0) continue;
         datetime t = (datetime)PositionGetInteger(POSITION_TIME);
         if(t > latest) { latest = t; price = PositionGetDouble(POSITION_PRICE_OPEN); }
     }
@@ -1118,7 +1140,6 @@ void CheckHedgeCut() {
     int cntBuy  = CountBuy();
     int cntSell = CountSell();
 
-    // Reset hoàn toàn khi không còn lệnh nào (vòng mới)
     if(cntBuy == 0 && cntSell == 0) {
         if(HedgeCutBuy || HedgeCutSell || HedgeTrendSide >= 0) {
             Print("RTB: Hedge — reset state (không còn lệnh)");
@@ -1129,12 +1150,9 @@ void CheckHedgeCut() {
         return;
     }
 
-    // Luôn cập nhật theo lệnh cũ nhất còn sống — đúng khi lệnh gốc bị SL và pyramided còn mở
     if(cntBuy  > 0) HedgeInitBuyPrice  = FirstOpenPrice(POSITION_TYPE_BUY);
     if(cntSell > 0) HedgeInitSellPrice = FirstOpenPrice(POSITION_TYPE_SELL);
 
-    // Phát hiện đóng bên ngoài (trailing stop / TP / đóng tay)
-    // → Chỉ block vào lại, KHÔNG CloseAll() chiều còn lại
     if(!HedgeCutBuy && cntBuy == 0 && HedgeInitBuyPrice > 0) {
         Print("RTB: Hedge — BUY đóng bên ngoài (trailing/TP) → block vào lại BUY");
         HedgeCutBuy = true;  HedgeInitBuyPrice = 0.0;
@@ -1146,23 +1164,21 @@ void CheckHedgeCut() {
         return;
     }
 
-    // Kiểm tra cắt chiều BUY (giá giảm quá X points từ lệnh gốc)
     if(!HedgeCutBuy && HedgeInitBuyPrice > 0 && cntBuy > 0) {
         if((HedgeInitBuyPrice - bid) >= g_HedgeCutPts * point) {
             Print("RTB: Hedge — CẮT tất cả | BUY initPrice=", HedgeInitBuyPrice,
                   " bid=", bid, " loss=", (HedgeInitBuyPrice - bid) / point, "pts");
-            CloseAll();  // Cắt toàn bộ BUY + SELL
+            CloseAll();
             HedgeCutBuy  = true;  HedgeInitBuyPrice  = 0.0;
             HedgeCutSell = true;  HedgeInitSellPrice = 0.0;
         }
     }
 
-    // Kiểm tra cắt chiều SELL (giá tăng quá X points từ lệnh gốc)
     if(!HedgeCutSell && HedgeInitSellPrice > 0 && cntSell > 0) {
         if((ask - HedgeInitSellPrice) >= g_HedgeCutPts * point) {
             Print("RTB: Hedge — CẮT tất cả | SELL initPrice=", HedgeInitSellPrice,
                   " ask=", ask, " loss=", (ask - HedgeInitSellPrice) / point, "pts");
-            CloseAll();  // Cắt toàn bộ BUY + SELL
+            CloseAll();
             HedgeCutBuy  = true;  HedgeInitBuyPrice  = 0.0;
             HedgeCutSell = true;  HedgeInitSellPrice = 0.0;
         }
@@ -1173,16 +1189,9 @@ void CheckHedgeCut() {
 //| DCA LOGIC                                                        |
 //+------------------------------------------------------------------+
 
-// Checks if a DCA slot's position is still open, using ticket (exact) first,
-// falling back to price proximity if ticket is unknown (e.g. after EA restart).
 bool IsSlotOpen(int posType, int slot) {
     ulong tk = (posType == POSITION_TYPE_BUY) ? DCABuyTickets[slot] : DCASellTickets[slot];
-    // Chỉ tin ticket cũ nếu nó THỰC SỰ vẫn select được — nếu ticket đã đóng từ lâu mà vẫn return
-    // false ở đây (không rơi xuống fallback quét giá), slot sẽ bị coi là "trống" dù có thể đã có
-    // 1 vị thế MỚI khác (ticket khác) đang mở thật ở đúng giá đó → CheckDCA() đặt lệnh trùng.
-    // (Đây chính là nguyên nhân bug "2 lệnh 0.27 song song" đã gặp trên tài khoản live.)
     if(tk > 0 && PositionSelectByTicket(tk)) return true;
-    // Fallback: price-based with tight tolerance for post-restart recovery
     double slotPrice = (posType == POSITION_TYPE_BUY) ? DCABuyPrices[slot] : DCASellPrices[slot];
     if(slotPrice == 0) return false;
     double tol = 50.0 * SymbolInfoDouble(_Symbol, SYMBOL_POINT);
@@ -1193,7 +1202,6 @@ bool IsSlotOpen(int posType, int slot) {
         if((long)PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
         if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
         if(MathAbs(PositionGetDouble(POSITION_PRICE_OPEN) - slotPrice) <= tol) {
-            // Tự đồng bộ lại ticket đúng — lần gọi sau sẽ dùng thẳng nhánh nhanh phía trên
             if(posType == POSITION_TYPE_BUY) DCABuyTickets[slot]  = ptk;
             else                              DCASellTickets[slot] = ptk;
             return true;
@@ -1216,7 +1224,6 @@ void CheckDCA(int posType) {
     double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
     int maxOrds  = (posType == POSITION_TYPE_BUY) ? InpMaxBuy : InpMaxSell;
 
-    // ── SEMI-AUTO (multi-manual): logic cũ, không dùng per-slot tracking ──
     bool multiManual = (InpBotMode == MODE_SEMI_AUTO && CountManual(posType) >= 1);
     if(multiManual) {
         int    dcaCount  = CountBotDCA(posType);
@@ -1252,10 +1259,8 @@ void CheckDCA(int posType) {
         return;
     }
 
-    // ── AUTO MODE ──
     int peak = (posType == POSITION_TYPE_BUY) ? PeakDCABuy : PeakDCASell;
 
-    // 1. Re-fill closed slots at exact original entry price via pending limit orders
     for(int slot = 0; slot < peak; slot++) {
         double slotPrice   = (posType == POSITION_TYPE_BUY) ? DCABuyPrices[slot]   : DCASellPrices[slot];
         bool   slotBounced = (posType == POSITION_TYPE_BUY) ? DCABuyBounced[slot]  : DCASellBounced[slot];
@@ -1272,32 +1277,20 @@ void CheckDCA(int posType) {
                 cumS = ncS;
             }
 
-            // Không bao giờ "bỏ" slot dù giá đi xa đến đâu — lệnh chờ GTC vẫn nằm chờ vô thời hạn,
-            // tự khớp khi giá quay lại đúng mức, không tốn phí hay rủi ro gì khi chỉ đứng chờ.
-            // (Bỏ hẳn cơ chế "leftBehind/Abandoned" cũ — đó chính là nguyên nhân khiến rất nhiều
-            // slot ở tầng xa bị bỏ vĩnh viễn, không refill lại như báo cáo thực tế trên tài khoản live.)
 
-            // ── Pending limit exists: check if filled or cancel if price moved too far ──
             if(limitTk > 0) {
                 if(PositionSelectByTicket(limitTk)) {
-                    // Filled → slot is open again at the exact original entry price
                     if(posType == POSITION_TYPE_BUY) { DCABuyTickets[slot]  = limitTk; DCABuyLimitTk[slot]  = 0; DCABuyBounced[slot]  = false; }
                     else                              { DCASellTickets[slot] = limitTk; DCASellLimitTk[slot] = 0; DCASellBounced[slot] = false; }
                     return;
                 }
                 if(!OrderSelect(limitTk)) {
-                    // Order gone but no position → cancelled externally, clear so we retry
                     if(posType == POSITION_TYPE_BUY) DCABuyLimitTk[slot]  = 0;
                     else                              DCASellLimitTk[slot] = 0;
                 } else {
-                    // Still pending — cancel if price moved too far from entry (order no longer useful)
                     double cancelTol = 300.0 * point;
                     ENUM_ORDER_TYPE oType = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
                     bool tooFar;
-                    // BuyLimit fills when ASK falls to slotPrice → cancel if ASK too far below
-                    // BuyStop  fills when ASK rises to slotPrice → cancel if ASK too far above
-                    // SellLimit fills when BID rises to slotPrice → cancel if BID too far above
-                    // SellStop  fills when BID falls to slotPrice → cancel if BID too far below
                     if(posType == POSITION_TYPE_BUY)
                         tooFar = (oType == ORDER_TYPE_BUY_STOP) ? (ask > slotPrice + cancelTol)
                                                                  : (ask < slotPrice - cancelTol);
@@ -1305,17 +1298,20 @@ void CheckDCA(int posType) {
                         tooFar = (oType == ORDER_TYPE_SELL_STOP) ? (bid < slotPrice - cancelTol)
                                                                   : (bid > slotPrice + cancelTol);
                     if(tooFar) {
-                        Trade.OrderDelete(limitTk);
-                        if(posType == POSITION_TYPE_BUY) { DCABuyLimitTk[slot]  = 0; DCABuyBounced[slot]  = false; }
-                        else                              { DCASellLimitTk[slot] = 0; DCASellBounced[slot] = false; }
+                        // Chỉ xoá tracking nếu huỷ thành công thật — nếu huỷ thất bại (vd lệnh vừa
+                        // khớp đúng lúc đó) mà vẫn xoá tracking, lượt sau sẽ tưởng slot trống và đặt
+                        // thêm 1 lệnh mới trong khi lệnh cũ (chưa huỷ được) vẫn còn thật trên sàn.
+                        if(Trade.OrderDelete(limitTk)) {
+                            if(posType == POSITION_TYPE_BUY) { DCABuyLimitTk[slot]  = 0; DCABuyBounced[slot]  = false; }
+                            else                              { DCASellLimitTk[slot] = 0; DCASellBounced[slot] = false; }
+                        } else {
+                            Print("RTB: Huỷ lệnh chờ slot ", slot, " thất bại, err=", GetLastError(), " — thử lại lượt sau.");
+                        }
                     }
                 }
-                continue; // pending order management done for this slot
+                continue;
             }
 
-            // ── No pending order yet: place re-fill order at original entry price ──
-            // BUY  (fills at ASK): ASK > slotPrice → BuyLimit  | ASK < slotPrice → BuyStop
-            // SELL (fills at BID): BID < slotPrice → SellLimit | BID > slotPrice → SellStop
             if(count < maxOrds) {
                 if(TimeCurrent() - LastOrderTime < g_OrderDelay) continue;
                 if(slotLvl < 0 || DCA_Mode[slotLvl] == DCA_STOP) continue;
@@ -1326,10 +1322,10 @@ void CheckDCA(int posType) {
                     if(posType == POSITION_TYPE_SELL && sig != -1) continue;
                 }
 
-                // An toàn tầng 2: quét trực tiếp position + pending order thật ở đúng giá này
-                // trước khi đặt lệnh — phòng khi DCABuyTickets/DCABuyLimitTk vẫn lệch vì lý do
-                // khác (không chỉ riêng trường hợp IsSlotOpen() đã tự chữa ở trên).
-                double tolDup = 5.0 * point;
+                // Chỉ bắt trùng đúng slot này (giá lệch do làm tròn digit), không bắt nhầm tầng
+                // liền kề khác — trước đây 5pt quá rộng, từng khiến 1 tầng bị coi trùng tầng kia
+                // và không bao giờ được refill lại (2 tầng khớp giá thực tế cách nhau ~1pt do spread).
+                double tolDup = 0.5 * point;
                 bool duplicateExists = false;
                 for(int pi = PositionsTotal()-1; pi >= 0 && !duplicateExists; pi--) {
                     ulong ptk = PositionGetTicket(pi);
@@ -1359,30 +1355,23 @@ void CheckDCA(int posType) {
                 }
 
                 double lot = DCAOrderLot(InpLotSize, slot + 1, slotLvl);
-                // |RF suffix marks re-fill orders so RebuildDCAState can skip them (they aren't new slots)
                 string cmt = (DCA_TP[slotLvl] == 0 && DCA_SL[slotLvl] == 0)
                     ? "RTB|0|0|D|RF"
                     : "RTB|" + IntegerToString((int)DCA_TP[slotLvl]) + "|" + IntegerToString((int)DCA_SL[slotLvl]) + "|RF";
                 bool ok = false;
                 if(posType == POSITION_TYPE_BUY) {
-                    // BUY fills at ASK → slotPrice = ASK at fill = POSITION_PRICE_OPEN
-                    // BuyLimit  valid when slotPrice < ask (order fills when ASK falls to slotPrice)
-                    // BuyStop   valid when slotPrice > ask (order fills when ASK rises to slotPrice)
                     double tp_p = DCA_TP[slotLvl] > 0 ? NormalizeDouble(slotPrice + DCA_TP[slotLvl] * point, _Digits) : 0;
                     double sl_p = DCA_SL[slotLvl] > 0 ? NormalizeDouble(slotPrice - DCA_SL[slotLvl] * point, _Digits) : 0;
-                    if(ask > slotPrice)       // ASK trên entry → BuyLimit (chờ giá giảm về slotPrice)
+                    if(ask > slotPrice)
                         ok = Trade.BuyLimit(lot, slotPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, cmt);
-                    else if(ask < slotPrice)  // ASK dưới entry → BuyStop (chờ giá tăng về slotPrice)
+                    else if(ask < slotPrice)
                         ok = Trade.BuyStop(lot, slotPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, cmt);
                 } else {
-                    // SELL fills at BID → slotPrice = BID at fill = POSITION_PRICE_OPEN
-                    // SellLimit valid when slotPrice > bid (order fills when BID rises to slotPrice)
-                    // SellStop  valid when slotPrice < bid (order fills when BID falls to slotPrice)
                     double tp_p = DCA_TP[slotLvl] > 0 ? NormalizeDouble(slotPrice - DCA_TP[slotLvl] * point, _Digits) : 0;
                     double sl_p = DCA_SL[slotLvl] > 0 ? NormalizeDouble(slotPrice + DCA_SL[slotLvl] * point, _Digits) : 0;
-                    if(bid < slotPrice)       // BID dưới entry → SellLimit (chờ giá tăng về slotPrice)
+                    if(bid < slotPrice)
                         ok = Trade.SellLimit(lot, slotPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, cmt);
-                    else if(bid > slotPrice)  // BID trên entry → SellStop (chờ giá giảm về slotPrice)
+                    else if(bid > slotPrice)
                         ok = Trade.SellStop(lot, slotPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, cmt);
                 }
                 if(ok) {
@@ -1396,18 +1385,29 @@ void CheckDCA(int posType) {
                 }
             }
         } else {
-            // Slot is open — clear bounce and any stale limit ticket
             if(posType == POSITION_TYPE_BUY) { DCABuyBounced[slot] = false; DCABuyLimitTk[slot]  = 0; }
             else                              { DCASellBounced[slot] = false; DCASellLimitTk[slot] = 0; }
         }
     }
 
-    // 2. Open next new DCA slot
-    // Không chờ các slot trước lấp đầy mới mở slot mới — mỗi slot còn thiếu vẫn có lệnh chờ GTC
-    // riêng ở mục 1 phía trên, tự khớp khi giá quay lại; chờ tất cả slot cũ mới cho tiến tiếp từng
-    // khiến cả chuỗi DCA bị treo vĩnh viễn chỉ vì một slot kẹt giá.
+    // 2. Mở tầng DCA mới — đặt lệnh chờ Limit đúng tại giá mục tiêu ngay khi biết trước, thay vì
+    // vào market lúc trigger. Cách cũ tính trigger theo ASK/BID nhưng khớp market ở BID/ASK ngược
+    // lại (SELL: trigger theo ask, khớp ở bid) — spread khiến giá khớp thực tế lệch khỏi mục tiêu,
+    // có thể khiến tầng sau khớp giá "tệ hơn" tầng trước theo đúng hướng, thậm chí đảo thứ tự giữa
+    // 2 tầng liên tiếp. Đặt Limit tại đúng target nên khớp chính xác, không lệch theo spread.
     if(count >= maxOrds) return;
-    double lastPrice = LastOpenPrice(posType);
+    // peak tăng dần, không giảm khi slot cũ đóng, nên có thể vượt count — phải chặn riêng
+    // theo kích thước mảng (== maxOrds) để tránh tràn mảng khi ghi DCABuyPrices[peak].
+    if(peak >= maxOrds) return;
+    // Dùng giá ĐÃ GHI NHỚ của tầng liền trước (peak-1) làm mốc, KHÔNG dùng LastOpenPrice() —
+    // LastOpenPrice() chỉ thấy vị thế ĐANG MỞ; nếu tầng trước vừa khớp đã ăn TP rất nhanh (TP
+    // từng tầng DCA thường nhỏ hơn Dist khá nhiều) thì trước khi tầng này kịp tính giá, tầng
+    // trước đã đóng và không còn là "vị thế mở gần nhất" nữa — LastOpenPrice() sẽ tụt lùi về
+    // lệnh gốc/tầng cũ hơn, khiến tầng này tính ra target TRÙNG với tầng trước (cùng bucket Dist).
+    // DCABuyPrices[]/DCASellPrices[] lưu cố định giá khớp thật, không đổi dù vị thế đã đóng.
+    double lastPrice = (peak > 0)
+        ? ((posType == POSITION_TYPE_BUY) ? DCABuyPrices[peak-1] : DCASellPrices[peak-1])
+        : LastOpenPrice(posType);
     if(lastPrice == 0) return;
 
     int lvl = -1, cumulative = 0;
@@ -1418,33 +1418,155 @@ void CheckDCA(int posType) {
     }
     if(lvl < 0 || DCA_Mode[lvl] == DCA_STOP) return;
 
-    double dist = DCA_Dist[lvl] * point;
-    bool trigger = (posType == POSITION_TYPE_BUY) ? (lastPrice - bid) >= dist
-                                                  : (ask - lastPrice) >= dist;
-    if(!trigger) return;
-
     if(DCA_Mode[lvl] == DCA_STEP_TF) {
         int sig = GetSignal();
         if(posType == POSITION_TYPE_BUY  && sig != 1)  return;
         if(posType == POSITION_TYPE_SELL && sig != -1) return;
     }
+
+    double dist   = DCA_Dist[lvl] * point;
+    double target = (posType == POSITION_TYPE_BUY) ? NormalizeDouble(lastPrice - dist, _Digits)
+                                                    : NormalizeDouble(lastPrice + dist, _Digits);
+    ulong  nextTk = (posType == POSITION_TYPE_BUY) ? DCABuyLimitTk[peak] : DCASellLimitTk[peak];
+    bool   goMarket = false;
+
+    if(nextTk > 0) {
+        if(PositionSelectByTicket(nextTk)) {
+            double fillPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+            if(posType == POSITION_TYPE_BUY) { DCABuyPrices[peak] = fillPrice; DCABuyTickets[peak] = nextTk; DCABuyLimitTk[peak] = 0; PeakDCABuy++; }
+            else                              { DCASellPrices[peak] = fillPrice; DCASellTickets[peak] = nextTk; DCASellLimitTk[peak] = 0; PeakDCASell++; }
+            Print("RTB: DCA level ", lvl+1, " khớp bằng lệnh chờ tại ", fillPrice, " peak=", peak);
+            return;
+        }
+        if(!OrderSelect(nextTk)) {
+            if(posType == POSITION_TYPE_BUY) DCABuyLimitTk[peak] = 0;
+            else                              DCASellLimitTk[peak] = 0;
+            return;
+        }
+        // Giá gapped qua xa mục tiêu (vd tin tức/qua đêm) mà lệnh chờ chưa khớp → huỷ, vào market
+        double overshootTol = 300.0 * point;
+        bool overshot = (posType == POSITION_TYPE_BUY) ? (target - ask) >= overshootTol
+                                                        : (bid - target) >= overshootTol;
+        if(!overshot) return;
+        if(!Trade.OrderDelete(nextTk)) {
+            Print("RTB: Huỷ lệnh chờ tầng mới (peak=", peak, ") thất bại, err=", GetLastError(), " — thử lại lượt sau.");
+            return;
+        }
+        if(posType == POSITION_TYPE_BUY) DCABuyLimitTk[peak] = 0;
+        else                              DCASellLimitTk[peak] = 0;
+        Print("RTB: DCA level ", lvl+1, " giá gapped qua mục tiêu ", target, " — huỷ lệnh chờ, vào market lấy giá tốt hơn.");
+        goMarket = true;
+    } else {
+        // Giá đã ở/qua mục tiêu ngay từ đầu → đặt Limit sẽ bị broker từ chối, vào market luôn
+        goMarket = (posType == POSITION_TYPE_BUY) ? (ask <= target) : (bid >= target);
+    }
+
     if(TimeCurrent() - LastOrderTime < g_OrderDelay) return;
 
     double lot = DCAOrderLot(InpLotSize, peak + 1, lvl);
-    int    ord = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
-    Print("RTB: DCA level ", lvl+1, " triggered. peak=", peak);
-    bool ok = OpenOrder(ord, lot, DCA_TP[lvl], DCA_SL[lvl], true);
-    ulong newTk = Trade.ResultOrder();
-    if(ok && newTk > 0) {
-        double fillPrice = 0;
-        if(PositionSelectByTicket(newTk))
-            fillPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-        if(posType == POSITION_TYPE_BUY) {
-            if(peak < ArraySize(DCABuyPrices)) { DCABuyPrices[peak] = fillPrice > 0 ? fillPrice : ask; DCABuyTickets[peak] = newTk; }
-            PeakDCABuy++;
-        } else {
-            if(peak < ArraySize(DCASellPrices)) { DCASellPrices[peak] = fillPrice > 0 ? fillPrice : bid; DCASellTickets[peak] = newTk; }
-            PeakDCASell++;
+
+    if(goMarket) {
+        int ord = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
+        Print("RTB: DCA level ", lvl+1, " vào market. peak=", peak);
+        bool ok = OpenOrder(ord, lot, DCA_TP[lvl], DCA_SL[lvl], true);
+        ulong newTk = Trade.ResultOrder();
+        if(ok && newTk > 0) {
+            double fillPrice = 0;
+            if(PositionSelectByTicket(newTk))
+                fillPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+            if(posType == POSITION_TYPE_BUY) { DCABuyPrices[peak] = fillPrice > 0 ? fillPrice : ask; DCABuyTickets[peak] = newTk; PeakDCABuy++; }
+            else                              { DCASellPrices[peak] = fillPrice > 0 ? fillPrice : bid; DCASellTickets[peak] = newTk; PeakDCASell++; }
+        }
+        return;
+    }
+
+    string cmt = (DCA_TP[lvl] == 0 && DCA_SL[lvl] == 0)
+        ? "RTB|0|0|D"
+        : "RTB|" + IntegerToString((int)DCA_TP[lvl]) + "|" + IntegerToString((int)DCA_SL[lvl]);
+    bool placed;
+    if(posType == POSITION_TYPE_BUY) {
+        double tp_p = DCA_TP[lvl] > 0 ? NormalizeDouble(target + DCA_TP[lvl] * point, _Digits) : 0;
+        double sl_p = DCA_SL[lvl] > 0 ? NormalizeDouble(target - DCA_SL[lvl] * point, _Digits) : 0;
+        placed = Trade.BuyLimit(lot, target, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, cmt);
+    } else {
+        double tp_p = DCA_TP[lvl] > 0 ? NormalizeDouble(target - DCA_TP[lvl] * point, _Digits) : 0;
+        double sl_p = DCA_SL[lvl] > 0 ? NormalizeDouble(target + DCA_SL[lvl] * point, _Digits) : 0;
+        placed = Trade.SellLimit(lot, target, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, cmt);
+    }
+    if(placed) {
+        ulong tk = Trade.ResultOrder();
+        if(tk > 0) {
+            if(posType == POSITION_TYPE_BUY) DCABuyLimitTk[peak] = tk;
+            else                              DCASellLimitTk[peak] = tk;
+            LastOrderTime = TimeCurrent();
+            Print("RTB: Đặt lệnh chờ tầng ", lvl+1, " tại ", target, " (peak=", peak, ")");
+        }
+    }
+}
+
+// Lệnh gốc không nằm trong slot DCA (RebuildDCAState loại trừ "RTB|0|0" khỏi mảng),
+// nên nếu nó tự đóng (Trailing/TP) trong khi các tầng DCA khác vẫn còn mở, không gì đặt
+// lại nó — TryOpenBuy/Sell chỉ chạy khi CountBuy/Sell()==0. Hàm này bù khoảng trống đó.
+void CheckOrigRefill(int posType) {
+    double origPrice = (posType == POSITION_TYPE_BUY) ? OrigBuyPrice : OrigSellPrice;
+    if(origPrice == 0) return;
+
+    ulong limitTk = (posType == POSITION_TYPE_BUY) ? OrigBuyLimitTk : OrigSellLimitTk;
+    if(limitTk > 0) {
+        if(PositionSelectByTicket(limitTk)) {
+            if(posType == POSITION_TYPE_BUY) OrigBuyLimitTk  = 0;
+            else                              OrigSellLimitTk = 0;
+        } else if(!OrderSelect(limitTk)) {
+            if(posType == POSITION_TYPE_BUY) OrigBuyLimitTk  = 0;
+            else                              OrigSellLimitTk = 0;
+        }
+        return;
+    }
+
+    for(int i = PositionsTotal()-1; i >= 0; i--) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if((long)PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
+        if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
+        if(PositionGetString(POSITION_COMMENT) == "RTB|0|0") return;
+    }
+
+    int count   = CountPos(posType);
+    int maxOrds = (posType == POSITION_TYPE_BUY) ? InpMaxBuy : InpMaxSell;
+    if(count >= maxOrds) return;
+    if(TimeCurrent() - LastOrderTime < g_OrderDelay) return;
+
+    double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+    double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+
+    double tp_p = 0, sl_p = 0;
+    if(!g_StealthMode) {
+        if(g_UseTakeProfit && g_TP_Points > 0)
+            tp_p = (posType == POSITION_TYPE_BUY) ? NormalizeDouble(origPrice + g_TP_Points * point, _Digits)
+                                                   : NormalizeDouble(origPrice - g_TP_Points * point, _Digits);
+        if(g_UseStopLoss && g_SL_Points > 0)
+            sl_p = (posType == POSITION_TYPE_BUY) ? NormalizeDouble(origPrice - g_SL_Points * point, _Digits)
+                                                   : NormalizeDouble(origPrice + g_SL_Points * point, _Digits);
+    }
+
+    double lot = NormLot(InpLotSize);
+    bool   ok  = false;
+    if(posType == POSITION_TYPE_BUY) {
+        if(ask > origPrice)      ok = Trade.BuyLimit(lot, origPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, "RTB|0|0");
+        else if(ask < origPrice) ok = Trade.BuyStop (lot, origPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, "RTB|0|0");
+    } else {
+        if(bid < origPrice)      ok = Trade.SellLimit(lot, origPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, "RTB|0|0");
+        else if(bid > origPrice) ok = Trade.SellStop (lot, origPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, "RTB|0|0");
+    }
+    if(ok) {
+        ulong tk = Trade.ResultOrder();
+        if(tk > 0) {
+            if(posType == POSITION_TYPE_BUY) OrigBuyLimitTk  = tk;
+            else                              OrigSellLimitTk = tk;
+            LastOrderTime = TimeCurrent();
+            Print("RTB: Đặt lại lệnh gốc (", (posType==POSITION_TYPE_BUY?"BUY":"SELL"), ") tại ", origPrice);
         }
     }
 }
@@ -1453,7 +1575,6 @@ void CheckDCA(int posType) {
 //| PYRAMIDING (NHỒI DƯƠNG)                                          |
 //+------------------------------------------------------------------+
 void CheckPyramiding(int posType) {
-    // Hedge mode: khi đã xác định chiều xu hướng, chỉ pyramid chiều đó
     if(g_HedgeEnable && HedgeTrendSide >= 0 && HedgeTrendSide != posType) return;
 
     if(posType == POSITION_TYPE_BUY  && !g_PyraBuyEnable)  return;
@@ -1462,7 +1583,6 @@ void CheckPyramiding(int posType) {
     int count = CountPos(posType);
     if(count == 0) return;
 
-    // Đọc từ broker qua comment "RTP|" — restart-safe, không lẫn với DCA orders
     int pyraCount = CountPyra(posType);
 
     int lvl = -1;
@@ -1478,8 +1598,6 @@ void CheckPyramiding(int posType) {
     int maxOrds = (posType == POSITION_TYPE_BUY) ? InpMaxBuy : InpMaxSell;
     if(count >= maxOrds) return;
 
-    // Semi-Auto: đo từ lệnh pyramiding gần nhất (nếu có) → fallback giá cực trị lệnh tay
-    // Auto: đo từ lệnh được mở gần nhất bất kỳ
     double lastPrice;
     if(InpBotMode == MODE_SEMI_AUTO && CountManual(posType) > 0) {
         double pyraRef = LastPyraPrice(posType);
@@ -1521,9 +1639,6 @@ void CheckPyramiding(int posType) {
     double lot = NormLot(baseLotPyra * PYRA_Mult[lvl]);
     int    ord = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
 
-    // Luôn isPyra=true để comment luôn là "RTP|..." → CountPyra() đếm đúng
-    // Khi PYRA_TP=PYRA_SL=0 (cả hai): fallback toàn bộ sang InpTP/SL_Points
-    // Nếu chỉ một trong hai bằng 0: dùng đúng giá trị tier (0 = không đặt)
     bool   noTierExit = (PYRA_TP[lvl] == 0 && PYRA_SL[lvl] == 0);
     double openTP     = noTierExit ? g_TP_Points : PYRA_TP[lvl];
     double openSL     = noTierExit ? g_SL_Points : PYRA_SL[lvl];
@@ -1547,7 +1662,6 @@ void CheckTrimming() {
     double balance = AccountInfoDouble(ACCOUNT_BALANCE);
     double equity  = AccountInfoDouble(ACCOUNT_EQUITY);
 
-    // Partial trim: by drawdown%
     if(g_PartialTrim && balance > 0) {
         double ddPct = (balance - equity) / balance * 100.0;
         if(ddPct > g_PartialTrimDD) {
@@ -1566,7 +1680,6 @@ void CheckTrimming() {
         }
     }
 
-    // Trim by day profit: if today's closed profit > |worst floating loss|
     if(g_TrimByDayProfit) {
         int closed = 0;
         for(int n = 0; n < g_TrimMaxLoss; n++) {
@@ -1584,11 +1697,7 @@ void CheckTrimming() {
         }
     }
 
-    // Hedging trim: 1 best covers up to g_TrimMaxLoss worst positions per cycle
-    // MaxWin controls how many such cycles to attempt per second
     if(g_TrimHedge) {
-        // Thu thập ticket + profit của toàn bộ position quản lý MỘT LẦN — bản cũ quét lại
-        // PositionsTotal() cho mỗi lần tìm "worst", độ phức tạp O(TrimMaxWin × TrimMaxLoss × n).
         int    totalPos = PositionsTotal();
         ulong  tks[];
         double profits[];
@@ -1617,7 +1726,6 @@ void CheckTrimming() {
             if(bestIdx < 0 || profits[bestIdx] <= 0) break;
             used[bestIdx] = true;
 
-            // Tìm tối đa g_TrimMaxLoss vị thế "worst" chưa dùng, profit thấp nhất trước
             int    worstIdx[];
             ArrayResize(worstIdx, g_TrimMaxLoss);
             int    wn = 0;
@@ -1647,7 +1755,6 @@ void CheckTrimming() {
         }
     }
 
-    // Same-direction trim: use aggregate floating profit vs target
     if(g_TrimTarget > 0) {
         int closed = 0;
         for(int n = 0; n < g_TrimMaxLoss; n++) {
@@ -1678,12 +1785,8 @@ void ApplyTrailToPos(ulong tk, int posType, double newSL) {
     double point   = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
     double minDist = (double)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL) * point;
     double normSL  = NormalizeDouble(newSL, _Digits);
-    // Kiểm tra stops level — broker từ chối nếu SL quá gần giá
     if(posType == POSITION_TYPE_BUY  && bid - newSL < minDist) return;
     if(posType == POSITION_TYPE_SELL && newSL - ask < minDist) return;
-    // Đặt server SL về đúng mức trailing, kể cả khi phải hạ DCA SL hiện có.
-    // DCA SL vẫn được bảo vệ bởi software (CheckExit section 2a).
-    // Mục đích: đường SL trên chart khớp với đường trailing, tránh hiển thị 2 đường khác mức.
     if(curSL != normSL)
         Trade.PositionModify(tk, normSL, curTP);
 }
@@ -1698,7 +1801,6 @@ void CheckTrailing() {
     double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
 
     if(g_TrailMode == TRAIL_BASKET) {
-        // --- BUY BASKET ---
         if(CountBuy() > 0) {
             double avgBuy = AvgOpenPrice(POSITION_TYPE_BUY);
             if(bid - avgBuy >= g_TrailActivate * point) {
@@ -1706,7 +1808,6 @@ void CheckTrailing() {
                 if(TrailBuy == 0 || newSL >= TrailBuy + g_TrailStep * point)
                     TrailBuy = newSL;
             }
-            // Apply every second — covers new DCA/Pyra orders opened after trail activated
             if(TrailBuy > 0) {
                 for(int i = PositionsTotal()-1; i >= 0; i--) {
                     ulong tk = PositionGetTicket(i);
@@ -1718,7 +1819,6 @@ void CheckTrailing() {
             }
         } else { TrailBuy = 0; }
 
-        // --- SELL BASKET ---
         if(CountSell() > 0) {
             double avgSell = AvgOpenPrice(POSITION_TYPE_SELL);
             if(avgSell - ask >= g_TrailActivate * point) {
@@ -1726,7 +1826,6 @@ void CheckTrailing() {
                 if(TrailSell == 0 || newSL <= TrailSell - g_TrailStep * point)
                     TrailSell = newSL;
             }
-            // Apply every second — covers new DCA/Pyra orders opened after trail activated
             if(TrailSell > 0) {
                 for(int i = PositionsTotal()-1; i >= 0; i--) {
                     ulong tk = PositionGetTicket(i);
@@ -1738,7 +1837,6 @@ void CheckTrailing() {
             }
         } else { TrailSell = 0; }
 
-        // Draw lines
         if(InpTrailShowLine) {
             if(TrailBuy  > 0) DrawHLine("TrailBuy",  TrailBuy,  InpTrailBuyColor,  InpTrailLineWidth);
             else ObjectDelete(0, GUI + "TrailBuy");
@@ -1747,7 +1845,6 @@ void CheckTrailing() {
         }
 
     } else {
-        // --- SINGLE TRAILING PER POSITION ---
         for(int i = PositionsTotal()-1; i >= 0; i--) {
             ulong tk = PositionGetTicket(i);
             if(!PositionSelectByTicket(tk)) continue;
@@ -1781,9 +1878,6 @@ void CheckTrailing() {
 //| EXIT LOGIC                                                       |
 //+------------------------------------------------------------------+
 void CheckExit() {
-    // 0. Software trailing fallback — đóng khi giá vượt qua TrailBuy/TrailSell
-    //    Server SL bị từ chối (invalid stop) khi SL quá gần giá → lệnh mới không có server SL.
-    //    Section này đảm bảo thoát đúng dù server SL không được đặt thành công.
     if(TrailBuy > 0 || TrailSell > 0) {
         double _ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
         double _bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
@@ -1799,7 +1893,6 @@ void CheckExit() {
         }
     }
 
-    // 1. Per-position exit by pips target
     if(g_ClosePerPips > 0) {
         double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
         double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
@@ -1819,8 +1912,6 @@ void CheckExit() {
         }
     }
 
-    // 2a. DCA TP/SL — luôn chạy (không cần Stealth Mode)
-    //     Đóng lệnh DCA đúng TP/SL của từng tầng dù Use_TP = false
     {
         double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
         double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
@@ -1832,7 +1923,6 @@ void CheckExit() {
             if(!IsManaged()) continue;
 
             string cmt = PositionGetString(POSITION_COMMENT);
-            // Xử lý DCA ("RTB|tp|sl") và Pyramiding ("RTP|tp|sl") — bỏ qua "RTB|0|0" (lệnh gốc)
             bool isDCAcmt  = (StringFind(cmt, "RTB|") == 0);
             bool isPyracmt = (StringFind(cmt, "RTP|") == 0);
             if(!isDCAcmt && !isPyracmt) continue;
@@ -1840,7 +1930,7 @@ void CheckExit() {
             if(StringSplit(cmt, '|', parts) < 3) continue;
             double useTP = StringToDouble(parts[1]);
             double useSL = StringToDouble(parts[2]);
-            if(useTP == 0 && useSL == 0) continue; // lệnh gốc "RTB|0|0" hoặc pyra fallback, bỏ qua
+            if(useTP == 0 && useSL == 0) continue;
 
             int    pt  = (int)PositionGetInteger(POSITION_TYPE);
             double opn = PositionGetDouble(POSITION_PRICE_OPEN);
@@ -1855,7 +1945,6 @@ void CheckExit() {
         }
     }
 
-    // 2b. Stealth TP/SL — lệnh gốc, chỉ chạy khi Stealth Mode bật
     if(g_StealthMode) {
         double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
         double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
@@ -1866,8 +1955,6 @@ void CheckExit() {
             if(!PositionSelectByTicket(tk)) continue;
             if(!IsManaged()) continue;
 
-            // Xử lý lệnh gốc ("RTB|0|0") và lệnh thủ công trong Semi-Auto
-            // "RTP|..." có TP/SL → section 2a đã xử lý; "RTP|0|0|P" không bao giờ có TP → bỏ qua
             string cmt = PositionGetString(POSITION_COMMENT);
             bool isManualPos = (InpBotMode == MODE_SEMI_AUTO &&
                                 PositionGetInteger(POSITION_MAGIC) == 0 &&
@@ -1878,7 +1965,6 @@ void CheckExit() {
             int    pt  = (int)PositionGetInteger(POSITION_TYPE);
             double opn = PositionGetDouble(POSITION_PRICE_OPEN);
 
-            // Stealth Mode thay thế hoàn toàn server TP/SL — không phụ thuộc g_UseTakeProfit/SL
             if(pt == POSITION_TYPE_BUY) {
                 if(g_TP_Points > 0 && bid >= opn + g_TP_Points * point)
                     { Trade.PositionClose(tk); continue; }
@@ -1893,8 +1979,6 @@ void CheckExit() {
         }
     }
 
-    // 3. Basket total profit target
-    // Bỏ qua khi Hedge mode đã cắt một chiều — trailing stop quản lý thoát chiều dương
     if(g_CloseProfit > 0 && !(g_HedgeEnable && (HedgeCutBuy || HedgeCutSell))) {
         if(FloatProfit() >= g_CloseProfit) {
             Print("RTB: CloseProfit target reached. Closing all.");
@@ -1903,8 +1987,6 @@ void CheckExit() {
         }
     }
 
-    // 4. Basket total loss cut
-    // Bỏ qua khi Hedge mode đang chạy chiều dương — tránh cắt nhầm chiều thắng
     if(g_CloseLoss > 0 && !(g_HedgeEnable && (HedgeCutBuy || HedgeCutSell))) {
         if(FloatProfit() <= -g_CloseLoss) {
             Print("RTB: CloseLoss limit hit. Closing all.");
@@ -1947,7 +2029,6 @@ void UpdateDayProfit() {
 //+------------------------------------------------------------------+
 void CheckDayLimit() {
     if(DayLimitHit) return;
-    // Dùng equity = lãi đã chốt hôm nay + floating hiện tại (phản ứng ngay dù chưa đóng lệnh)
     double equity = DayProfit + FloatProfit();
     if(g_DayMaxLoss > 0 && equity <= -g_DayMaxLoss) {
         Print("RTB: Day loss limit $", g_DayMaxLoss, " hit. equity=", equity, ". Closing all.");
@@ -1982,7 +2063,6 @@ PeriodStats GetPeriodStats(datetime from, datetime to) {
         s.profit += dp;
         s.lot    += dv;
     }
-    // 1 price unit = 10 pips (fixed)
     if(contractSize > 0 && s.lot > 0)
         s.pips = s.profit / (s.lot * contractSize) * 10.0;
     s.gain = (InitBalance > 0) ? s.profit / InitBalance * 100.0 : 0;
@@ -2098,7 +2178,6 @@ void UpdateCalendarPanel(bool forceRecalc = false) {
     int rows = (int)MathCeil((firstCol + dim) / 7.0);
     if(rows < 1) rows = 1;
 
-    // Đổi tháng đang xem → reset cache (ngày của tháng khác không còn hợp lệ để tái dùng)
     if(g_CalCacheYear != g_CalYear || g_CalCacheMonth != g_CalMonth) {
         g_CalCacheYear  = g_CalYear;
         g_CalCacheMonth = g_CalMonth;
@@ -2109,9 +2188,6 @@ void UpdateCalendarPanel(bool forceRecalc = false) {
     bool viewingCurrentMonth = (nowDt.year == g_CalYear && nowDt.mon == g_CalMonth);
     bool throttleOk = forceRecalc || (TimeCurrent() - g_CalLastTodayCalc >= RTB_CAL_TODAY_THROTTLE_SEC);
 
-    // Đo trước chiều rộng cột (colW) đủ để chứa DỮ LIỆU LỚN NHẤT trong tháng đang xem (PnL/Vol
-    // dài chữ số như "+33453.9$") — tránh chữ tràn ra ngoài ô như cỡ cố định 92px cũ. Đảm bảo
-    // cache đã có giá trị cho từng ngày hợp lệ trước khi đo (tái dùng đúng logic cache bên dưới).
     int colW;
     {
         uint maxContentW = 0;
@@ -2136,14 +2212,10 @@ void UpdateCalendarPanel(bool forceRecalc = false) {
             uint contentW = MathMax(pw, vw);
             if(contentW > maxContentW) maxContentW = contentW;
         }
-        // 6px lề trái + maxContentW + 8px lề phải
         colW = MathMax(92, 6 + (int)maxContentW + 8);
     }
     int calW = colW * 7;
 
-    // cellH co giãn để LẤP ĐẦY đúng khoảng trống tới đáy panel cuối cùng (Panel 4 nếu Bán Tự
-    // Động, không thì Panel 3) — trước đây chỉ kéo dài nền CalBG còn cellH cố định 64px, để lại
-    // khoảng trống dưới hàng ngày cuối; giờ chia đều phần dư cho từng ô để ô ngày to hẳn ra.
     int cellH;
     {
         int titleOffM = 36;
@@ -2195,7 +2267,6 @@ void UpdateCalendarPanel(bool forceRecalc = false) {
         int row = slot / 7, col = slot % 7;
         string si = IntegerToString(slot);
 
-        // Hàng vượt quá số hàng thực của tháng này — xoá sạch, không vẽ để không tràn ra ngoài khung
         if(row >= rows) {
             ObjectDelete(0, GUI + "CalC" + si);
             ObjectDelete(0, GUI + "CalD" + si);
@@ -2229,8 +2300,6 @@ void UpdateCalendarPanel(bool forceRecalc = false) {
         ObjectSetInteger(0, cellObj, OBJPROP_BGCOLOR,   valid ? C'16,19,28' : C'8,9,12');
 
         if(!valid) {
-            // Xoá thay vì set text rỗng — OBJ_LABEL mới tạo mặc định hiện chữ "Label"
-            // và ObjectSetString("") không luôn ghi đè được placeholder này.
             ObjectDelete(0, GUI + "CalD" + si);
             ObjectDelete(0, GUI + "CalPL" + si);
             ObjectDelete(0, GUI + "CalP" + si);
@@ -2239,8 +2308,6 @@ void UpdateCalendarPanel(bool forceRecalc = false) {
             continue;
         }
 
-        // Ngày đã qua: tính 1 lần rồi cache (không đổi nữa). Hôm nay: tính lại có throttle vì lệnh
-        // vẫn có thể đóng thêm — tránh gọi HistorySelect() cho toàn bộ 30 ô mỗi giây.
         bool isToday = viewingCurrentMonth && (day == nowDt.day);
         if(!g_CalCacheDone[slot] || (isToday && throttleOk)) {
             datetime dStart = firstDay + (day - 1) * 86400;
@@ -2251,15 +2318,12 @@ void UpdateCalendarPanel(bool forceRecalc = false) {
             g_CalCacheDone[slot]   = true;
             if(isToday) g_CalLastTodayCalc = TimeCurrent();
         }
-        int cellCenterX = cx + colW / 2;   // canh giữa theo chiều ngang trong ô
+        int cellCenterX = cx + colW / 2;
         int dateY       = cy + 4;
 
-        // Ngày luôn hiển thị (kể cả không có giao dịch) — chỉ nội dung PnL/Vol mới ẩn khi không có lệnh.
         Lbl("CalD" + si, StringFormat("%02d/%02d", day, g_CalMonth), cellCenterX, dateY, clrSilver, 8);
         ObjectSetInteger(0, GUI + "CalD" + si, OBJPROP_ANCHOR, ANCHOR_UPPER);
 
-        // Ngày không có giao dịch (lot=0) — chỉ hiện ngày, không hiện PnL/Vol; viền về màu mặc định
-        // (tránh giữ lại viền xanh từ tháng trước dùng chung slot object).
         if(g_CalCacheLot[slot] <= 0) {
             ObjectSetInteger(0, cellObj, OBJPROP_COLOR, C'40,48,68');
             ObjectDelete(0, GUI + "CalPL" + si);
@@ -2271,12 +2335,8 @@ void UpdateCalendarPanel(bool forceRecalc = false) {
 
         color pc = (g_CalCacheProfit[slot] >= 0) ? clrLimeGreen : clrTomato;
 
-        // Ngày lãi → viền ô màu xanh để nổi bật; ngày lỗ giữ viền mặc định.
         ObjectSetInteger(0, cellObj, OBJPROP_COLOR, g_CalCacheProfit[slot] >= 0 ? clrLimeGreen : C'40,48,68');
 
-        // Khối 2 dòng (PnL/Vol, không nhãn) canh giữa theo chiều dọc trong phần còn lại của ô
-        // (sau ngày) bằng lineH CỐ ĐỊNH — không co giãn theo cellH nữa để tránh dàn trống khi ô
-        // cao (cellH co giãn theo InpCalPanelX/Y ở phần tính toán phía trên).
         int lineH       = 16;
         int contentTop  = dateY + 16;
         int freeSpace   = (cy + cellH) - contentTop;
@@ -2296,9 +2356,9 @@ void UpdateGUI(bool forceCalRefresh = false) {
     int PX = InpPanelX;
     int PY = InpPanelY;
     int PW = InpPanelWidth;
-    int hOff   = g_HedgeEnable ? 16 : 0;  // Thêm 1 dòng Hedge khi bật
-    int botOff = g_IsMaster    ? 26 : 0;  // Thêm 1 hàng nút Bot Toggle khi là Master
-    int titleOff = 36;                    // Chiều cao panel tiêu đề riêng ở trên cùng
+    int hOff   = g_HedgeEnable ? 16 : 0;
+    int botOff = g_IsMaster    ? 26 : 0;
+    int titleOff = 36;
 
     double balance   = AccountInfoDouble(ACCOUNT_BALANCE);
     double equity    = AccountInfoDouble(ACCOUNT_EQUITY);
@@ -2348,7 +2408,6 @@ void UpdateGUI(bool forceCalRefresh = false) {
     color cSellP  = (sellProfit  >= 0) ? clrLimeGreen : clrTomato;
     color cDayP   = (DayProfit   >= 0) ? clrLimeGreen : clrTomato;
 
-    // ── PANEL TIÊU ĐỀ (riêng, trên cùng) ──
     string bgt = GUI + "BGTitle";
     if(ObjectFind(0, bgt) < 0) {
         ObjectCreate(0, bgt, OBJ_RECTANGLE_LABEL, 0, 0, 0);
@@ -2380,7 +2439,6 @@ void UpdateGUI(bool forceCalRefresh = false) {
     ObjectSetInteger(0, titleObj, OBJPROP_COLOR,     C'255,200,60');
     ObjectSetInteger(0, titleObj, OBJPROP_FONTSIZE,  12);
 
-    // ── PANEL 1: THÔNG TIN ──
     string bg = GUI + "BG";
     if(ObjectFind(0, bg) < 0) {
         ObjectCreate(0, bg, OBJ_RECTANGLE_LABEL, 0, 0, 0);
@@ -2398,7 +2456,6 @@ void UpdateGUI(bool forceCalRefresh = false) {
     ObjectSetInteger(0, bg, OBJPROP_YDISTANCE, PY + titleOff);
     ObjectSetInteger(0, bg, OBJPROP_YSIZE,     360 + hOff);
 
-    // ── PANEL 2: ĐIỀU KHIỂN ──
     string bg2 = GUI + "BG2";
     if(ObjectFind(0, bg2) < 0) {
         ObjectCreate(0, bg2, OBJ_RECTANGLE_LABEL, 0, 0, 0);
@@ -2415,7 +2472,6 @@ void UpdateGUI(bool forceCalRefresh = false) {
     ObjectSetInteger(0, bg2, OBJPROP_XDISTANCE, PX);
     ObjectSetInteger(0, bg2, OBJPROP_YDISTANCE, PY + titleOff + 374 + hOff);
 
-    // ── PANEL 3: THỐNG KÊ ──
     string bg3 = GUI + "BG3";
     if(ObjectFind(0, bg3) < 0) {
         ObjectCreate(0, bg3, OBJ_RECTANGLE_LABEL, 0, 0, 0);
@@ -2432,7 +2488,6 @@ void UpdateGUI(bool forceCalRefresh = false) {
     ObjectSetInteger(0, bg3, OBJPROP_XDISTANCE, PX);
     ObjectSetInteger(0, bg3, OBJPROP_YDISTANCE, PY + titleOff + 514 + hOff + botOff);
 
-    // ── NỘI DUNG PANEL 1 ──
     int x = PX + 7, y = PY + titleOff + 5, s = 18;
     Lbl("L0",   "------------------------",   x, y, C'45,58,105'  );    y += s-2;
     Lbl("Tim",  "Time   : " + tStr,           x, y, clrSilver, 11 );    y += s;
@@ -2495,24 +2550,21 @@ void UpdateGUI(bool forceCalRefresh = false) {
     Lbl("SelC", StringFormat("Sel Ord: %d   Lot: %.2f", nSell, lotSell), x, y, clrSilver, 11); y += s;
     Lbl("Tot",  StringFormat("Total  : %d orders", nBuy + nSell), x, y, clrSilver, 11);        y += s;
 
-    // ── NỘI DUNG PANEL 2 (Nút điều khiển) ──
     y = PY + titleOff + 384 + hOff;
     Lbl("P2T", "===  ĐIỀU KHIỂN LỆNH  ===", x, y, C'90,140,230', 9);
     ObjectSetString(0, GUI + "P2T", OBJPROP_FONT, "Calibri Bold"); y += s + 2;
 
     int bh  = 22;
-    int bfw = PW - 18;              // full-width button
-    int bhw = (PW - 24) / 2;        // half-width button
-    int bx2 = PX + 7 + bhw + 4;     // x of second button in a row
+    int bfw = PW - 18;
+    int bhw = (PW - 24) / 2;
+    int bx2 = PX + 7 + bhw + 4;
 
-    // Nút Bật/Tắt Bot — chỉ hiện trên Master (nhấn = tương đương đổi InpBotEnabled rồi OK:
-    // tự CloseAll() nếu vừa tắt, rồi đẩy lên Cloud cho mọi Slave nếu g_SyncAllowed).
     if(g_IsMaster) {
         string botTxt = g_BotEnabled ? "  Bot: ON" : "  Bot: OFF";
         color  botBg  = g_BotEnabled ? C'0,90,30'   : C'120,20,20';
         color  botBd  = g_BotEnabled ? C'40,190,90' : C'220,60,60';
         CreateBtn("BtnBotToggle", botTxt, PX+7, y, bfw, bh, botBg, botBd);
-        y += bh + 4;   // Chỉ chừa chỗ khi thực sự có nút (Master) — Slave không có khoảng trống thừa
+        y += bh + 4;
     } else {
         ObjectDelete(0, GUI + "BtnBotToggle");
     }
@@ -2523,7 +2575,6 @@ void UpdateGUI(bool forceCalRefresh = false) {
     CreateBtn("BtnCloseSell",   "▼ Close Sell",    PX+7, y, bhw, bh, C'145,15,15',  C'230,65,65' );
     CreateBtn("BtnCloseLoss",   "✕ Close Loss",    bx2,  y, bhw, bh, C'140,35,20',  C'210,80,55' );
 
-    // ── NỘI DUNG PANEL 3 (Thống kê) ──
     y = PY + titleOff + 524 + hOff + botOff;
     Lbl("P3T", "===  THỐNG KÊ  ===", x, y, C'90,140,230', 9);
     ObjectSetString(0, GUI + "P3T", OBJPROP_FONT, "Calibri Bold");
@@ -2533,9 +2584,6 @@ void UpdateGUI(bool forceCalRefresh = false) {
     color sepClr = C'45,65,120';
     int tblTop = y, tblH = 5*(s-2);
 
-    // Tính số liệu TRƯỚC khi xác định vị trí cột — chiều rộng mỗi cột giờ đo theo chữ THẬT SỰ
-    // (header lẫn giá trị), thay vì % cố định của chiều rộng panel như trước. Cách cũ khiến số
-    // dài (vd "$-5438.3", "-264.6%") tràn qua cột kế bên, lệch khỏi đường kẻ dọc.
     TimeToStruct(TimeCurrent(), dt);
     datetime todayStart = StringToTime(StringFormat("%04d.%02d.%02d 00:00:00", dt.year, dt.mon, dt.day));
     int dow = dt.day_of_week; if(dow == 0) dow = 7;
@@ -2561,10 +2609,6 @@ void UpdateGUI(bool forceCalRefresh = false) {
         lotTxt[r]    = StringFormat("%.2f",   allStats[r].lot);
     }
 
-    // Chiều rộng cột ước lượng theo SỐ KÝ TỰ (không dùng TextGetSize) — TextGetSize đo qua bộ
-    // Canvas/GDI riêng, có thể lệch vài px so với cách chart thực sự vẽ OBJ_LABEL (nhất là khi
-    // Windows scaling > 100%), khiến cột đo được hẹp hơn cột hiển thị thật và dữ liệu bị dính nhau.
-    // Ước lượng theo ký tự tuy thô nhưng ổn định, không phụ thuộc DPI/engine render.
     int maxLen0 = StringLen("Date"), maxLen1 = StringLen("Pips"), maxLen2 = StringLen("Profit"),
         maxLen3 = StringLen("Gain");
     for(int r = 0; r < 4; r++) {
@@ -2573,7 +2617,7 @@ void UpdateGUI(bool forceCalRefresh = false) {
         maxLen2 = MathMax(maxLen2, StringLen(profitTxt[r]));
         maxLen3 = MathMax(maxLen3, StringLen(gainTxt[r]));
     }
-    int charPx = 7;   // px/ký tự ước lượng rộng rãi cho Calibri 8pt
+    int charPx = 7;
     int colW0 = maxLen0 * charPx, colW1 = maxLen1 * charPx, colW2 = maxLen2 * charPx, colW3 = maxLen3 * charPx;
 
     int cx0 = PX + 7;
@@ -2608,7 +2652,6 @@ void UpdateGUI(bool forceCalRefresh = false) {
         y += s - 2;
     }
 
-    // ── PANEL 4: VÀO LỆNH THỦ CÔNG (chỉ hiện khi Bán Tự Động) ──
     if(InpBotMode == MODE_SEMI_AUTO) {
         string bg4 = GUI + "BG4";
         if(ObjectFind(0, bg4) < 0) {
@@ -2771,14 +2814,11 @@ bool CheckLicense() {
 
     string response = CharArrayToString(result);
     if(StringFind(response, "\"status\":\"ok\"") >= 0) {
-        // Role đọc từ cùng response license — Apps Script so sánh accID với cell MasterAccountID.
-        // Thiếu/lỗi field "role" → mặc định Slave (an toàn hơn: một EA tự nhận nhầm Master mới nguy hiểm).
         g_IsMaster = (StringFind(response, "\"role\":\"master\"") >= 0);
         Print("RTB: License OK — Account ", accID, " | Role: ", g_IsMaster ? "MASTER" : "SLAVE");
         return true;
     }
 
-    // Extract reason from JSON for clearer log
     string reason = "denied";
     int rPos = StringFind(response, "\"reason\":\"");
     if(rPos >= 0) {
@@ -2840,17 +2880,12 @@ string BuildConfigPayload(long version) {
 
     s += (g_HedgeEnable ? "1" : "0") + string(";") + DoubleToString(g_HedgeCutPts, 1);
 
-    s += ";" + string(g_BotEnabled ? "1" : "0");   // field cuối — xem ghi chú tại RTB_CONFIG_FIELD_COUNT
+    s += ";" + string(g_BotEnabled ? "1" : "0");
     return s;
 }
 
-// Tổng số field theo BuildConfigPayload(): 1 version + 3 signal + 6 base + 5 dca-flags +
-// 3 pyra-flags + 15*5 DCA tiers + 8*5 PYRA tiers + 9 trim + 6 trail + 5 exit + 2 hedge
-// + 1 BotEnabled (field cuối, thêm sau nên đặt ở cuối để không xáo trộn vị trí các field cũ) = 156
 #define RTB_CONFIG_FIELD_COUNT 156
 
-// Bot vừa chuyển true→false (từ Master, qua payload hoặc từ chính Input của Master) → đóng hết ngay.
-// false→false hoặc true→true: không làm gì thêm (tránh gọi CloseAll() lặp lại vô ích).
 void ApplyBotEnabled(bool newVal) {
     if(g_BotEnabled && !newVal) {
         Print("RTB: Bot bị TẮT (BotEnabled=false) — đóng toàn bộ lệnh.");
@@ -2934,15 +2969,13 @@ bool ApplyConfigPayload(string data) {
     g_HedgeEnable = (f[idx++] == "1");
     g_HedgeCutPts = StringToDouble(f[idx++]);
 
-    ApplyBotEnabled(f[idx++] == "1");   // field cuối — tự CloseAll() nếu vừa chuyển true→false
+    ApplyBotEnabled(f[idx++] == "1");
 
     g_ConfigVersion = newVersion;
     Print("RTB: Config applied — version=", newVersion, " (", idx, " fields)");
     return true;
 }
 
-// Chuyển string → char[] thủ công (khớp kiểu char dùng bởi WebRequest trong file này,
-// tránh lẫn với StringToCharArray() vốn trả về uchar[]).
 void StringToCharBody(string s, char &arr[]) {
     int len = StringLen(s);
     ArrayResize(arr, len);
@@ -2950,8 +2983,6 @@ void StringToCharBody(string s, char &arr[]) {
         arr[i] = (char)StringGetCharacter(s, i);
 }
 
-// Gửi tin nhắn "CONFIG_UPDATE_<version>" lên channel rồi ghim — Slave đọc qua getChat (pinned_message),
-// an toàn cho nhiều Slave cùng đọc song song (khác với getUpdates vốn "tiêu thụ" hàng đợi dùng chung).
 bool TelegramSendAndPin(long version) {
     if(StringFind(TELEGRAM_BOT_TOKEN, "YOUR_BOT_TOKEN") >= 0) {
         Print("RTB: TELEGRAM_BOT_TOKEN chưa được cấu hình — bỏ qua bước trigger Telegram.");
@@ -2988,7 +3019,6 @@ bool TelegramSendAndPin(long version) {
     return true;
 }
 
-// MASTER: ghi payload lên Google Sheet rồi bắn trigger Telegram. Gọi khi vừa đổi Input.
 bool PushConfigToCloud() {
     if(StringFind(LICENSE_URL, "YOUR_SCRIPT_ID") >= 0) return false;
 
@@ -3017,7 +3047,6 @@ bool PushConfigToCloud() {
     return true;
 }
 
-// SLAVE: đọc pinned message trên channel, so version, tải Sheet nếu có bản mới.
 bool CheckConfigTrigger() {
     if(StringFind(TELEGRAM_BOT_TOKEN, "YOUR_BOT_TOKEN") >= 0) return false;
 
@@ -3043,14 +3072,12 @@ bool CheckConfigTrigger() {
     if(vEnd <= vStart) return false;
 
     long version = StringToInteger(StringSubstr(resp, vStart, vEnd - vStart));
-    if(version == g_LastSeenVersion) return false; // đã xử lý bản này rồi
+    if(version == g_LastSeenVersion) return false;
 
     g_LastSeenVersion = version;
     return PullConfigFromCloud();
 }
 
-// SLAVE: tải payload mới nhất từ Sheet và áp dụng — gọi trực tiếp (safety-net định kỳ) hoặc
-// sau khi CheckConfigTrigger() phát hiện version mới qua Telegram.
 bool PullConfigFromCloud() {
     if(StringFind(LICENSE_URL, "YOUR_SCRIPT_ID") >= 0) return false;
 
@@ -3095,7 +3122,11 @@ void RebuildDCAState(int posType) {
         if(StringFind(cmt, "RTB|") != 0) continue;
         string parts[];
         int np = StringSplit(cmt, '|', parts);
-        if(np == 3 && parts[1] == "0" && parts[2] == "0") continue;
+        if(np == 3 && parts[1] == "0" && parts[2] == "0") {
+            if(posType == POSITION_TYPE_BUY) OrigBuyPrice  = PositionGetDouble(POSITION_PRICE_OPEN);
+            else                              OrigSellPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+            continue;
+        }
 
         slotPrices[count]  = PositionGetDouble(POSITION_PRICE_OPEN);
         slotTimes[count]   = (datetime)PositionGetInteger(POSITION_TIME);
@@ -3115,6 +3146,14 @@ void RebuildDCAState(int posType) {
         if(ot != pendType1 && ot != pendType2) continue;
         string cmt = OrderGetString(ORDER_COMMENT);
         if(StringFind(cmt, "RTB|") != 0) continue;
+        string oparts[];
+        int onp = StringSplit(cmt, '|', oparts);
+        if(onp == 3 && oparts[1] == "0" && oparts[2] == "0") {
+            double op = OrderGetDouble(ORDER_PRICE_OPEN);
+            if(posType == POSITION_TYPE_BUY) { OrigBuyLimitTk  = tk; if(OrigBuyPrice == 0)  OrigBuyPrice  = op; }
+            else                              { OrigSellLimitTk = tk; if(OrigSellPrice == 0) OrigSellPrice = op; }
+            continue;
+        }
 
         double oPrice = OrderGetDouble(ORDER_PRICE_OPEN);
         bool   dupOfOpenSlot = false;
@@ -3134,14 +3173,23 @@ void RebuildDCAState(int posType) {
         count++;
     }
 
+    // Sắp xếp theo GIÁ, không phải theo thời gian: lệnh refill của 1 tầng cũ mang thời gian đặt
+    // lại (mới), không phải thời gian tầng đó lần đầu mở, nên sort theo time có thể gán sai tầng
+    // (slotLvl) cho slot sau khi restart. Giá mỗi tầng luôn cố định và đơn điệu theo khoảng cách
+    // từ gốc (BUY: tầng sau giá thấp hơn; SELL: tầng sau giá cao hơn) nên dùng giá làm khoá đáng
+    // tin cậy hơn, không phụ thuộc lúc nào lệnh được đặt/đặt lại.
     for(int i = 1; i < count; i++) {
         datetime kt = slotTimes[i]; double kp = slotPrices[i];
         ulong kpTk = slotPosTk[i];  ulong koTk = slotOrderTk[i];
         int j = i - 1;
-        while(j >= 0 && slotTimes[j] > kt) {
+        bool outOfOrder = (posType == POSITION_TYPE_BUY) ? (j >= 0 && slotPrices[j] < kp)
+                                                          : (j >= 0 && slotPrices[j] > kp);
+        while(outOfOrder) {
             slotTimes[j+1] = slotTimes[j]; slotPrices[j+1] = slotPrices[j];
             slotPosTk[j+1] = slotPosTk[j]; slotOrderTk[j+1] = slotOrderTk[j];
             j--;
+            outOfOrder = (posType == POSITION_TYPE_BUY) ? (j >= 0 && slotPrices[j] < kp)
+                                                         : (j >= 0 && slotPrices[j] > kp);
         }
         slotTimes[j+1] = kt; slotPrices[j+1] = kp; slotPosTk[j+1] = kpTk; slotOrderTk[j+1] = koTk;
     }
@@ -3172,8 +3220,6 @@ void RebuildDCAState(int posType) {
 int OnInit() {
     if(!CheckLicense()) return INIT_FAILED;
 
-    // Khởi tạo mirror = giá trị Input hiện tại. Master: luôn đúng (Input là nguồn thật).
-    // Slave: đây là baseline tạm thời, sẽ bị ghi đè bởi PullConfigFromCloud() bên dưới.
     g_SignalMode = InpSignalMode; g_Direction = InpDirection; g_UTKeyValue = InpUTKeyValue;
     g_UseTakeProfit = InpUseTakeProfit; g_UseStopLoss = InpUseStopLoss; g_StealthMode = InpStealthMode;
     g_OrderDelay = InpOrderDelay; g_TP_Points = InpTP_Points; g_SL_Points = InpSL_Points;
@@ -3189,10 +3235,6 @@ int OnInit() {
     g_DayMaxLoss = InpDayMaxLoss; g_DayMaxProfit = InpDayMaxProfit;
     g_HedgeEnable = InpHedgeEnable; g_HedgeCutPts = InpHedgeCutPts;
 
-    // BotEnabled: Master dùng thẳng Input của chính nó (tự phát hiện chuyển true→false → CloseAll()).
-    // Slave: chỉ gán baseline tạm — giá trị thật + việc phát hiện chuyển trạng thái do
-    // PullConfigFromCloud()/ApplyConfigPayload() xử lý ngay bên dưới, tránh CloseAll() sớm nhầm
-    // theo Input cục bộ (thường không ai chỉnh tay trên Slave) trước khi kịp tải giá trị thật.
     if(g_IsMaster) ApplyBotEnabled(InpBotEnabled);
     else           g_BotEnabled = InpBotEnabled;
 
@@ -3205,7 +3247,6 @@ int OnInit() {
     InitDCA();
     InitPyra();
 
-    // Create indicator handles
     hEMAFast = iMA(_Symbol, InpSignalTF, InpEMAFast, 0, MODE_EMA, PRICE_CLOSE);
     hEMASlow = iMA(_Symbol, InpSignalTF, InpEMASlow, 0, MODE_EMA, PRICE_CLOSE);
     hBB      = iBands(_Symbol, InpSignalTF, InpBBPeriod, 0, InpBBDev, PRICE_CLOSE);
@@ -3247,13 +3288,10 @@ int OnInit() {
     ArrayInitialize(DCASellTickets, 0);
     ArrayInitialize(DCABuyLimitTk,  0);
     ArrayInitialize(DCASellLimitTk, 0);
-    // Phục hồi trạng thái DCA từ các vị thế/lệnh chờ đang tồn tại thật sau khi restart
-    // (Đã bỏ bước "cancel stale pending re-fill" từng nằm ở đây — OnInit() chạy lại mỗi lần
-    // recompile/reload EA trong MetaEditor, nên bước cancel đó xoá mất TẤT CẢ lệnh chờ GTC
-    // hợp lệ mỗi lần F7, trước khi RebuildDCAState() bên dưới kịp phục hồi. RebuildDCAState()
-    // tự quét đúng các pending "RTB|" đang tồn tại thật và khớp lại đúng slot, không cần xoá gì cả.)
     PeakDCABuy  = 0;
     PeakDCASell = 0;
+    OrigBuyPrice = 0; OrigSellPrice = 0;
+    OrigBuyLimitTk = 0; OrigSellLimitTk = 0;
     RebuildDCAState(POSITION_TYPE_BUY);
     RebuildDCAState(POSITION_TYPE_SELL);
     LastEntryTime  = 0;
@@ -3265,29 +3303,23 @@ int OnInit() {
     HedgeInitSellPrice = 0.0;
     HedgeTrendSide     = -1;
     if(g_HedgeEnable) {
-        // Khôi phục sau restart: nếu chỉ còn một chiều → chiều kia đã bị cắt trước đó
         if(CountBuy() > 0 && CountSell() == 0) { HedgeCutSell = true; Print("RTB: Hedge restart — infer SELL was cut"); }
         if(CountSell() > 0 && CountBuy() == 0) { HedgeCutBuy  = true; Print("RTB: Hedge restart — infer BUY was cut"); }
-        // Khôi phục trend side từ pyramiding orders còn tồn tại
         if(CountPyra(POSITION_TYPE_BUY) > 0)       { HedgeTrendSide = POSITION_TYPE_BUY;  Print("RTB: Hedge restart — trend=BUY"); }
         else if(CountPyra(POSITION_TYPE_SELL) > 0) { HedgeTrendSide = POSITION_TYPE_SELL; Print("RTB: Hedge restart — trend=SELL"); }
     }
 
     EventSetTimer(1);
 
-    // Remote Config Sync chỉ hoạt động khi CẢ HAI: InpAllowServerConnect=true VÀ BotMode=Tự Động.
-    // Thiếu 1 trong 2 → ngắt hẳn, không gọi Sheet/Telegram ở bất kỳ đâu (OnInit lẫn OnTimer).
     g_SyncAllowed = (InpAllowServerConnect && InpBotMode == MODE_AUTO);
 
     if(!g_SyncAllowed) {
         Print("RTB: Remote Config Sync TẮT (cần InpAllowServerConnect=true VÀ BotMode=Tự Động).");
     } else if(g_IsMaster) {
-        // Master chỉ đẩy khi vừa đổi Input (bấm OK) — không đẩy khi đổi symbol/timeframe/recompile.
         if(UninitializeReason() == REASON_PARAMETERS) {
             if(PushConfigToCloud()) Print("RTB: Config đã đẩy lên Cloud (Master).");
         }
     } else {
-        // Slave luôn tải bản mới nhất ngay lúc khởi động, không chạy tạm với giá trị Input cũ.
         if(PullConfigFromCloud()) Print("RTB: Config đã tải từ Cloud (Slave), version=", g_ConfigVersion);
     }
 
@@ -3306,11 +3338,8 @@ void OnDeinit(const int reason) {
 }
 
 void OnTick() {
-    // Entry signals only fire when no position exists for that direction
     CheckEntry();
-    // Stealth TP/SL check runs on every tick for precision
     if(g_StealthMode) CheckExit();
-    // Trailing: chạy mỗi tick để server SL và đường line di chuyển ngay theo giá, không trễ 1 giây
     if(!DayLimitHit) CheckTrailing();
 }
 
@@ -3318,49 +3347,45 @@ void OnTimer() {
     UpdateDayProfit();
     CheckDayLimit();
 
-    if(CountBuy()  == 0) ResetDCAState(POSITION_TYPE_BUY);
-    if(CountSell() == 0) ResetDCAState(POSITION_TYPE_SELL);
+    if(CountBuy()  == 0 && !HasPendingDCA(POSITION_TYPE_BUY))  ResetDCAState(POSITION_TYPE_BUY);
+    if(CountSell() == 0 && !HasPendingDCA(POSITION_TYPE_SELL)) ResetDCAState(POSITION_TYPE_SELL);
 
-    // Exit checks (basket close conditions)
     if(!g_StealthMode) CheckExit();
 
-    // Hedge: cắt chiều âm (chạy cả khi DayLimitHit để bảo vệ tài khoản)
     CheckHedgeCut();
 
     if(!DayLimitHit && g_BotEnabled) {
-        // Trimming
         CheckTrimming();
 
-        // DCA scale-in
-        if(CountBuy()  > 0) CheckDCA(POSITION_TYPE_BUY);
-        if(CountSell() > 0) CheckDCA(POSITION_TYPE_SELL);
+        // Không chỉ dựa CountBuy/Sell()>0 — khi cả chuỗi tạm thời "toàn lệnh chờ" (0 vị thế sống,
+        // chỉ còn lệnh Limit/Stop tầng đang neo), CheckOrigRefill vẫn cần chạy để đặt lại lệnh gốc,
+        // nếu không nó bị bỏ sót cho tới khi 1 tầng khớp mới khiến count nhích lên lại.
+        bool buyActive  = CountBuy()  > 0 || HasPendingDCA(POSITION_TYPE_BUY)  || OrigBuyLimitTk  > 0;
+        bool sellActive = CountSell() > 0 || HasPendingDCA(POSITION_TYPE_SELL) || OrigSellLimitTk > 0;
+        if(buyActive)  { CheckDCA(POSITION_TYPE_BUY);  CheckOrigRefill(POSITION_TYPE_BUY); }
+        if(sellActive) { CheckDCA(POSITION_TYPE_SELL); CheckOrigRefill(POSITION_TYPE_SELL); }
 
-        // Pyramiding (add to winners)
         if(CountBuy()  > 0) CheckPyramiding(POSITION_TYPE_BUY);
         if(CountSell() > 0) CheckPyramiding(POSITION_TYPE_SELL);
     }
 
-    // Remote config sync — chỉ Slave polling, và chỉ khi g_SyncAllowed (InpAllowServerConnect + BotMode=Auto).
     if(g_SyncAllowed && !g_IsMaster) {
-        if(++g_SyncTick >= 10) {                  // ~10 giây: kiểm tra trigger Telegram
+        if(++g_SyncTick >= 10) {
             g_SyncTick = 0;
             CheckConfigTrigger();
         }
-        if(++g_SyncFallbackTick >= 600) {         // ~10 phút: safety-net, tự tải dù không có trigger
+        if(++g_SyncFallbackTick >= 600) {
             g_SyncFallbackTick = 0;
             PullConfigFromCloud();
         }
     }
 
-    // GUI refresh every second
     UpdateGUI();
 }
 
 void OnTradeTransaction(const MqlTradeTransaction& trans,
                         const MqlTradeRequest&     req,
                         const MqlTradeResult&      res) {
-    // Cập nhật Day P/L ngay khi có deal đóng, không chờ timer 1 giây
-    // force=true: bỏ qua throttle của Calendar Panel, đảm bảo ô "hôm nay" cập nhật ngay lập tức
     if(trans.type == TRADE_TRANSACTION_DEAL_ADD) {
         UpdateDayProfit();
         CheckDayLimit();
@@ -3375,17 +3400,27 @@ void OnChartEvent(const int id, const long& lparam, const double& dparam, const 
     else if(sparam == GUI + "BtnCloseSell")   CloseAll(POSITION_TYPE_SELL);
     else if(sparam == GUI + "BtnCloseProfit") CloseAllProfit();
     else if(sparam == GUI + "BtnCloseLoss")   CloseAllLoss();
-    else if(sparam == GUI + "BtnOpenBuy")  { if(!DayLimitHit && g_BotEnabled) OpenOrder(ORDER_TYPE_BUY,  InpLotSize, g_TP_Points, g_SL_Points); }
-    else if(sparam == GUI + "BtnOpenSell") { if(!DayLimitHit && g_BotEnabled) OpenOrder(ORDER_TYPE_SELL, InpLotSize, g_TP_Points, g_SL_Points); }
+    else if(sparam == GUI + "BtnOpenBuy") {
+        // magic=0 tạm thời để lệnh này được CountManual()/OldestManualPrice() nhận đúng là
+        // lệnh thủ công (DCA multi-manual bám theo lệnh magic=0) — không phải magic=InpMagic.
+        if(!DayLimitHit && g_BotEnabled && CountBuy() < InpMaxBuy) {
+            Trade.SetExpertMagicNumber(0);
+            OpenOrder(ORDER_TYPE_BUY, InpLotSize, g_TP_Points, g_SL_Points);
+            Trade.SetExpertMagicNumber(InpMagic);
+        }
+    }
+    else if(sparam == GUI + "BtnOpenSell") {
+        if(!DayLimitHit && g_BotEnabled && CountSell() < InpMaxSell) {
+            Trade.SetExpertMagicNumber(0);
+            OpenOrder(ORDER_TYPE_SELL, InpLotSize, g_TP_Points, g_SL_Points);
+            Trade.SetExpertMagicNumber(InpMagic);
+        }
+    }
     else if(sparam == GUI + "BtnBotToggle" && g_IsMaster) {
-        // Debounce 2s: chặn spam WebRequest khi bấm liên tục, đồng thời đảm bảo 2 lần bấm
-        // liên tiếp không bao giờ rơi cùng 1 giây (TimeGMT() dùng làm version chỉ phân giải 1s).
         if(TimeCurrent() - g_LastBotToggleClick < 2) {
             Print("RTB: Bỏ qua click Bot Toggle — bấm quá nhanh (debounce 2 giây).");
         } else {
             g_LastBotToggleClick = TimeCurrent();
-            // Tương đương đổi InpBotEnabled rồi bấm OK: tự CloseAll() nếu vừa tắt (qua ApplyBotEnabled),
-            // rồi đẩy lên Cloud cho mọi Slave — chỉ khi Remote Config Sync đang được phép chạy.
             ApplyBotEnabled(!g_BotEnabled);
             if(g_SyncAllowed) PushConfigToCloud();
             UpdateGUI();

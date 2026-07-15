@@ -25,296 +25,296 @@ enum ENUM_TRIM_MODE    { TRIM_OFF, TRIM_TARGET, TRIM_PARTIAL_DD, TRIM_DAY_PROFIT
 //+------------------------------------------------------------------+
 //| INPUT: BASE SETTINGS                                             |
 //+------------------------------------------------------------------+
-input group         "══════ CÀI ĐẶT CƠ BẢN ══════";
-input  ENUM_BOT_MODE InpBotMode = MODE_AUTO;
-input  bool    InpAllowServerConnect = false;
-input  bool    InpBotEnabled   = true;
-input  double  InpLotSize      = 0.01;
-input  bool    InpUseTakeProfit= true;
-input  bool    InpUseStopLoss  = false;
-input  bool    InpStealthMode  = false;
-input  int     InpOrderDelay   = 5;
-input  ulong   InpMagic        = 202601;
-input  double  InpTP_Points    = 3000.0;
-input  double  InpSL_Points    = 0.0;
+input group         "══════ CÀI ĐẶT CƠ BẢN ══════"; //
+input  ENUM_BOT_MODE InpBotMode = MODE_AUTO;  // Chế độ: Tự động / Bán tự động
+input  bool    InpAllowServerConnect = false; // Cho phép kết nối Server đồng bộ config (cần đồng thời BotMode=Tự Động)
+input  bool    InpBotEnabled   = true;    // Bật Bot (tắt = đóng toàn bộ lệnh + dừng mọi hoạt động, đồng bộ qua Master)
+input  double  InpLotSize      = 0.01;    // Lots ban đầu
+input  bool    InpUseTakeProfit= true;    // Dùng Take Profit (Use_TP)
+input  bool    InpUseStopLoss  = false;   // Dùng Stop Loss (Use_SL)
+input  bool    InpStealthMode  = false;   // Ẩn TP/SL trên chart (Stealth Mode)
+input  int     InpOrderDelay   = 5;       // Độ trễ mở lệnh (giây)
+input  ulong   InpMagic        = 202601;  // Magic Number
+input  double  InpTP_Points    = 3000.0;  // TP mỗi lệnh (points)
+input  double  InpSL_Points    = 0.0;     // SL mỗi lệnh (points, 0=tắt)
 
 //+------------------------------------------------------------------+
 //| INPUT: ENTRY SIGNAL                                              |
 //+------------------------------------------------------------------+
-input group         "══════ TÍN HIỆU VÀO LỆNH ══════";
-input  ENUM_SIGNAL_MODE InpSignalMode = SIG_EMA;
-input  ENUM_DIRECTION   InpDirection  = DIR_BOTH;
-input  ENUM_TIMEFRAMES  InpSignalTF   = PERIOD_H1;
+input group         "══════ TÍN HIỆU VÀO LỆNH ══════"; //
+input  ENUM_SIGNAL_MODE InpSignalMode = SIG_EMA;      // Chiến lược tín hiệu
+input  ENUM_DIRECTION   InpDirection  = DIR_BOTH;     // Hướng giao dịch
+input  ENUM_TIMEFRAMES  InpSignalTF   = PERIOD_H1;    // Khung thời gian tín hiệu
 
 //+------------------------------------------------------------------+
 //| INPUT: EMA                                                       |
 //+------------------------------------------------------------------+
-input group         "══════ EMA FILTER (34+89) ══════";
-input  int     InpEMAFast  = 34;
-input  int     InpEMASlow  = 89;
-input  double  InpEMAPullbackPts = 100.0;
+input group         "══════ EMA FILTER (34+89) ══════"; //
+input  int     InpEMAFast  = 34;   // EMA nhanh
+input  int     InpEMASlow  = 89;   // EMA chậm
+input  double  InpEMAPullbackPts = 100.0; // Khoảng pullback về EMA34 (points)
 
 //+------------------------------------------------------------------+
 //| INPUT: BOLLINGER BANDS                                           |
 //+------------------------------------------------------------------+
-input group          "══════ BOLLINGER BANDS ══════";
-input  int     InpBBPeriod = 20;
-input  double  InpBBDev    = 2.0;
+input group          "══════ BOLLINGER BANDS ══════"; //
+input  int     InpBBPeriod = 20;   // BB Period
+input  double  InpBBDev    = 2.0;  // BB Deviation
 
 //+------------------------------------------------------------------+
 //| INPUT: ICHIMOKU                                                  |
 //+------------------------------------------------------------------+
-input group         "══════ ICHIMOKU ══════";
-input  int     InpIchiTenkan = 9;
-input  int     InpIchiKijun  = 26;
-input  int     InpIchiSenkou = 52;
+input group         "══════ ICHIMOKU ══════"; //
+input  int     InpIchiTenkan = 9;   // Tenkan-sen
+input  int     InpIchiKijun  = 26;  // Kijun-sen
+input  int     InpIchiSenkou = 52;  // Senkou Span B
 
 //+------------------------------------------------------------------+
 //| INPUT: UT BOT                                                    |
 //+------------------------------------------------------------------+
-input group         "══════ UT BOT ══════";
-input  int     InpUTKeyValue  = 1;
-input  int     InpUTATRPeriod = 10;
+input group         "══════ UT BOT ══════"; //
+input  int     InpUTKeyValue  = 1;    // Key Value (độ nhạy ATR)
+input  int     InpUTATRPeriod = 10;   // ATR Period
 
 //+------------------------------------------------------------------+
 //| INPUT: GLOBAL FILTERS                                            |
 //+------------------------------------------------------------------+
-input group          "══════ BỘ LỌC CHUNG ══════";
-input  int     InpMaxBuy   = 10;
-input  int     InpMaxSell  = 10;
+input group          "══════ BỘ LỌC CHUNG ══════"; //
+input  int     InpMaxBuy   = 10;   // Số lệnh Buy tối đa
+input  int     InpMaxSell  = 10;   // Số lệnh Sell tối đa
 
 //+------------------------------------------------------------------+
 //| INPUT: DCA (8 LEVELS)                                            |
 //+------------------------------------------------------------------+
-input group         "══════ DCA - CÀI ĐẶT CHUNG ══════";
-input  ENUM_DCA_MODE InpDCAMode     = DCA_STEP;
-input  bool          InpDCABuyEnable  = true;
-input  bool          InpDCASellEnable = true;
-input  bool          InpDCAArithEnable = false;
-input  double        InpDCAArithStep   = 0.01;
+input group         "══════ DCA - CÀI ĐẶT CHUNG ══════"; //
+input  ENUM_DCA_MODE InpDCAMode     = DCA_STEP; // DCA: Chế độ (áp dụng cho tất cả tầng)
+input  bool          InpDCABuyEnable  = true;   // DCA: Bật DCA chiều Buy
+input  bool          InpDCASellEnable = true;   // DCA: Bật DCA chiều Sell
+input  bool          InpDCAArithEnable = false; // DCA: Bật Vol Cấp Số Cộng (bỏ qua Hệ số Lot từng tầng)
+input  double        InpDCAArithStep   = 0.01;  // DCA: Cộng thêm Vol mỗi lệnh DCA sau (lots)
 
-input group         "══════ DCA - TẦNG 1 ══════";
-input  double  InpDCA1Mult = 1.5;
-input  int     InpDCA1Max  = 2;
-input  double  InpDCA1Dist = 1000.0;
-input  double  InpDCA1TP   = 500.0;
-input  double  InpDCA1SL   = 0.0;
+input group         "══════ DCA - TẦNG 1 ══════"; //
+input  double  InpDCA1Mult = 1.5;    // DCA T1: Hệ số Lot
+input  int     InpDCA1Max  = 2;      // DCA T1: Max lệnh tổng tại tầng này
+input  double  InpDCA1Dist = 1000.0; // DCA T1: Khoảng cách (points)
+input  double  InpDCA1TP   = 500.0;  // DCA T1: TP (points)
+input  double  InpDCA1SL   = 0.0;    // DCA T1: SL (points, 0=tắt)
 
-input group         "══════ DCA - TẦNG 2 ══════";
-input  double  InpDCA2Mult = 2.0;
-input  int     InpDCA2Max  = 2;
-input  double  InpDCA2Dist = 1500.0;
-input  double  InpDCA2TP   = 500.0;
-input  double  InpDCA2SL   = 0.0;
+input group         "══════ DCA - TẦNG 2 ══════"; //
+input  double  InpDCA2Mult = 2.0;   // DCA T2: Hệ số Lot
+input  int     InpDCA2Max  = 2;     // DCA T2: Max lệnh tổng tại tầng này
+input  double  InpDCA2Dist = 1500.0; // DCA T2: Khoảng cách (points)
+input  double  InpDCA2TP   = 500.0; // DCA T2: TP (points)
+input  double  InpDCA2SL   = 0.0;   // DCA T2: SL (points, 0=tắt)
 
-input group         "══════ DCA - TẦNG 3 ══════";
-input  double  InpDCA3Mult = 2.5;
-input  int     InpDCA3Max  = 2;
-input  double  InpDCA3Dist = 2000.0;
-input  double  InpDCA3TP   = 500.0;
-input  double  InpDCA3SL   = 0.0;
+input group         "══════ DCA - TẦNG 3 ══════"; //
+input  double  InpDCA3Mult = 2.5;   // DCA T3: Hệ số Lot
+input  int     InpDCA3Max  = 2;     // DCA T3: Max lệnh tổng tại tầng này
+input  double  InpDCA3Dist = 2000.0;// DCA T3: Khoảng cách (points)
+input  double  InpDCA3TP   = 500.0; // DCA T3: TP (points)
+input  double  InpDCA3SL   = 0.0;   // DCA T3: SL (points, 0=tắt)
 
-input group         "══════ DCA - TẦNG 4 ══════";
-input  double  InpDCA4Mult = 3.0;
-input  int     InpDCA4Max  = 2;
-input  double  InpDCA4Dist = 2500.0;
-input  double  InpDCA4TP   = 500.0;
-input  double  InpDCA4SL   = 0.0;
+input group         "══════ DCA - TẦNG 4 ══════"; //
+input  double  InpDCA4Mult = 3.0;   // DCA T4: Hệ số Lot
+input  int     InpDCA4Max  = 2;     // DCA T4: Max lệnh tổng tại tầng này
+input  double  InpDCA4Dist = 2500.0; // DCA T4: Khoảng cách (points)
+input  double  InpDCA4TP   = 500.0; // DCA T4: TP (points)
+input  double  InpDCA4SL   = 0.0;   // DCA T4: SL (points, 0=tắt)
 
-input group         "══════ DCA - TẦNG 5 ══════";
-input  double  InpDCA5Mult = 3.5;
-input  int     InpDCA5Max  = 2;
-input  double  InpDCA5Dist = 3000.0;
-input  double  InpDCA5TP   = 500.0;
-input  double  InpDCA5SL   = 0.0;
+input group         "══════ DCA - TẦNG 5 ══════"; //
+input  double  InpDCA5Mult = 3.5;  // DCA T5: Hệ số Lot
+input  int     InpDCA5Max  = 2;    // DCA T5: Max lệnh tổng tại tầng này
+input  double  InpDCA5Dist = 3000.0; // DCA T5: Khoảng cách (points)
+input  double  InpDCA5TP   = 500.0; // DCA T5: TP (points)
+input  double  InpDCA5SL   = 0.0;   // DCA T5: SL (points, 0=tắt)
 
-input group         "══════ DCA - TẦNG 6 ══════";
-input  double  InpDCA6Mult = 4.0;
-input  int     InpDCA6Max  = 2;
-input  double  InpDCA6Dist = 3500.0;
-input  double  InpDCA6TP   = 500.0;
-input  double  InpDCA6SL   = 0.0;
+input group         "══════ DCA - TẦNG 6 ══════"; //
+input  double  InpDCA6Mult = 4.0; // DCA T6: Hệ số Lot
+input  int     InpDCA6Max  = 2;   // DCA T6: Max lệnh tổng tại tầng này
+input  double  InpDCA6Dist = 3500.0; // DCA T6: Khoảng cách (points)
+input  double  InpDCA6TP   = 500.0; // DCA T6: TP (points)
+input  double  InpDCA6SL   = 0.0;  // DCA T6: SL (points, 0=tắt)
 
-input group         "══════ DCA - TẦNG 7 ══════";
-input  double  InpDCA7Mult = 5.0;
-input  int     InpDCA7Max  = 2;
-input  double  InpDCA7Dist = 4000.0;
-input  double  InpDCA7TP   = 500.0;
-input  double  InpDCA7SL   = 0.0;
+input group         "══════ DCA - TẦNG 7 ══════"; //
+input  double  InpDCA7Mult = 5.0; // DCA T7: Hệ số Lot
+input  int     InpDCA7Max  = 2;  // DCA T7: Max lệnh tổng tại tầng này
+input  double  InpDCA7Dist = 4000.0; // DCA T7: Khoảng cách (points)
+input  double  InpDCA7TP   = 500.0; // DCA T7: TP (points)
+input  double  InpDCA7SL   = 0.0;  // DCA T7: SL (points, 0=tắt)
 
-input group         "══════ DCA - TẦNG 8 ══════";
-input  double  InpDCA8Mult = 6.0;
-input  int     InpDCA8Max  = 1;
-input  double  InpDCA8Dist = 5000.0;
-input  double  InpDCA8TP   = 500.0;
-input  double  InpDCA8SL   = 0.0;
+input group         "══════ DCA - TẦNG 8 ══════"; //
+input  double  InpDCA8Mult = 6.0;    // DCA T8: Hệ số Lot
+input  int     InpDCA8Max  = 1;      // DCA T8: Max lệnh tổng tại tầng này
+input  double  InpDCA8Dist = 5000.0; // DCA T8: Khoảng cách (points)
+input  double  InpDCA8TP   = 500.0;  // DCA T8: TP (points)
+input  double  InpDCA8SL   = 0.0;    // DCA T8: SL (points, 0=tắt)
 
-input group         "══════ DCA - TẦNG 9 ══════";
-input  double  InpDCA9Mult = 7.0;
-input  int     InpDCA9Max  = 1;
-input  double  InpDCA9Dist = 5500.0;
-input  double  InpDCA9TP   = 500.0;
-input  double  InpDCA9SL   = 0.0;
+input group         "══════ DCA - TẦNG 9 ══════"; //
+input  double  InpDCA9Mult = 7.0;    // DCA T9: Hệ số Lot
+input  int     InpDCA9Max  = 1;      // DCA T9: Max lệnh tổng tại tầng này
+input  double  InpDCA9Dist = 5500.0; // DCA T9: Khoảng cách (points)
+input  double  InpDCA9TP   = 500.0;  // DCA T9: TP (points)
+input  double  InpDCA9SL   = 0.0;    // DCA T9: SL (points, 0=tắt)
 
-input group         "══════ DCA - TẦNG 10 ══════";
-input  double  InpDCA10Mult = 8.0;
-input  int     InpDCA10Max  = 1;
-input  double  InpDCA10Dist = 6000.0;
-input  double  InpDCA10TP   = 500.0;
-input  double  InpDCA10SL   = 0.0;
+input group         "══════ DCA - TẦNG 10 ══════"; //
+input  double  InpDCA10Mult = 8.0;    // DCA T10: Hệ số Lot
+input  int     InpDCA10Max  = 1;      // DCA T10: Max lệnh tổng tại tầng này
+input  double  InpDCA10Dist = 6000.0; // DCA T10: Khoảng cách (points)
+input  double  InpDCA10TP   = 500.0;  // DCA T10: TP (points)
+input  double  InpDCA10SL   = 0.0;    // DCA T10: SL (points, 0=tắt)
 
-input group         "══════ DCA - TẦNG 11 ══════";
-input  double  InpDCA11Mult = 9.0;
-input  int     InpDCA11Max  = 1;
-input  double  InpDCA11Dist = 6500.0;
-input  double  InpDCA11TP   = 500.0;
-input  double  InpDCA11SL   = 0.0;
+input group         "══════ DCA - TẦNG 11 ══════"; //
+input  double  InpDCA11Mult = 9.0;    // DCA T11: Hệ số Lot
+input  int     InpDCA11Max  = 1;      // DCA T11: Max lệnh tổng tại tầng này
+input  double  InpDCA11Dist = 6500.0; // DCA T11: Khoảng cách (points)
+input  double  InpDCA11TP   = 500.0;  // DCA T11: TP (points)
+input  double  InpDCA11SL   = 0.0;    // DCA T11: SL (points, 0=tắt)
 
-input group         "══════ DCA - TẦNG 12 ══════";
-input  double  InpDCA12Mult = 10.0;
-input  int     InpDCA12Max  = 1;
-input  double  InpDCA12Dist = 7000.0;
-input  double  InpDCA12TP   = 500.0;
-input  double  InpDCA12SL   = 0.0;
+input group         "══════ DCA - TẦNG 12 ══════"; //
+input  double  InpDCA12Mult = 10.0;   // DCA T12: Hệ số Lot
+input  int     InpDCA12Max  = 1;      // DCA T12: Max lệnh tổng tại tầng này
+input  double  InpDCA12Dist = 7000.0; // DCA T12: Khoảng cách (points)
+input  double  InpDCA12TP   = 500.0;  // DCA T12: TP (points)
+input  double  InpDCA12SL   = 0.0;    // DCA T12: SL (points, 0=tắt)
 
-input group         "══════ DCA - TẦNG 13 ══════";
-input  double  InpDCA13Mult = 11.0;
-input  int     InpDCA13Max  = 1;
-input  double  InpDCA13Dist = 7500.0;
-input  double  InpDCA13TP   = 500.0;
-input  double  InpDCA13SL   = 0.0;
+input group         "══════ DCA - TẦNG 13 ══════"; //
+input  double  InpDCA13Mult = 11.0;   // DCA T13: Hệ số Lot
+input  int     InpDCA13Max  = 1;      // DCA T13: Max lệnh tổng tại tầng này
+input  double  InpDCA13Dist = 7500.0; // DCA T13: Khoảng cách (points)
+input  double  InpDCA13TP   = 500.0;  // DCA T13: TP (points)
+input  double  InpDCA13SL   = 0.0;    // DCA T13: SL (points, 0=tắt)
 
-input group         "══════ DCA - TẦNG 14 ══════";
-input  double  InpDCA14Mult = 12.0;
-input  int     InpDCA14Max  = 1;
-input  double  InpDCA14Dist = 8000.0;
-input  double  InpDCA14TP   = 500.0;
-input  double  InpDCA14SL   = 0.0;
+input group         "══════ DCA - TẦNG 14 ══════"; //
+input  double  InpDCA14Mult = 12.0;   // DCA T14: Hệ số Lot
+input  int     InpDCA14Max  = 1;      // DCA T14: Max lệnh tổng tại tầng này
+input  double  InpDCA14Dist = 8000.0; // DCA T14: Khoảng cách (points)
+input  double  InpDCA14TP   = 500.0;  // DCA T14: TP (points)
+input  double  InpDCA14SL   = 0.0;    // DCA T14: SL (points, 0=tắt)
 
-input group         "══════ DCA - TẦNG 15 ══════";
-input  double  InpDCA15Mult = 13.0;
-input  int     InpDCA15Max  = 1;
-input  double  InpDCA15Dist = 8500.0;
-input  double  InpDCA15TP   = 500.0;
-input  double  InpDCA15SL   = 0.0;
+input group         "══════ DCA - TẦNG 15 ══════"; //
+input  double  InpDCA15Mult = 13.0;   // DCA T15: Hệ số Lot
+input  int     InpDCA15Max  = 1;      // DCA T15: Max lệnh tổng tại tầng này
+input  double  InpDCA15Dist = 8500.0; // DCA T15: Khoảng cách (points)
+input  double  InpDCA15TP   = 500.0;  // DCA T15: TP (points)
+input  double  InpDCA15SL   = 0.0;    // DCA T15: SL (points, 0=tắt)
 
 //+------------------------------------------------------------------+
 //| INPUT: PYRAMIDING (NHỒI DƯƠNG)                                   |
 //+------------------------------------------------------------------+
-input group         "══════ NHỒI DƯƠNG (PYRA) ══════";
-input  ENUM_DCA_MODE InpPyraMode      = DCA_STEP;
-input  bool          InpPyraBuyEnable  = true;
-input  bool          InpPyraSellEnable = true;
+input group         "══════ NHỒI DƯƠNG (PYRA) ══════"; //
+input  ENUM_DCA_MODE InpPyraMode      = DCA_STEP; // PYRA: Chế độ (áp dụng cho tất cả tầng)
+input  bool          InpPyraBuyEnable  = true;    // PYRA: Bật nhồi chiều Buy
+input  bool          InpPyraSellEnable = true;    // PYRA: Bật nhồi chiều Sell
 
-input group         "══════ PYRA - TẦNG 1 ══════";
-input  double  InpPyra1Mult = 1.0;
-input  int     InpPyra1Max  = 2;
-input  double  InpPyra1Dist = 500.0;
-input  double  InpPyra1TP   = 3000.0;
-input  double  InpPyra1SL   = 0.0;
+input group         "══════ PYRA - TẦNG 1 ══════"; //
+input  double  InpPyra1Mult = 1.0;    // PYRA T1: Hệ số Lot
+input  int     InpPyra1Max  = 2;      // PYRA T1: Max lệnh tổng tại tầng này
+input  double  InpPyra1Dist = 500.0;  // PYRA T1: Khoảng cách (points)
+input  double  InpPyra1TP   = 3000.0; // PYRA T1: TP (points)
+input  double  InpPyra1SL   = 0.0;    // PYRA T1: SL (points, 0=tắt)
 
-input group         "══════ PYRA - TẦNG 2 ══════";
-input  double  InpPyra2Mult = 1.0;
-input  int     InpPyra2Max  = 2;
-input  double  InpPyra2Dist = 500.0;
-input  double  InpPyra2TP   = 3000.0;
-input  double  InpPyra2SL   = 0.0;
+input group         "══════ PYRA - TẦNG 2 ══════"; //
+input  double  InpPyra2Mult = 1.0;    // PYRA T2: Hệ số Lot
+input  int     InpPyra2Max  = 2;      // PYRA T2: Max lệnh tổng tại tầng này
+input  double  InpPyra2Dist = 500.0;  // PYRA T2: Khoảng cách (points)
+input  double  InpPyra2TP   = 3000.0; // PYRA T2: TP (points)
+input  double  InpPyra2SL   = 0.0;    // PYRA T2: SL (points, 0=tắt)
 
-input group         "══════ PYRA - TẦNG 3 ══════";
-input  double  InpPyra3Mult = 1.0;
-input  int     InpPyra3Max  = 2;
-input  double  InpPyra3Dist = 500.0;
-input  double  InpPyra3TP   = 3000.0;
-input  double  InpPyra3SL   = 0.0;
+input group         "══════ PYRA - TẦNG 3 ══════"; //
+input  double  InpPyra3Mult = 1.0;    // PYRA T3: Hệ số Lot
+input  int     InpPyra3Max  = 2;      // PYRA T3: Max lệnh tổng tại tầng này
+input  double  InpPyra3Dist = 500.0;  // PYRA T3: Khoảng cách (points)
+input  double  InpPyra3TP   = 3000.0; // PYRA T3: TP (points)
+input  double  InpPyra3SL   = 0.0;    // PYRA T3: SL (points, 0=tắt)
 
-input group         "══════ PYRA - TẦNG 4 ══════";
-input  double  InpPyra4Mult = 1.0;
-input  int     InpPyra4Max  = 2;
-input  double  InpPyra4Dist = 500.0;
-input  double  InpPyra4TP   = 3000.0;
-input  double  InpPyra4SL   = 0.0;
+input group         "══════ PYRA - TẦNG 4 ══════"; //
+input  double  InpPyra4Mult = 1.0;    // PYRA T4: Hệ số Lot
+input  int     InpPyra4Max  = 2;      // PYRA T4: Max lệnh tổng tại tầng này
+input  double  InpPyra4Dist = 500.0;  // PYRA T4: Khoảng cách (points)
+input  double  InpPyra4TP   = 3000.0; // PYRA T4: TP (points)
+input  double  InpPyra4SL   = 0.0;    // PYRA T4: SL (points, 0=tắt)
 
-input group         "══════ PYRA - TẦNG 5 ══════";
-input  double  InpPyra5Mult = 1.0;
-input  int     InpPyra5Max  = 2;
-input  double  InpPyra5Dist = 500.0;
-input  double  InpPyra5TP   = 3000.0;
-input  double  InpPyra5SL   = 0.0;
+input group         "══════ PYRA - TẦNG 5 ══════"; //
+input  double  InpPyra5Mult = 1.0;    // PYRA T5: Hệ số Lot
+input  int     InpPyra5Max  = 2;      // PYRA T5: Max lệnh tổng tại tầng này
+input  double  InpPyra5Dist = 500.0;  // PYRA T5: Khoảng cách (points)
+input  double  InpPyra5TP   = 3000.0; // PYRA T5: TP (points)
+input  double  InpPyra5SL   = 0.0;    // PYRA T5: SL (points, 0=tắt)
 
-input group         "══════ PYRA - TẦNG 6 ══════";
-input  double  InpPyra6Mult = 1.0;
-input  int     InpPyra6Max  = 2;
-input  double  InpPyra6Dist = 500.0;
-input  double  InpPyra6TP   = 3000.0;
-input  double  InpPyra6SL   = 0.0;
+input group         "══════ PYRA - TẦNG 6 ══════"; //
+input  double  InpPyra6Mult = 1.0;    // PYRA T6: Hệ số Lot
+input  int     InpPyra6Max  = 2;      // PYRA T6: Max lệnh tổng tại tầng này
+input  double  InpPyra6Dist = 500.0;  // PYRA T6: Khoảng cách (points)
+input  double  InpPyra6TP   = 3000.0; // PYRA T6: TP (points)
+input  double  InpPyra6SL   = 0.0;    // PYRA T6: SL (points, 0=tắt)
 
-input group         "══════ PYRA - TẦNG 7 ══════";
-input  double  InpPyra7Mult = 1.0;
-input  int     InpPyra7Max  = 2;
-input  double  InpPyra7Dist = 500.0;
-input  double  InpPyra7TP   = 3000.0;
-input  double  InpPyra7SL   = 0.0;
+input group         "══════ PYRA - TẦNG 7 ══════"; //
+input  double  InpPyra7Mult = 1.0;    // PYRA T7: Hệ số Lot
+input  int     InpPyra7Max  = 2;      // PYRA T7: Max lệnh tổng tại tầng này
+input  double  InpPyra7Dist = 500.0;  // PYRA T7: Khoảng cách (points)
+input  double  InpPyra7TP   = 3000.0; // PYRA T7: TP (points)
+input  double  InpPyra7SL   = 0.0;    // PYRA T7: SL (points, 0=tắt)
 
-input group         "══════ PYRA - TẦNG 8 ══════";
-input  double  InpPyra8Mult = 1.0;
-input  int     InpPyra8Max  = 1;
-input  double  InpPyra8Dist = 500.0;
-input  double  InpPyra8TP   = 3000.0;
-input  double  InpPyra8SL   = 0.0;
+input group         "══════ PYRA - TẦNG 8 ══════"; //
+input  double  InpPyra8Mult = 1.0;    // PYRA T8: Hệ số Lot
+input  int     InpPyra8Max  = 1;      // PYRA T8: Max lệnh tổng tại tầng này
+input  double  InpPyra8Dist = 500.0;  // PYRA T8: Khoảng cách (points)
+input  double  InpPyra8TP   = 3000.0; // PYRA T8: TP (points)
+input  double  InpPyra8SL   = 0.0;    // PYRA T8: SL (points, 0=tắt)
 
 //+------------------------------------------------------------------+
 //| INPUT: ORDER TRIMMING                                            |
 //+------------------------------------------------------------------+
-input group         "══════ TỈA LỆNH (TRIMMING) ══════";
-input  ENUM_TRIM_MODE InpTrimMode    = TRIM_OFF;
-input  int     InpTrimTrigger    = 5;
-input  double  InpTrimTarget     = 10.0;
-input  double  InpPartialTrimDD  = 20.0;
-input  int     InpTrimMaxLoss    = 1;
-input  int     InpTrimMaxWin     = 1;
+input group         "══════ TỈA LỆNH (TRIMMING) ══════"; //
+input  ENUM_TRIM_MODE InpTrimMode    = TRIM_OFF; // Chế độ (Off/Target/PartialDD/DayProfit/Hedge/Hedge theo điểm)
+input  int     InpTrimTrigger    = 5;      // Kích hoạt khi số lệnh >= X
+input  double  InpTrimTarget     = 10.0;   // [Target/Hedge/HedgePts] Mục tiêu lợi nhuận sau tỉa ($)
+input  double  InpPartialTrimDD  = 20.0;   // [Partial DD] Kích hoạt khi DD% >
+input  int     InpTrimMaxLoss    = 1;      // Số lệnh âm tối đa cần tỉa mỗi lần
+input  int     InpTrimMaxWin     = 1;      // [Hedge] Số lệnh dương tối đa dùng để tỉa
 
 //+------------------------------------------------------------------+
 //| INPUT: TRAILING STOP                                             |
 //+------------------------------------------------------------------+
-input group         "══════ TRAILING STOP ══════";
-input  bool          InpTrailEnable   = false;
-input  ENUM_TRAIL_MODE InpTrailMode   = TRAIL_BASKET;
-input  int           InpTrailMinOrds  = 1;
-input  double        InpTrailActivate = 500.0;
-input  double        InpTrailStep     = 200.0;
-input  double        InpTrailInit     = 300.0;
-input  bool          InpTrailShowLine = true;
-input  color         InpTrailBuyColor = clrLimeGreen;
-input  color         InpTrailSellColor= clrTomato;
-input  int           InpTrailLineWidth= 2;
+input group         "══════ TRAILING STOP ══════"; //
+input  bool          InpTrailEnable   = false;        // Bật Trailing
+input  ENUM_TRAIL_MODE InpTrailMode   = TRAIL_BASKET; // Basket hoặc Đơn lẻ
+input  int           InpTrailMinOrds  = 1;            // Số lệnh tối thiểu kích hoạt
+input  double        InpTrailActivate = 500.0;        // Points kích hoạt Trail
+input  double        InpTrailStep     = 200.0;        // Bước nhảy SL (points)
+input  double        InpTrailInit     = 300.0;        // SL đầu tiên cách giá (points)
+input  bool          InpTrailShowLine = true;         // Vẽ đường Trail
+input  color         InpTrailBuyColor = clrLimeGreen; // Màu đường Trail Buy
+input  color         InpTrailSellColor= clrTomato;    // Màu đường Trail Sell
+input  int           InpTrailLineWidth= 2;            // Độ dày đường Trail (1-5)
 
 //+------------------------------------------------------------------+
 //| INPUT: EXIT LOGIC                                                |
 //+------------------------------------------------------------------+
-input group         "══════ ĐÓNG LỆNH TỔNG ══════";
-input  double  InpCloseProfit  = 0.0;
-input  double  InpCloseLoss    = 0.0;
-input  double  InpClosePerPips = 0.0;
-input  double  InpDayMaxLoss   = 0.0;
-input  double  InpDayMaxProfit = 0.0;
+input group         "══════ ĐÓNG LỆNH TỔNG ══════"; //
+input  double  InpCloseProfit  = 0.0;  // Chốt lời khi tổng lãi đạt ($, 0=tắt)
+input  double  InpCloseLoss    = 0.0;  // Cắt lỗ khi tổng lỗ đạt ($, 0=tắt)
+input  double  InpClosePerPips = 0.0;  // Đóng từng lệnh khi đạt (points, 0=tắt)
+input  double  InpDayMaxLoss   = 0.0;  // Dừng bot khi lỗ ngày đạt ($, 0=tắt)
+input  double  InpDayMaxProfit = 0.0;  // Dừng bot khi lãi ngày đạt ($, 0=tắt)
 
 //+------------------------------------------------------------------+
 //| INPUT: HEDGE FOLLOW WINNER                                       |
 //+------------------------------------------------------------------+
-input group         "══════ HEDGE FOLLOW WINNER ══════";
-input  bool    InpHedgeEnable  = false;
-input  double  InpHedgeCutPts  = 3000.0;
+input group         "══════ HEDGE FOLLOW WINNER ══════"; //
+input  bool    InpHedgeEnable  = false;   // Bật chế độ Hedge Follow Winner
+input  double  InpHedgeCutPts  = 3000.0;  // Cắt chiều âm sau X points từ lệnh gốc
 
 //+------------------------------------------------------------------+
 //| INPUT: PANEL                                                     |
 //+------------------------------------------------------------------+
-input group         "══════ PANEL ══════";
-input  bool    InpShowPanel  = true;
-input  int     InpPanelX     = 5;
-input  int     InpPanelY     = 18;
-input  int     InpPanelWidth = 252;
-input  int     InpCalPanelX  = 269;
-input  int     InpCalPanelY  = 18;
+input group         "══════ PANEL ══════"; //
+input  bool    InpShowPanel  = true;  // Hiện panel
+input  int     InpPanelX     = 5;     // Panel: tọa độ X
+input  int     InpPanelY     = 18;    // Panel: tọa độ Y
+input  int     InpPanelWidth = 252;   // Panel: chiều rộng
+input  int     InpCalPanelX  = 269;   // Lịch: tọa độ X
+input  int     InpCalPanelY  = 18;    // Lịch: tọa độ Y
 
 //+------------------------------------------------------------------+
 //| GLOBAL STATE                                                     |

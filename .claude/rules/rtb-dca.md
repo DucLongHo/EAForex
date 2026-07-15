@@ -80,3 +80,18 @@ Sau khi trigger, còn kiểm tra thêm:
 1. `DCA_STEP_TF`: tín hiệu cùng chiều từ `GetSignal()`
 2. `InpOrderDelay`: thời gian chờ giữa 2 lệnh
 3. `count < InpMaxBuy/Sell`: chưa đạt giới hạn tối đa
+
+## Lệnh Gốc Bị Cắt Giữa Chừng — `CheckOrigRestart()`
+
+Lệnh gốc (comment đúng `"RTB|0|0"`) **không nằm trong slot DCA** — `RebuildDCAState()` loại trừ nó, và `CheckDCA()` chỉ quản lý các tầng DCA (`DCABuyPrices[]`/`DCASellPrices[]`), không quản lý lệnh gốc.
+
+`OrigBuyPrice`/`OrigSellPrice` ghi nhớ giá lệnh gốc mỗi khi `TryOpenBuy()`/`TryOpenSell()` mở nó. Mỗi `OnTimer()`, `CheckOrigRestart(posType)` kiểm tra: nếu biến này khác 0 nhưng không còn vị thế `"RTB|0|0"` nào đang mở (nghĩa là lệnh gốc vừa bị cắt vì bất kỳ lý do gì — TP/SL/Trailing/`InpClosePerPips`/nút Close Profit/Close Loss/đóng thủ công) thì:
+
+1. **Không đặt lệnh chờ (Limit/Stop) ở giá cũ.**
+2. Gọi `ResetDCAState(posType)` — huỷ sạch mọi lệnh chờ (refill tầng + tầng mới) đang neo của chiều đó, reset `PeakDCABuy/Sell` và toàn bộ mảng `DCABuyPrices/Tickets/LimitTk[]`.
+3. Mở **ngay lập tức bằng market** một lệnh gốc mới (`OpenOrder`) tại giá hiện tại.
+4. Ghi giá lệnh gốc mới vào `OrigBuyPrice`/`OrigSellPrice` — chuỗi DCA tiếp theo sẽ tính từ lệnh gốc MỚI này (qua `LastOpenPrice()` vì `peak` đã về 0), không dùng lại lịch sử giá cũ.
+
+**Không kích hoạt** khi `OrigBuyPrice`/`OrigSellPrice` đã bị xoá về 0 — xảy ra khi lệnh gốc đóng thông qua `CloseAll()` (nút Close All/Close Buy/Close Sell, Day Limit, Hedge Cut, hoặc Basket `InpCloseProfit`/`InpCloseLoss`) — các đường này chủ động xoá cờ để coi là "reset toàn bộ", chờ tín hiệu mới (`CheckEntry()`) mở lệnh gốc tiếp theo thay vì tự động mở lại ngay.
+
+Chạy **trước** guard reset-toàn-phần đầu `OnTimer()` để vẫn xử lý được cả trường hợp lệnh gốc là vị thế **cuối cùng** của chiều đó khi bị cắt (không chờ tín hiệu mới như bình thường).

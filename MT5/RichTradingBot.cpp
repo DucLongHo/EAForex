@@ -20,6 +20,7 @@ enum ENUM_DIRECTION    { DIR_BOTH, DIR_ONLY_BUY, DIR_ONLY_SELL };
 enum ENUM_DCA_MODE     { DCA_STOP, DCA_STEP, DCA_STEP_TF };
 enum ENUM_TRAIL_MODE   { TRAIL_BASKET, TRAIL_SINGLE };
 enum ENUM_BOT_MODE     { MODE_AUTO, MODE_SEMI_AUTO };
+enum ENUM_TRIM_MODE    { TRIM_OFF, TRIM_TARGET, TRIM_PARTIAL_DD, TRIM_DAY_PROFIT, TRIM_HEDGE, TRIM_HEDGE_PTS };
 
 //+------------------------------------------------------------------+
 //| INPUT: BASE SETTINGS                                             |
@@ -265,15 +266,12 @@ input  double  InpPyra8SL   = 0.0;    // PYRA T8: SL (points, 0=tắt)
 //| INPUT: ORDER TRIMMING                                            |
 //+------------------------------------------------------------------+
 input group         "══════ TỈA LỆNH (TRIMMING) ══════"; //
-input  bool    InpTrimEnable     = false;  // Bật Tỉa Lệnh
-input  bool    InpTrimHedge      = false;  // Tỉa chéo (Hedging mode)
+input  ENUM_TRIM_MODE InpTrimMode    = TRIM_OFF; // Tỉa lệnh: Chế độ (Off/Target/PartialDD/DayProfit/Hedge/Hedge theo điểm)
 input  int     InpTrimTrigger    = 5;      // Kích hoạt khi số lệnh >= X
-input  double  InpTrimTarget     = 10.0;   // Mục tiêu lợi nhuận sau tỉa ($)
+input  double  InpTrimTarget     = 10.0;   // [Target/Hedge/HedgePts] Mục tiêu lợi nhuận sau tỉa ($)
+input  double  InpPartialTrimDD  = 20.0;   // [Partial DD] Kích hoạt khi DD% >
 input  int     InpTrimMaxLoss    = 1;      // Số lệnh âm tối đa cần tỉa mỗi lần
-input  int     InpTrimMaxWin     = 1;      // Số lệnh dương tối đa dùng để tỉa (Hedge)
-input  bool    InpPartialTrim    = false;  // Bật Tỉa Một Phần
-input  double  InpPartialTrimDD  = 20.0;   // Kích hoạt khi DD% >
-input  bool    InpTrimByDayProfit= false;  // Tỉa theo Lãi Ngày
+input  int     InpTrimMaxWin     = 1;      // [Hedge] Số lệnh dương tối đa dùng để tỉa
 
 //+------------------------------------------------------------------+
 //| INPUT: TRAILING STOP                                             |
@@ -427,7 +425,7 @@ bool   g_DCABuyEnable, g_DCASellEnable, g_DCAArithEnable;
 double g_DCAArithStep;
 bool   g_PyraBuyEnable, g_PyraSellEnable;
 
-bool   g_TrimEnable, g_TrimHedge, g_PartialTrim, g_TrimByDayProfit;
+ENUM_TRIM_MODE g_TrimMode;
 int    g_TrimTrigger, g_TrimMaxLoss, g_TrimMaxWin;
 double g_TrimTarget, g_PartialTrimDD;
 
@@ -584,6 +582,28 @@ ulong BestTicket() {
         if(p > best) { best = p; tk_best = tk; }
     }
     return tk_best;
+}
+
+// Khác WorstTicket() (chọn theo $ lỗ nhiều nhất) — hàm này chọn theo SỐ ĐIỂM giá âm nhiều nhất,
+// không phụ thuộc lot. Một lệnh lot nhỏ có thể lỗ $ ít nhưng giá đã đi ngược rất xa (nhiều điểm),
+// trong khi lệnh lot lớn lỗ $ nhiều nhưng giá mới lệch một chút — WorstTicket() sẽ luôn ưu tiên
+// lệnh lot lớn, còn hàm này ưu tiên đúng lệnh "kẹt giá" xa nhất bất kể lot.
+ulong WorstTicketByPoints() {
+    ulong  tk_worst  = 0;
+    double worstPts  = 0;
+    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+    double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+    for(int i = PositionsTotal()-1; i >= 0; i--) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(!IsManaged()) continue;
+        int    pt  = (int)PositionGetInteger(POSITION_TYPE);
+        double opn = PositionGetDouble(POSITION_PRICE_OPEN);
+        double pts = (pt == POSITION_TYPE_BUY) ? (bid - opn) / point : (opn - ask) / point;
+        if(pts < worstPts) { worstPts = pts; tk_worst = tk; }
+    }
+    return tk_worst;
 }
 
 void CloseAll(int posType = -1) {
@@ -1656,31 +1676,30 @@ void CheckPyramiding(int posType) {
 //| ORDER TRIMMING                                                   |
 //+------------------------------------------------------------------+
 void CheckTrimming() {
-    if(!g_TrimEnable) return;
+    if(g_TrimMode == TRIM_OFF) return;
     if(CountAll() < g_TrimTrigger) return;
 
-    double balance = AccountInfoDouble(ACCOUNT_BALANCE);
-    double equity  = AccountInfoDouble(ACCOUNT_EQUITY);
-
-    if(g_PartialTrim && balance > 0) {
+    switch(g_TrimMode) {
+    case TRIM_PARTIAL_DD: {
+        double balance = AccountInfoDouble(ACCOUNT_BALANCE);
+        double equity  = AccountInfoDouble(ACCOUNT_EQUITY);
+        if(balance <= 0) return;
         double ddPct = (balance - equity) / balance * 100.0;
-        if(ddPct > g_PartialTrimDD) {
-            int closed = 0;
-            for(int n = 0; n < g_TrimMaxLoss; n++) {
-                if(CountAll() < g_TrimTrigger) break;
-                ulong tk = WorstTicket();
-                if(tk == 0) break;
-                Trade.PositionClose(tk);
-                closed++;
-            }
-            if(closed > 0) {
-                Print("RTB: Partial Trim DD=", ddPct, "% closed=", closed);
-                return;
-            }
+        if(ddPct <= g_PartialTrimDD) return;
+
+        int closed = 0;
+        for(int n = 0; n < g_TrimMaxLoss; n++) {
+            if(CountAll() < g_TrimTrigger) break;
+            ulong tk = WorstTicket();
+            if(tk == 0) break;
+            Trade.PositionClose(tk);
+            closed++;
         }
+        if(closed > 0) Print("RTB: Partial Trim DD=", ddPct, "% closed=", closed);
+        break;
     }
 
-    if(g_TrimByDayProfit) {
+    case TRIM_DAY_PROFIT: {
         int closed = 0;
         for(int n = 0; n < g_TrimMaxLoss; n++) {
             ulong worstTk = WorstTicket();
@@ -1691,13 +1710,11 @@ void CheckTrimming() {
                 closed++;
             } else break;
         }
-        if(closed > 0) {
-            Print("RTB: Trim by DayProfit=", DayProfit, " closed=", closed);
-            return;
-        }
+        if(closed > 0) Print("RTB: Trim by DayProfit=", DayProfit, " closed=", closed);
+        break;
     }
 
-    if(g_TrimHedge) {
+    case TRIM_HEDGE: {
         int    totalPos = PositionsTotal();
         ulong  tks[];
         double profits[];
@@ -1749,13 +1766,81 @@ void CheckTrimming() {
                 closedCycles++;
             } else break;
         }
-        if(closedCycles > 0) {
+        if(closedCycles > 0)
             Print("RTB: Hedge trim cycles=", closedCycles, " x up to ", g_TrimMaxLoss, " losers");
-            return;
-        }
+        break;
     }
 
-    if(g_TrimTarget > 0) {
+    // Giống TRIM_HEDGE nhưng chọn các lệnh "lỗ" để ghép cặp theo SỐ ĐIỂM giá âm nhiều nhất
+    // (WorstTicketByPoints) thay vì theo $ lỗ nhiều nhất — tổng $ vẫn dùng để so với InpTrimTarget,
+    // chỉ khác ở tiêu chí CHỌN lệnh nào là "tệ nhất" để đưa vào cặp tỉa.
+    case TRIM_HEDGE_PTS: {
+        int    totalPos = PositionsTotal();
+        ulong  tks[];
+        double profits[];
+        double pts[];
+        bool   used[];
+        ArrayResize(tks, totalPos);
+        ArrayResize(profits, totalPos);
+        ArrayResize(pts, totalPos);
+        ArrayResize(used, totalPos);
+        double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+        double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+        double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+        int cnt = 0;
+        for(int i = totalPos - 1; i >= 0; i--) {
+            ulong tk = PositionGetTicket(i);
+            if(!PositionSelectByTicket(tk)) continue;
+            if(!IsManaged()) continue;
+            int    pt  = (int)PositionGetInteger(POSITION_TYPE);
+            double opn = PositionGetDouble(POSITION_PRICE_OPEN);
+            tks[cnt]     = tk;
+            profits[cnt] = PositionGetDouble(POSITION_PROFIT);
+            pts[cnt]     = (pt == POSITION_TYPE_BUY) ? (bid - opn) / point : (opn - ask) / point;
+            used[cnt]    = false;
+            cnt++;
+        }
+
+        int closedCycles = 0;
+        for(int w = 0; w < g_TrimMaxWin; w++) {
+            int bestIdx = -1;
+            for(int i = 0; i < cnt; i++) {
+                if(used[i]) continue;
+                if(bestIdx < 0 || profits[i] > profits[bestIdx]) bestIdx = i;
+            }
+            if(bestIdx < 0 || profits[bestIdx] <= 0) break;
+            used[bestIdx] = true;
+
+            int    worstIdx[];
+            ArrayResize(worstIdx, g_TrimMaxLoss);
+            int    wn = 0;
+            double worstSum = 0;
+            for(int n = 0; n < g_TrimMaxLoss; n++) {
+                int wIdx = -1;
+                for(int i = 0; i < cnt; i++) {
+                    if(used[i]) continue;
+                    if(wIdx < 0 || pts[i] < pts[wIdx]) wIdx = i;
+                }
+                if(wIdx < 0) break;
+                worstIdx[wn] = wIdx;
+                worstSum    += profits[wIdx];
+                used[wIdx]   = true;
+                wn++;
+            }
+
+            if(wn > 0 && profits[bestIdx] + worstSum >= g_TrimTarget) {
+                Trade.PositionClose(tks[bestIdx]);
+                for(int i = 0; i < wn; i++) Trade.PositionClose(tks[worstIdx[i]]);
+                closedCycles++;
+            } else break;
+        }
+        if(closedCycles > 0)
+            Print("RTB: Hedge-by-Points trim cycles=", closedCycles, " x up to ", g_TrimMaxLoss, " losers");
+        break;
+    }
+
+    case TRIM_TARGET: {
+        if(g_TrimTarget <= 0) return;
         int closed = 0;
         for(int n = 0; n < g_TrimMaxLoss; n++) {
             double totalProfit = FloatProfit();
@@ -1768,8 +1853,9 @@ void CheckTrimming() {
                 closed++;
             } else break;
         }
-        if(closed > 0)
-            Print("RTB: Trim target met, closed=", closed);
+        if(closed > 0) Print("RTB: Trim target met, closed=", closed);
+        break;
+    }
     }
 }
 
@@ -2864,11 +2950,10 @@ string BuildConfigPayload(long version) {
              DoubleToString(PYRA_Dist[i], 1) + ";" + DoubleToString(PYRA_TP[i], 1) + ";" +
              DoubleToString(PYRA_SL[i], 1) + ";";
 
-    s += (g_TrimEnable ? "1" : "0") + string(";") + (g_TrimHedge ? "1" : "0") + ";" +
+    s += IntegerToString((int)g_TrimMode) + ";" +
          IntegerToString(g_TrimTrigger) + ";" + DoubleToString(g_TrimTarget, 2) + ";" +
-         IntegerToString(g_TrimMaxLoss) + ";" + IntegerToString(g_TrimMaxWin) + ";" +
-         (g_PartialTrim ? "1" : "0") + ";" + DoubleToString(g_PartialTrimDD, 2) + ";" +
-         (g_TrimByDayProfit ? "1" : "0") + ";";
+         DoubleToString(g_PartialTrimDD, 2) + ";" +
+         IntegerToString(g_TrimMaxLoss) + ";" + IntegerToString(g_TrimMaxWin) + ";";
 
     s += (g_TrailEnable ? "1" : "0") + string(";") + IntegerToString((int)g_TrailMode) + ";" +
          IntegerToString(g_TrailMinOrds) + ";" + DoubleToString(g_TrailActivate, 1) + ";" +
@@ -2884,7 +2969,7 @@ string BuildConfigPayload(long version) {
     return s;
 }
 
-#define RTB_CONFIG_FIELD_COUNT 156
+#define RTB_CONFIG_FIELD_COUNT 153
 
 void ApplyBotEnabled(bool newVal) {
     if(g_BotEnabled && !newVal) {
@@ -2943,15 +3028,12 @@ bool ApplyConfigPayload(string data) {
         PYRA_SL[i]     = StringToDouble(f[idx++]);
     }
 
-    g_TrimEnable      = (f[idx++] == "1");
-    g_TrimHedge       = (f[idx++] == "1");
+    g_TrimMode        = (ENUM_TRIM_MODE)StringToInteger(f[idx++]);
     g_TrimTrigger     = (int)StringToInteger(f[idx++]);
     g_TrimTarget      = StringToDouble(f[idx++]);
+    g_PartialTrimDD   = StringToDouble(f[idx++]);
     g_TrimMaxLoss     = (int)StringToInteger(f[idx++]);
     g_TrimMaxWin      = (int)StringToInteger(f[idx++]);
-    g_PartialTrim     = (f[idx++] == "1");
-    g_PartialTrimDD   = StringToDouble(f[idx++]);
-    g_TrimByDayProfit = (f[idx++] == "1");
 
     g_TrailEnable   = (f[idx++] == "1");
     g_TrailMode     = (ENUM_TRAIL_MODE)StringToInteger(f[idx++]);
@@ -3226,9 +3308,9 @@ int OnInit() {
     g_DCABuyEnable = InpDCABuyEnable; g_DCASellEnable = InpDCASellEnable;
     g_DCAArithEnable = InpDCAArithEnable; g_DCAArithStep = InpDCAArithStep;
     g_PyraBuyEnable = InpPyraBuyEnable; g_PyraSellEnable = InpPyraSellEnable;
-    g_TrimEnable = InpTrimEnable; g_TrimHedge = InpTrimHedge; g_TrimTrigger = InpTrimTrigger;
+    g_TrimMode = InpTrimMode; g_TrimTrigger = InpTrimTrigger;
     g_TrimTarget = InpTrimTarget; g_TrimMaxLoss = InpTrimMaxLoss; g_TrimMaxWin = InpTrimMaxWin;
-    g_PartialTrim = InpPartialTrim; g_PartialTrimDD = InpPartialTrimDD; g_TrimByDayProfit = InpTrimByDayProfit;
+    g_PartialTrimDD = InpPartialTrimDD;
     g_TrailEnable = InpTrailEnable; g_TrailMode = InpTrailMode; g_TrailMinOrds = InpTrailMinOrds;
     g_TrailActivate = InpTrailActivate; g_TrailStep = InpTrailStep; g_TrailInit = InpTrailInit;
     g_CloseProfit = InpCloseProfit; g_CloseLoss = InpCloseLoss; g_ClosePerPips = InpClosePerPips;

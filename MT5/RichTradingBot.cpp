@@ -377,6 +377,7 @@ double HedgeInitSellPrice = 0.0;
 int    HedgeTrendSide     = -1;
 
 bool g_CalExpanded = false;
+int  g_LastPanelBottom = 0;
 int  g_CalYear     = 0;
 int  g_CalMonth    = 0;
 
@@ -2113,17 +2114,19 @@ void CreateRect(string name, int lx, int ly, int lw, int lh, color bg) {
     if(ObjectFind(0, obj) < 0) {
         ObjectCreate(0, obj, OBJ_RECTANGLE_LABEL, 0, 0, 0);
         ObjectSetInteger(0, obj, OBJPROP_CORNER,      CORNER_LEFT_UPPER);
-        ObjectSetInteger(0, obj, OBJPROP_XSIZE,       lw);
-        ObjectSetInteger(0, obj, OBJPROP_YSIZE,       lh);
-        ObjectSetInteger(0, obj, OBJPROP_BGCOLOR,     bg);
         ObjectSetInteger(0, obj, OBJPROP_BORDER_TYPE, BORDER_FLAT);
-        ObjectSetInteger(0, obj, OBJPROP_COLOR,       bg);
         ObjectSetInteger(0, obj, OBJPROP_WIDTH,       0);
         ObjectSetInteger(0, obj, OBJPROP_BACK,        false);
         ObjectSetInteger(0, obj, OBJPROP_SELECTABLE,  false);
     }
     ObjectSetInteger(0, obj, OBJPROP_XDISTANCE, lx);
     ObjectSetInteger(0, obj, OBJPROP_YDISTANCE, ly);
+    // Luôn cập nhật kích thước/màu mỗi lần gọi (không chỉ lúc tạo) — cần thiết cho thanh
+    // gauge DD (fillW đổi theo % mỗi giây), không chỉ đặt 1 lần rồi đứng yên vĩnh viễn.
+    ObjectSetInteger(0, obj, OBJPROP_XSIZE,   lw);
+    ObjectSetInteger(0, obj, OBJPROP_YSIZE,   lh);
+    ObjectSetInteger(0, obj, OBJPROP_BGCOLOR, bg);
+    ObjectSetInteger(0, obj, OBJPROP_COLOR,   bg);
 }
 
 void Lbl(string name, string text, int x, int y, color clr = clrSilver, int sz = 9) {
@@ -2140,6 +2143,52 @@ void Lbl(string name, string text, int x, int y, color clr = clrSilver, int sz =
     ObjectSetString(0,  obj, OBJPROP_TEXT,     text);
     ObjectSetInteger(0, obj, OBJPROP_COLOR,    clr);
     ObjectSetInteger(0, obj, OBJPROP_FONTSIZE, sz);
+}
+
+// Giống Lbl() nhưng neo theo cạnh PHẢI tại x (ANCHOR_RIGHT_UPPER) — dùng cho các giá trị
+// canh phải trong card kiểu "nhãn : giá trị" (label bên trái, value bên phải cùng hàng).
+void LblR(string name, string text, int xRight, int y, color clr = clrSilver, int sz = 9) {
+    string obj = GUI + name;
+    if(ObjectFind(0, obj) < 0) {
+        ObjectCreate(0, obj, OBJ_LABEL, 0, 0, 0);
+        ObjectSetInteger(0, obj, OBJPROP_CORNER,     CORNER_LEFT_UPPER);
+        ObjectSetInteger(0, obj, OBJPROP_ANCHOR,     ANCHOR_RIGHT_UPPER);
+        ObjectSetString(0,  obj, OBJPROP_FONT,       "Consolas");
+        ObjectSetInteger(0, obj, OBJPROP_BACK,       false);
+        ObjectSetInteger(0, obj, OBJPROP_SELECTABLE, false);
+    }
+    ObjectSetInteger(0, obj, OBJPROP_XDISTANCE, xRight);
+    ObjectSetInteger(0, obj, OBJPROP_YDISTANCE, y);
+    ObjectSetString(0,  obj, OBJPROP_TEXT,     text);
+    ObjectSetInteger(0, obj, OBJPROP_COLOR,    clr);
+    ObjectSetInteger(0, obj, OBJPROP_FONTSIZE, sz);
+}
+
+// 1 chip trạng thái nhỏ: nền phẳng + chữ, dùng cho Signal/Mode/Direction/Sync ở panel Console.
+void CreateChip(string name, string text, int lx, int ly, int lw, int lh, color bg, color fg) {
+    CreateRect(name + "Bg", lx, ly, lw, lh, bg);
+    string obj = GUI + name;
+    if(ObjectFind(0, obj) < 0) {
+        ObjectCreate(0, obj, OBJ_LABEL, 0, 0, 0);
+        ObjectSetInteger(0, obj, OBJPROP_CORNER,     CORNER_LEFT_UPPER);
+        ObjectSetInteger(0, obj, OBJPROP_ANCHOR,     ANCHOR_LEFT);
+        ObjectSetString(0,  obj, OBJPROP_FONT,       "Calibri");
+        ObjectSetInteger(0, obj, OBJPROP_BACK,       false);
+        ObjectSetInteger(0, obj, OBJPROP_SELECTABLE, false);
+    }
+    ObjectSetInteger(0, obj, OBJPROP_XDISTANCE, lx + 6);
+    ObjectSetInteger(0, obj, OBJPROP_YDISTANCE, ly + lh/2);
+    ObjectSetString(0,  obj, OBJPROP_TEXT,     text);
+    ObjectSetInteger(0, obj, OBJPROP_COLOR,    fg);
+    ObjectSetInteger(0, obj, OBJPROP_FONTSIZE, 9);
+}
+
+// Thanh gauge ngang: track nền + fill tỉ lệ theo pct (0-100), dùng cho DD Now/DD Max.
+void DrawGauge(string name, int lx, int ly, int lw, int lh, double pct, color trackClr, color fillClr) {
+    CreateRect(name + "Trk", lx, ly, lw, lh, trackClr);
+    int fillW = (int)MathRound(lw * MathMax(0.0, MathMin(100.0, pct)) / 100.0);
+    if(fillW < 1 && pct > 0) fillW = 1;
+    CreateRect(name + "Fill", lx, ly, fillW, lh, fillClr);
 }
 
 int DaysInMonth(int year, int month) {
@@ -2173,7 +2222,6 @@ void UpdateCalendarPanel(bool forceRecalc = false) {
         return;
     }
 
-    int PY = InpPanelY;
     int titleH = 28, navH = 26, wdH = 22;
     int calX = InpCalPanelX;
     int calY = InpCalPanelY;
@@ -2226,13 +2274,9 @@ void UpdateCalendarPanel(bool forceRecalc = false) {
 
     int cellH;
     {
-        int titleOffM = 36;
-        int hOffM   = g_HedgeEnable ? 16 : 0;
-        int botOffM = g_IsMaster    ? 26 : 0;
-        int lastPanelBottom = (InpBotMode == MODE_SEMI_AUTO)
-            ? PY + titleOffM + 671 + hOffM + botOffM + 58
-            : PY + titleOffM + 514 + hOffM + botOffM + 115;
-        int availH = (lastPanelBottom - calY) - titleH - navH - wdH;
+        // g_LastPanelBottom được UpdateGUI() tính lại mỗi lần vẽ (đáy thật của panel chính,
+        // vốn giờ co giãn theo nội dung — không còn là hằng số cố định như bố cục cũ).
+        int availH = (g_LastPanelBottom - calY) - titleH - navH - wdH;
         cellH = MathMax(64, availH / rows);
     }
     int gridTop = calY + titleH + navH + wdH;
@@ -2364,7 +2408,6 @@ void UpdateGUI(bool forceCalRefresh = false) {
     int PX = InpPanelX;
     int PY = InpPanelY;
     int PW = InpPanelWidth;
-    int hOff   = g_HedgeEnable ? 16 : 0;
     int botOff = g_IsMaster    ? 26 : 0;
     int titleOff = 36;
 
@@ -2416,12 +2459,27 @@ void UpdateGUI(bool forceCalRefresh = false) {
     color cSellP  = (sellProfit  >= 0) ? clrLimeGreen : clrTomato;
     color cDayP   = (DayProfit   >= 0) ? clrLimeGreen : clrTomato;
 
+    int x = PX + 7, s = 18;
+    int bh  = 22;
+    int bfw = PW - 18;
+    int bhw = (PW - 24) / 2;
+    int bx2 = PX + 7 + bhw + 4;
+
+    // Dọn các object cũ của layout danh sách trước đây — không còn dùng sau khi chuyển
+    // sang bố cục Console (card + gauge), tránh để lại nhãn mồ côi trên chart.
+    string legacyObjs[] = {"L0","Tim","Sig","Mod","Dir","Sync","L1","Bal","Ini","DayP","FP",
+                            "L2","DD","MDD","L3","BuyP","BuyC","SelP","SelC","Tot","TClock",
+                            "P3VC1","P3VC2","P3VC3","P3VC4","P3HR0","P3HR1","P3HR2","P3HR3",
+                            "TR0S","TR1S","TR2S","TR3S",
+                            "TR0BarTrk","TR1BarTrk","TR2BarTrk","TR3BarTrk",
+                            "TR0BarFill","TR1BarFill","TR2BarFill","TR3BarFill"};
+    for(int li = 0; li < ArraySize(legacyObjs); li++) ObjectDelete(0, GUI + legacyObjs[li]);
+
+    // Panel tiêu đề (banner vàng) giữ nguyên như bản gốc — không đổi sang phong cách Console.
     string bgt = GUI + "BGTitle";
     if(ObjectFind(0, bgt) < 0) {
         ObjectCreate(0, bgt, OBJ_RECTANGLE_LABEL, 0, 0, 0);
         ObjectSetInteger(0, bgt, OBJPROP_CORNER,      CORNER_LEFT_UPPER);
-        ObjectSetInteger(0, bgt, OBJPROP_XSIZE,       PW);
-        ObjectSetInteger(0, bgt, OBJPROP_YSIZE,       titleOff - 4);
         ObjectSetInteger(0, bgt, OBJPROP_BGCOLOR,     C'14,11,7');
         ObjectSetInteger(0, bgt, OBJPROP_BORDER_TYPE, BORDER_FLAT);
         ObjectSetInteger(0, bgt, OBJPROP_COLOR,       C'220,175,60');
@@ -2429,6 +2487,8 @@ void UpdateGUI(bool forceCalRefresh = false) {
         ObjectSetInteger(0, bgt, OBJPROP_BACK,        false);
         ObjectSetInteger(0, bgt, OBJPROP_SELECTABLE,  false);
     }
+    ObjectSetInteger(0, bgt, OBJPROP_XSIZE,     PW);
+    ObjectSetInteger(0, bgt, OBJPROP_YSIZE,     titleOff - 4);
     ObjectSetInteger(0, bgt, OBJPROP_XDISTANCE, PX);
     ObjectSetInteger(0, bgt, OBJPROP_YDISTANCE, PY);
 
@@ -2452,17 +2512,126 @@ void UpdateGUI(bool forceCalRefresh = false) {
         ObjectCreate(0, bg, OBJ_RECTANGLE_LABEL, 0, 0, 0);
         ObjectSetInteger(0, bg, OBJPROP_CORNER,      CORNER_LEFT_UPPER);
         ObjectSetInteger(0, bg, OBJPROP_XSIZE,       PW);
-        ObjectSetInteger(0, bg, OBJPROP_YSIZE,       360 + hOff);
-        ObjectSetInteger(0, bg, OBJPROP_BGCOLOR,     C'14,17,26');
+        ObjectSetInteger(0, bg, OBJPROP_BGCOLOR,     C'14,20,32');
         ObjectSetInteger(0, bg, OBJPROP_BORDER_TYPE, BORDER_FLAT);
-        ObjectSetInteger(0, bg, OBJPROP_COLOR,       C'50,65,120');
+        ObjectSetInteger(0, bg, OBJPROP_COLOR,       C'38,50,72');
         ObjectSetInteger(0, bg, OBJPROP_WIDTH,       1);
         ObjectSetInteger(0, bg, OBJPROP_BACK,        false);
         ObjectSetInteger(0, bg, OBJPROP_SELECTABLE,  false);
     }
     ObjectSetInteger(0, bg, OBJPROP_XDISTANCE, PX);
     ObjectSetInteger(0, bg, OBJPROP_YDISTANCE, PY + titleOff);
-    ObjectSetInteger(0, bg, OBJPROP_YSIZE,     360 + hOff);
+
+    // ========== Hàng giờ hệ thống — nằm dưới banner tiêu đề, không chen vào header ==========
+    int contentX = PX + 7, cardW = PW - 14, rightEdge = contentX + cardW - 8;
+    int y2 = PY + titleOff + 6;
+    Lbl("TimeRow", tStr, contentX, y2, C'127,139,163', 10);
+    y2 += 16;
+
+    // ========== Chips: Signal / Direction / Mode+Role / Sync ==========
+    int chH = 17;
+
+    color dirBg = (g_Direction == DIR_BOTH) ? C'18,50,68' : (g_Direction == DIR_ONLY_BUY ? C'15,36,25' : C'36,18,20');
+    color dirFg = (g_Direction == DIR_BOTH) ? C'111,217,238' : (g_Direction == DIR_ONLY_BUY ? C'98,214,150' : C'232,120,120');
+    CreateChip("ChipSig", sigName, contentX, y2, bhw, chH, C'24,34,54', C'159,176,201');
+    CreateChip("ChipDir", dirName, bx2, y2, bhw, chH, dirBg, dirFg);
+    y2 += chH + 4;
+
+    string modeTxt = (InpBotMode == MODE_SEMI_AUTO ? "Bán Tự Động" : "Tự Động") + (g_IsMaster ? " | MASTER" : " | SLAVE");
+    color  modeFg  = C'159,176,201';
+    if(!g_BotEnabled) { modeTxt = "!! BOT TAT !!"; modeFg = C'239,83,80'; }
+    CreateChip("ChipMode", modeTxt, contentX, y2, bhw, chH, C'24,34,54', modeFg);
+
+    string syncTxt; color syncFg;
+    if(!g_SyncAllowed)                                { syncTxt = "Sync OFF";   syncFg = C'90,98,112';   }
+    else if(g_IsMaster)                                { syncTxt = "Sync MASTER"; syncFg = C'111,217,238'; }
+    else if(g_LastCloudOK == 0)                         { syncTxt = "Sync ...";  syncFg = C'240,166,63';  }
+    else if(TimeCurrent() - g_LastCloudOK <= 30)        { syncTxt = "Sync OK";   syncFg = C'62,207,142';  }
+    else                                                 { syncTxt = "Sync LOST"; syncFg = C'239,83,80';   }
+    CreateChip("ChipSync", syncTxt, bx2, y2, bhw, chH, C'24,34,54', syncFg);
+    y2 += chH + 8;
+
+    // ========== Card: Tài khoản ==========
+    int acctH = 6 + 13 + 4*15 + 6;
+    CreateRect("CardAcct",    contentX, y2, cardW, acctH, C'20,28,44');
+    CreateRect("CardAcctBar", contentX, y2, 2,     acctH, C'79,195,217');
+    Lbl("AcctH", "TÀI KHOẢN", contentX + 8, y2 + 5, C'95,108,132', 9);
+    ObjectSetString(0, GUI + "AcctH", OBJPROP_FONT, "Calibri Bold");
+    int ya = y2 + 6 + 13;
+    Lbl ("BalL", "Balance", contentX + 8, ya, C'127,139,163', 11);
+    LblR("BalV", StringFormat("$%.2f", balance), rightEdge, ya, C'231,236,245', 11); ya += 15;
+    Lbl ("IniL", "Initial", contentX + 8, ya, C'127,139,163', 11);
+    LblR("IniV", StringFormat("$%.2f", InitBalance), rightEdge, ya, C'231,236,245', 11); ya += 15;
+    Lbl ("DayL", "Day P/L", contentX + 8, ya, C'127,139,163', 11);
+    LblR("DayV", StringFormat("%s$%.2f", DayProfit >= 0 ? "+" : "-", MathAbs(DayProfit)), rightEdge, ya, cDayP, 11); ya += 15;
+    Lbl ("FloL", "Float", contentX + 8, ya, C'127,139,163', 11);
+    LblR("FloV", StringFormat("%s$%.2f (%.2f%%)", totalProfit >= 0 ? "+" : "-", MathAbs(totalProfit), pnlPct), rightEdge, ya, cProfit, 11);
+    y2 += acctH + 8;
+
+    // ========== Card: Rủi ro (Drawdown) ==========
+    color ddColor  = ddPct > 60          ? clrTomato : (ddPct > 20          ? clrOrangeRed : clrSilver);
+    color mddColor = MaxDrawdownPct > 60 ? clrTomato : (MaxDrawdownPct > 20 ? clrOrangeRed : clrSilver);
+    string hedgeText = ""; color hedgeClr = clrSilver;
+    if(g_HedgeEnable) {
+        double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+        double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+        double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+        if(HedgeCutBuy && !HedgeCutSell) {
+            hedgeText = "Hedge : ✕BUY | ▼SELL Trail"; hedgeClr = clrLimeGreen;
+        } else if(HedgeCutSell && !HedgeCutBuy) {
+            hedgeText = "Hedge : ▲BUY Trail | ✕SELL"; hedgeClr = clrLimeGreen;
+        } else if(!HedgeCutBuy && !HedgeCutSell) {
+            double buyDist  = (HedgeInitBuyPrice  > 0) ? (HedgeInitBuyPrice  - bid) / point : 0;
+            double sellDist = (HedgeInitSellPrice > 0) ? (ask - HedgeInitSellPrice) / point : 0;
+            hedgeText = (buyDist > 0 || sellDist > 0)
+                ? StringFormat("Hedge : ▲%.0f | ▼%.0f pt", buyDist, sellDist) : "Hedge : Waiting...";
+            hedgeClr = C'127,139,163';
+        } else {
+            hedgeText = "Hedge : Complete"; hedgeClr = C'90,90,90';
+        }
+    }
+    int riskH = 6 + 13 + (13+7+3)*2 + (g_HedgeEnable ? 15 : 0) + 6;
+    CreateRect("CardRisk",    contentX, y2, cardW, riskH, C'20,28,44');
+    CreateRect("CardRiskBar", contentX, y2, 2,     riskH, C'240,166,63');
+    Lbl("RiskH", "RỦI RO (DRAWDOWN)", contentX + 8, y2 + 5, C'95,108,132', 9);
+    ObjectSetString(0, GUI + "RiskH", OBJPROP_FONT, "Calibri Bold");
+    int yr = y2 + 6 + 13;
+    Lbl ("DDL", "DD Now", contentX + 8, yr, C'127,139,163', 10);
+    LblR("DDV", StringFormat("%.2f%%", ddPct), rightEdge, yr, ddColor, 10);
+    DrawGauge("DDG", contentX + 8, yr + 14, cardW - 16, 6, ddPct, C'28,36,52', ddColor);
+    yr += 13 + 7 + 3;
+    Lbl ("MDDL", "DD Max", contentX + 8, yr, C'127,139,163', 10);
+    LblR("MDDV", StringFormat("%.2f%%", MaxDrawdownPct), rightEdge, yr, mddColor, 10);
+    DrawGauge("MDDG", contentX + 8, yr + 14, cardW - 16, 6, MaxDrawdownPct, C'28,36,52', mddColor);
+    yr += 13 + 7 + 3;
+    if(g_HedgeEnable) Lbl("HdgS", hedgeText, contentX + 8, yr, hedgeClr, 10);
+    else ObjectDelete(0, GUI + "HdgS");
+    y2 += riskH + 8;
+
+    // ========== Twin cards: Buy / Sell ==========
+    int twinH = 6 + 12 + 3 + 17 + 3 + 12 + 6;
+    CreateRect("CardBuy",    contentX, y2, bhw, twinH, C'20,28,44');
+    CreateRect("CardBuyBar", contentX, y2, bhw, 2,     C'44,107,82');
+    Lbl("BuyL",   StringFormat("▲ BUY · %d", nBuy),          contentX + 8, y2 + 8,  C'95,150,125', 10);
+    Lbl("BuyV",   StringFormat("%s$%.2f", buyProfit >= 0 ? "+" : "-", MathAbs(buyProfit)), contentX + 8, y2 + 23, cBuyP, 14);
+    Lbl("BuyLot", StringFormat("Lot %.2f", lotBuy),           contentX + 8, y2 + 43, C'127,139,163', 10);
+
+    CreateRect("CardSell",    bx2, y2, bhw, twinH, C'20,28,44');
+    CreateRect("CardSellBar", bx2, y2, bhw, 2,     C'122,48,51');
+    Lbl("SelL",   StringFormat("▼ SELL · %d", nSell),         bx2 + 8, y2 + 8,  C'190,120,120', 10);
+    Lbl("SelV",   StringFormat("%s$%.2f", sellProfit >= 0 ? "+" : "-", MathAbs(sellProfit)), bx2 + 8, y2 + 23, cSellP, 14);
+    Lbl("SelLot", StringFormat("Lot %.2f", lotSell),          bx2 + 8, y2 + 43, C'127,139,163', 10);
+    y2 += twinH + 6;
+
+    // ========== Total ==========
+    Lbl ("TotL", "Total", contentX, y2, C'127,139,163', 10);
+    LblR("TotV", StringFormat("%d orders", nBuy + nSell), rightEdge, y2, C'231,236,245', 10);
+    y2 += 17;
+
+    int contentBottom = y2 + 6;
+    int bgH  = contentBottom - (PY + titleOff);
+    int bg2Y = contentBottom + 14;
+    ObjectSetInteger(0, bg, OBJPROP_YSIZE, bgH);
 
     string bg2 = GUI + "BG2";
     if(ObjectFind(0, bg2) < 0) {
@@ -2478,94 +2647,28 @@ void UpdateGUI(bool forceCalRefresh = false) {
         ObjectSetInteger(0, bg2, OBJPROP_SELECTABLE,  false);
     }
     ObjectSetInteger(0, bg2, OBJPROP_XDISTANCE, PX);
-    ObjectSetInteger(0, bg2, OBJPROP_YDISTANCE, PY + titleOff + 374 + hOff);
+    ObjectSetInteger(0, bg2, OBJPROP_YDISTANCE, bg2Y);
 
+    int bg3Y = bg2Y + 110 + botOff + 14;
     string bg3 = GUI + "BG3";
     if(ObjectFind(0, bg3) < 0) {
         ObjectCreate(0, bg3, OBJ_RECTANGLE_LABEL, 0, 0, 0);
         ObjectSetInteger(0, bg3, OBJPROP_CORNER,      CORNER_LEFT_UPPER);
         ObjectSetInteger(0, bg3, OBJPROP_XSIZE,       PW);
         ObjectSetInteger(0, bg3, OBJPROP_YSIZE,       115);
-        ObjectSetInteger(0, bg3, OBJPROP_BGCOLOR,     C'14,19,28');
+        ObjectSetInteger(0, bg3, OBJPROP_BGCOLOR,     C'20,28,44');
         ObjectSetInteger(0, bg3, OBJPROP_BORDER_TYPE, BORDER_FLAT);
-        ObjectSetInteger(0, bg3, OBJPROP_COLOR,       C'50,70,130');
+        ObjectSetInteger(0, bg3, OBJPROP_COLOR,       C'38,50,72');
         ObjectSetInteger(0, bg3, OBJPROP_WIDTH,       1);
         ObjectSetInteger(0, bg3, OBJPROP_BACK,        false);
         ObjectSetInteger(0, bg3, OBJPROP_SELECTABLE,  false);
     }
     ObjectSetInteger(0, bg3, OBJPROP_XDISTANCE, PX);
-    ObjectSetInteger(0, bg3, OBJPROP_YDISTANCE, PY + titleOff + 514 + hOff + botOff);
+    ObjectSetInteger(0, bg3, OBJPROP_YDISTANCE, bg3Y);
 
-    int x = PX + 7, y = PY + titleOff + 5, s = 18;
-    Lbl("L0",   "------------------------",   x, y, C'45,58,105'  );    y += s-2;
-    Lbl("Tim",  "Time   : " + tStr,           x, y, clrSilver, 11 );    y += s;
-    Lbl("Sig",  "Signal : " + sigName,        x, y, clrYellow, 11 );    y += s;
-    string modeName = (InpBotMode == MODE_SEMI_AUTO) ? "Ban Tu Dong" : "Tu Dong";
-    color  modeClr  = (InpBotMode == MODE_SEMI_AUTO) ? clrOrange    : clrLimeGreen;
-    string roleTxt  = g_IsMaster ? " | MASTER" : " | SLAVE";
-    if(!g_BotEnabled) { modeName = "!! BOT TAT !!"; modeClr = clrTomato; }
-    Lbl("Mod",  "Mode   : " + modeName + roleTxt, x, y, modeClr, 11);    y += s;
-    Lbl("Dir",  "Direct : " + dirName,        x, y, dirClr, 11     );
-    ObjectSetString(0, GUI + "Dir", OBJPROP_FONT, "Tahoma");                y += s;
-    {
-        string syncTxt; color syncClr;
-        if(!g_SyncAllowed)          { syncTxt = "OFF";         syncClr = C'90,90,90';  }
-        else if(g_IsMaster)        { syncTxt = "MASTER";       syncClr = clrDodgerBlue; }
-        else if(g_LastCloudOK == 0) { syncTxt = "Connecting..."; syncClr = clrYellow;   }
-        else if(TimeCurrent() - g_LastCloudOK <= 30) { syncTxt = "OK";   syncClr = clrLimeGreen; }
-        else                        { syncTxt = "LOST";        syncClr = clrTomato;    }
-        Lbl("Sync", "Sync   : " + syncTxt, x, y, syncClr, 11);
-    }                                                                       y += s;
-    if(g_HedgeEnable) {
-        string hedgeText; color hedgeClr;
-        double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-        double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-        double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-        if(HedgeCutBuy && !HedgeCutSell) {
-            hedgeText = "Hedge  : ✕BUY  |  ▼SELL Trail";
-            hedgeClr  = clrLimeGreen;
-        } else if(HedgeCutSell && !HedgeCutBuy) {
-            hedgeText = "Hedge  : ▲BUY Trail  |  ✕SELL";
-            hedgeClr  = clrLimeGreen;
-        } else if(!HedgeCutBuy && !HedgeCutSell) {
-            double buyDist  = (HedgeInitBuyPrice  > 0) ? (HedgeInitBuyPrice  - bid) / point : 0;
-            double sellDist = (HedgeInitSellPrice > 0) ? (ask - HedgeInitSellPrice) / point : 0;
-            if(buyDist > 0 || sellDist > 0)
-                hedgeText = StringFormat("Hedge  : ▲%.0f | ▼%.0f pt", buyDist, sellDist);
-            else
-                hedgeText = "Hedge  : Waiting...";
-            hedgeClr = clrSilver;
-        } else {
-            hedgeText = "Hedge  : Complete"; hedgeClr = C'90,90,90';
-        }
-        Lbl("HdgS", hedgeText, x, y, hedgeClr, 11); y += s;
-    }
-    Lbl("L1",   "------------------------",   x, y, C'45,58,105'  );    y += s-2;
-    Lbl("Bal",  StringFormat("Balance: $%.2f", balance),    x, y, clrSilver, 11); y += s;
-    Lbl("Ini",  StringFormat("Initial: $%.2f", InitBalance), x, y, clrSilver, 11); y += s;
-    Lbl("DayP", StringFormat("Day P/L: $%.2f", DayProfit),  x, y, cDayP, 11);     y += s;
-    Lbl("FP",   StringFormat("Float  : $%.2f  (%.2f%%)", totalProfit, pnlPct),
-                x, y, cProfit, 11);                                            y += s;
-    Lbl("L2",   "------------------------",   x, y, C'45,58,105'  );    y += s-2;
-    Lbl("DD",   StringFormat("DD Now : %.2f%%", ddPct),     x, y,
-                ddPct > 15 ? clrOrangeRed : clrSilver, 11);                   y += s;
-    Lbl("MDD",  StringFormat("DD Max : %.2f%%", MaxDrawdownPct), x, y,
-                MaxDrawdownPct > 25 ? clrTomato : clrSilver, 11);             y += s;
-    Lbl("L3",   "------------------------",   x, y, C'45,58,105'  );    y += s-2;
-    Lbl("BuyP", StringFormat("Buy P/L: $%.2f", buyProfit),  x, y, cBuyP, 11);     y += s;
-    Lbl("BuyC", StringFormat("Buy Ord: %d   Lot: %.2f", nBuy,  lotBuy),  x, y, clrSilver, 11); y += s;
-    Lbl("SelP", StringFormat("Sel P/L: $%.2f", sellProfit), x, y, cSellP, 11);    y += s;
-    Lbl("SelC", StringFormat("Sel Ord: %d   Lot: %.2f", nSell, lotSell), x, y, clrSilver, 11); y += s;
-    Lbl("Tot",  StringFormat("Total  : %d orders", nBuy + nSell), x, y, clrSilver, 11);        y += s;
-
-    y = PY + titleOff + 384 + hOff;
+    int y = bg2Y + 10;
     Lbl("P2T", "===  ĐIỀU KHIỂN LỆNH  ===", x, y, C'90,140,230', 9);
     ObjectSetString(0, GUI + "P2T", OBJPROP_FONT, "Calibri Bold"); y += s + 2;
-
-    int bh  = 22;
-    int bfw = PW - 18;
-    int bhw = (PW - 24) / 2;
-    int bx2 = PX + 7 + bhw + 4;
 
     if(g_IsMaster) {
         string botTxt = g_BotEnabled ? "  Bot: ON" : "  Bot: OFF";
@@ -2583,14 +2686,11 @@ void UpdateGUI(bool forceCalRefresh = false) {
     CreateBtn("BtnCloseSell",   "▼ Close Sell",    PX+7, y, bhw, bh, C'145,15,15',  C'230,65,65' );
     CreateBtn("BtnCloseLoss",   "✕ Close Loss",    bx2,  y, bhw, bh, C'140,35,20',  C'210,80,55' );
 
-    y = PY + titleOff + 524 + hOff + botOff;
-    Lbl("P3T", "===  THỐNG KÊ  ===", x, y, C'90,140,230', 9);
+    int y3 = bg3Y + 10;
+    Lbl("P3T", "THỐNG KÊ", contentX + 8, y3, C'95,108,132', 9);
     ObjectSetString(0, GUI + "P3T", OBJPROP_FONT, "Calibri Bold");
-    CreateBtn("BtnCalToggle", g_CalExpanded ? "« Đóng" : "Xem Lịch »", PX + PW - 82, y - 2, 76, 18, C'25,45,85', C'70,110,190');
-    y += s + 2;
-
-    color sepClr = C'45,65,120';
-    int tblTop = y, tblH = 5*(s-2);
+    CreateBtn("BtnCalToggle", g_CalExpanded ? "« Đóng" : "Xem Lịch »", PX + PW - 82, y3 - 3, 76, 18, C'25,45,85', C'70,110,190');
+    y3 += 20;
 
     TimeToStruct(TimeCurrent(), dt);
     datetime todayStart = StringToTime(StringFormat("%04d.%02d.%02d 00:00:00", dt.year, dt.mon, dt.day));
@@ -2612,8 +2712,8 @@ void UpdateGUI(bool forceCalRefresh = false) {
     string pipsTxt[4], profitTxt[4], gainTxt[4], lotTxt[4];
     for(int r = 0; r < 4; r++) {
         pipsTxt[r]   = StringFormat("%.0f",   allStats[r].pips);
-        profitTxt[r] = StringFormat("$%.1f",  allStats[r].profit);
-        gainTxt[r]   = StringFormat("%.1f%%", allStats[r].gain);
+        profitTxt[r] = StringFormat("%s$%.1f", allStats[r].profit >= 0 ? "+" : "", allStats[r].profit);
+        gainTxt[r]   = StringFormat("%s%.1f%%", allStats[r].gain >= 0 ? "+" : "", allStats[r].gain);
         lotTxt[r]    = StringFormat("%.2f",   allStats[r].lot);
     }
 
@@ -2628,37 +2728,37 @@ void UpdateGUI(bool forceCalRefresh = false) {
     int charPx = 7;
     int colW0 = maxLen0 * charPx, colW1 = maxLen1 * charPx, colW2 = maxLen2 * charPx, colW3 = maxLen3 * charPx;
 
-    int cx0 = PX + 7;
+    int cx0 = contentX + 8;
     int cx1 = cx0 + colW0 + 6;
     int cx2 = cx1 + colW1 + 6;
     int cx3 = cx2 + colW2 + 6;
     int cx4 = cx3 + colW3 + 6;
-    int vc1 = cx1 - 4, vc2 = cx2 - 4, vc3 = cx3 - 4, vc4 = cx4 - 4;
 
-    CreateRect("P3VC1", vc1, tblTop, 1, tblH, sepClr);
-    CreateRect("P3VC2", vc2, tblTop, 1, tblH, sepClr);
-    CreateRect("P3VC3", vc3, tblTop, 1, tblH, sepClr);
-    CreateRect("P3VC4", vc4, tblTop, 1, tblH, sepClr);
-    for(int si = 0; si < 4; si++)
-        CreateRect("P3HR"+IntegerToString(si), PX+2, tblTop + (si+1)*(s-2) - 1, PW-4, 1, sepClr);
+    Lbl("TH0", "Date",   cx0, y3, C'111,163,201', 9);
+    Lbl("TH1", "Pips",   cx1, y3, C'111,163,201', 9);
+    Lbl("TH2", "Profit", cx2, y3, C'111,163,201', 9);
+    Lbl("TH3", "Gain",   cx3, y3, C'111,163,201', 9);
+    Lbl("TH4", "Lot",    cx4, y3, C'111,163,201', 9);
+    y3 += 16;
 
-    Lbl("TH0", "Date",   cx0, y, C'100,125,195', 8);
-    Lbl("TH1", "Pips",   cx1, y, C'100,125,195', 8);
-    Lbl("TH2", "Profit", cx2, y, C'100,125,195', 8);
-    Lbl("TH3", "Gain",   cx3, y, C'100,125,195', 8);
-    Lbl("TH4", "Lot",    cx4, y, C'100,125,195', 8);
-    y += s - 2;
+    int rowH = 16;
+    CreateRect("RowStripe0", contentX + 2, y3,           cardW - 4, rowH, C'26,36,56');
+    CreateRect("RowStripe1", contentX + 2, y3 + rowH * 2, cardW - 4, rowH, C'26,36,56');
 
     for(int r = 0; r < 4; r++) {
-        color rc = (allStats[r].profit >= 0) ? clrLimeGreen : clrTomato;
+        color  rc = (allStats[r].profit >= 0) ? clrLimeGreen : clrTomato;
         string ri = IntegerToString(r);
-        Lbl("TR"+ri+"L", rowKeys[r],   cx0, y, clrSilver, 8);
-        Lbl("TR"+ri+"P", pipsTxt[r],   cx1, y, rc, 8);
-        Lbl("TR"+ri+"$", profitTxt[r], cx2, y, rc, 8);
-        Lbl("TR"+ri+"G", gainTxt[r],   cx3, y, rc, 8);
-        Lbl("TR"+ri+"V", lotTxt[r],    cx4, y, clrSilver, 8);
-        y += s - 2;
+        Lbl("TR"+ri+"L", rowKeys[r],   cx0, y3, C'159,176,201', 9);
+        Lbl("TR"+ri+"P", pipsTxt[r],   cx1, y3, rc, 9);
+        Lbl("TR"+ri+"$", profitTxt[r], cx2, y3, rc, 9);
+        Lbl("TR"+ri+"G", gainTxt[r],   cx3, y3, rc, 9);
+        Lbl("TR"+ri+"V", lotTxt[r],    cx4, y3, C'159,176,201', 9);
+        y3 += rowH;
     }
+
+    int bg3H = (y3 - bg3Y) + 6;
+    ObjectSetInteger(0, bg3, OBJPROP_YSIZE, bg3H);
+    CreateRect("StatsBar", PX, bg3Y, 2, bg3H, C'79,195,217');
 
     if(InpBotMode == MODE_SEMI_AUTO) {
         string bg4 = GUI + "BG4";
@@ -2674,18 +2774,21 @@ void UpdateGUI(bool forceCalRefresh = false) {
             ObjectSetInteger(0, bg4, OBJPROP_BACK,        false);
             ObjectSetInteger(0, bg4, OBJPROP_SELECTABLE,  false);
         }
+        int bg4Y = bg3Y + bg3H + 14;
         ObjectSetInteger(0, bg4, OBJPROP_XDISTANCE, PX);
-        ObjectSetInteger(0, bg4, OBJPROP_YDISTANCE, PY + titleOff + 671 + hOff + botOff);
-        int y4 = PY + titleOff + 681 + hOff + botOff;
+        ObjectSetInteger(0, bg4, OBJPROP_YDISTANCE, bg4Y);
+        int y4 = bg4Y + 10;
         Lbl("P4T", "===  VÀO LỆNH THỦ CÔNG  ===", x, y4, C'230,100,100', 9);
         ObjectSetString(0, GUI + "P4T", OBJPROP_FONT, "Calibri Bold"); y4 += s + 2;
         CreateBtn("BtnOpenBuy",  "▲ Open Buy",  PX+7, y4, bhw, bh, C'0,80,20',  C'30,200,80');
         CreateBtn("BtnOpenSell", "▼ Open Sell", bx2,  y4, bhw, bh, C'100,0,0',  C'220,40,40');
+        g_LastPanelBottom = bg4Y + 58;
     } else {
         ObjectDelete(0, GUI + "BG4");
         ObjectDelete(0, GUI + "P4T");
         ObjectDelete(0, GUI + "BtnOpenBuy");
         ObjectDelete(0, GUI + "BtnOpenSell");
+        g_LastPanelBottom = bg3Y + bg3H;
     }
 
     UpdateCalendarPanel(forceCalRefresh);

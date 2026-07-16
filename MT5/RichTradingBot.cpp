@@ -9,8 +9,12 @@
 
 #include <Trade\Trade.mqh>
 #include <Trade\PositionInfo.mqh>
+#include <Canvas\Canvas.mqh>
+
+#define RTB_PI 3.14159265358979323846
 
 CTrade    Trade;
+CCanvas   g_TechCanvas;
 
 //+------------------------------------------------------------------+
 //| ENUMS                                                            |
@@ -307,6 +311,12 @@ input  bool    InpHedgeEnable  = false;   // Bật chế độ Hedge Follow Winn
 input  double  InpHedgeCutPts  = 3000.0;  // Cắt chiều âm sau X points từ lệnh gốc
 
 //+------------------------------------------------------------------+
+//| INPUT: TECHNICALS (GAUGE)                                        |
+//+------------------------------------------------------------------+
+input group         "══════ TECHNICALS (GAUGE) ══════"; //
+input  ENUM_TIMEFRAMES InpTechTF = PERIOD_H1; // Khung thời gian tính Technicals
+
+//+------------------------------------------------------------------+
 //| INPUT: PANEL                                                     |
 //+------------------------------------------------------------------+
 input group         "══════ PANEL ══════"; //
@@ -325,6 +335,26 @@ int      hEMASlow   = INVALID_HANDLE;
 int      hBB        = INVALID_HANDLE;
 int      hIchi      = INVALID_HANDLE;
 int      hATR       = INVALID_HANDLE;
+
+int TechMAPeriods[6] = {10, 20, 30, 50, 100, 200};
+int hTechMASMA[6];
+int hTechMAEMA[6];
+int hTechIchi  = INVALID_HANDLE;
+int hTechRSI   = INVALID_HANDLE;
+int hTechStoch = INVALID_HANDLE;
+int hTechCCI   = INVALID_HANDLE;
+int hTechADX   = INVALID_HANDLE;
+int hTechAO    = INVALID_HANDLE;
+int hTechMom   = INVALID_HANDLE;
+int hTechMACD  = INVALID_HANDLE;
+int hTechWPR   = INVALID_HANDLE;
+int hTechBulls = INVALID_HANDLE;
+int hTechBears = INVALID_HANDLE;
+
+double   g_TechRating    = 0.0;
+string   g_TechLabel     = "Neutral";
+int      g_CalRightEdge  = 0;
+bool     g_TechCanvasReady = false;
 double   g_ats_ut        = 0.0;
 int      g_ats_ut_signal = 0;
 datetime g_last_bar_ut   = 0;
@@ -902,6 +932,282 @@ int GetSignal() {
         if(g_Direction == DIR_ONLY_SELL && sig > 0) return 0;
     }
     return sig;
+}
+
+//+------------------------------------------------------------------+
+//| TECHNICALS RATING — đồng hồ Strong Sell..Strong Buy kiểu TradingView |
+//+------------------------------------------------------------------+
+
+double LWMA(const double &price[], int shift, int period) {
+    double sum = 0, wsum = 0;
+    for(int i = 0; i < period; i++) {
+        double w = period - i;
+        sum  += price[shift + i] * w;
+        wsum += w;
+    }
+    return (wsum > 0) ? sum / wsum : 0;
+}
+
+double HullMA(const double &price[], int shift, int period) {
+    int half   = period / 2;
+    int sqrtN  = (int)MathRound(MathSqrt(period));
+    if(sqrtN < 1) sqrtN = 1;
+    double raw[];
+    ArrayResize(raw, sqrtN);
+    for(int s = 0; s < sqrtN; s++)
+        raw[s] = 2.0 * LWMA(price, shift + s, half) - LWMA(price, shift + s, period);
+    return LWMA(raw, 0, sqrtN);
+}
+
+double VWMA(int period, ENUM_TIMEFRAMES tf) {
+    double close[]; long vol[];
+    ArraySetAsSeries(close, true);
+    ArraySetAsSeries(vol, true);
+    if(CopyClose(_Symbol, tf, 0, period, close) < period) return 0;
+    if(CopyTickVolume(_Symbol, tf, 0, period, vol) < period) return 0;
+    double num = 0, den = 0;
+    for(int i = 0; i < period; i++) { num += close[i] * (double)vol[i]; den += (double)vol[i]; }
+    return (den > 0) ? num / den : 0;
+}
+
+double UltimateOscillator(ENUM_TIMEFRAMES tf) {
+    int need = 29;
+    double high[], low[], close[];
+    ArraySetAsSeries(high, true); ArraySetAsSeries(low, true); ArraySetAsSeries(close, true);
+    if(CopyHigh(_Symbol, tf, 0, need, high)   < need) return 50;
+    if(CopyLow(_Symbol, tf, 0, need, low)     < need) return 50;
+    if(CopyClose(_Symbol, tf, 0, need, close) < need) return 50;
+
+    double bp[], tr[];
+    ArrayResize(bp, need - 1);
+    ArrayResize(tr, need - 1);
+    for(int i = 0; i < need - 1; i++) {
+        double priorClose = close[i + 1];
+        bp[i] = close[i] - MathMin(low[i], priorClose);
+        tr[i] = MathMax(high[i], priorClose) - MathMin(low[i], priorClose);
+    }
+    double sumBP7 = 0, sumTR7 = 0, sumBP14 = 0, sumTR14 = 0, sumBP28 = 0, sumTR28 = 0;
+    for(int i = 0; i < 28; i++) {
+        sumBP28 += bp[i]; sumTR28 += tr[i];
+        if(i < 14) { sumBP14 += bp[i]; sumTR14 += tr[i]; }
+        if(i < 7)  { sumBP7  += bp[i]; sumTR7  += tr[i]; }
+    }
+    double avg7  = (sumTR7  > 0) ? sumBP7  / sumTR7  : 0;
+    double avg14 = (sumTR14 > 0) ? sumBP14 / sumTR14 : 0;
+    double avg28 = (sumTR28 > 0) ? sumBP28 / sumTR28 : 0;
+    return 100.0 * (4.0 * avg7 + 2.0 * avg14 + avg28) / 7.0;
+}
+
+void StochRSICalc(double &kOut, double &dOut) {
+    int rsiLen = 14, smoothK = 3, smoothD = 3;
+    int rawCount = smoothK + smoothD;
+    int need = rsiLen + rawCount;
+    double rsi[];
+    ArraySetAsSeries(rsi, true);
+    if(CopyBuffer(hTechRSI, 0, 0, need, rsi) < need) { kOut = 50; dOut = 50; return; }
+
+    double rawK[];
+    ArrayResize(rawK, rawCount);
+    for(int i = 0; i < rawCount; i++) {
+        double hi = rsi[i], lo = rsi[i];
+        for(int j = 0; j < rsiLen; j++) {
+            hi = MathMax(hi, rsi[i + j]);
+            lo = MathMin(lo, rsi[i + j]);
+        }
+        rawK[i] = (hi - lo > 0) ? (rsi[i] - lo) / (hi - lo) * 100.0 : 0;
+    }
+
+    double kArr[];
+    ArrayResize(kArr, smoothD);
+    for(int i = 0; i < smoothD; i++) {
+        double s = 0;
+        for(int j = 0; j < smoothK; j++) s += rawK[i + j];
+        kArr[i] = s / smoothK;
+    }
+    kOut = kArr[0];
+    double s2 = 0;
+    for(int i = 0; i < smoothD; i++) s2 += kArr[i];
+    dOut = s2 / smoothD;
+}
+
+int VoteMA(double maVal, double price) {
+    if(price > maVal) return 1;
+    if(price < maVal) return -1;
+    return 0;
+}
+
+int VoteIchimoku() {
+    double tenkan[], kijun[], spanA[], spanB[];
+    ArraySetAsSeries(tenkan, true); ArraySetAsSeries(kijun, true);
+    ArraySetAsSeries(spanA, true);  ArraySetAsSeries(spanB, true);
+    if(CopyBuffer(hTechIchi, 0, 0, 1, tenkan) < 1) return 0;
+    if(CopyBuffer(hTechIchi, 1, 0, 1, kijun)  < 1) return 0;
+    if(CopyBuffer(hTechIchi, 2, 0, 1, spanA)  < 1) return 0;
+    if(CopyBuffer(hTechIchi, 3, 0, 1, spanB)  < 1) return 0;
+    double price = iClose(_Symbol, InpTechTF, 0);
+    bool buyOK  = spanA[0] > spanB[0] && kijun[0] > spanA[0] && tenkan[0] > kijun[0] && price > tenkan[0];
+    bool sellOK = spanA[0] < spanB[0] && kijun[0] < spanA[0] && tenkan[0] < kijun[0] && price < tenkan[0];
+    if(buyOK)  return 1;
+    if(sellOK) return -1;
+    return 0;
+}
+
+int VoteRSI() {
+    double buf[]; ArraySetAsSeries(buf, true);
+    if(CopyBuffer(hTechRSI, 0, 0, 2, buf) < 2) return 0;
+    if(buf[0] < 30 && buf[0] > buf[1]) return 1;
+    if(buf[0] > 70 && buf[0] < buf[1]) return -1;
+    return 0;
+}
+
+int VoteStoch() {
+    double k[], d[];
+    ArraySetAsSeries(k, true); ArraySetAsSeries(d, true);
+    if(CopyBuffer(hTechStoch, 0, 0, 1, k) < 1) return 0;
+    if(CopyBuffer(hTechStoch, 1, 0, 1, d) < 1) return 0;
+    if(k[0] < 20 && d[0] < 20 && k[0] > d[0]) return 1;
+    if(k[0] > 80 && d[0] > 80 && k[0] < d[0]) return -1;
+    return 0;
+}
+
+int VoteCCI() {
+    double buf[]; ArraySetAsSeries(buf, true);
+    if(CopyBuffer(hTechCCI, 0, 0, 2, buf) < 2) return 0;
+    if(buf[0] < -100 && buf[0] > buf[1]) return 1;
+    if(buf[0] >  100 && buf[0] < buf[1]) return -1;
+    return 0;
+}
+
+int VoteADX() {
+    double adx[], plus[], minus[];
+    ArraySetAsSeries(adx, true); ArraySetAsSeries(plus, true); ArraySetAsSeries(minus, true);
+    if(CopyBuffer(hTechADX, 0, 0, 2, adx)   < 2) return 0;
+    if(CopyBuffer(hTechADX, 1, 0, 1, plus)  < 1) return 0;
+    if(CopyBuffer(hTechADX, 2, 0, 1, minus) < 1) return 0;
+    if(plus[0] > minus[0] && adx[0] > 20 && adx[0] > adx[1]) return 1;
+    if(plus[0] < minus[0] && adx[0] > 20 && adx[0] < adx[1]) return -1;
+    return 0;
+}
+
+int VoteAO() {
+    double ao[]; ArraySetAsSeries(ao, true);
+    if(CopyBuffer(hTechAO, 0, 0, 3, ao) < 3) return 0;
+    bool crossUp     = ao[1] <= 0 && ao[0] > 0;
+    bool crossDown   = ao[1] >= 0 && ao[0] < 0;
+    bool saucerUp    = ao[2] > 0 && ao[1] > 0 && ao[0] > 0 && ao[1] < ao[2] && ao[0] > ao[1];
+    bool saucerDown  = ao[2] < 0 && ao[1] < 0 && ao[0] < 0 && ao[1] > ao[2] && ao[0] < ao[1];
+    if(crossUp   || saucerUp)   return 1;
+    if(crossDown || saucerDown) return -1;
+    return 0;
+}
+
+int VoteMomentum() {
+    double buf[]; ArraySetAsSeries(buf, true);
+    if(CopyBuffer(hTechMom, 0, 0, 2, buf) < 2) return 0;
+    if(buf[0] > buf[1]) return 1;
+    if(buf[0] < buf[1]) return -1;
+    return 0;
+}
+
+int VoteMACD() {
+    double macd[], sig[];
+    ArraySetAsSeries(macd, true); ArraySetAsSeries(sig, true);
+    if(CopyBuffer(hTechMACD, 0, 0, 1, macd) < 1) return 0;
+    if(CopyBuffer(hTechMACD, 1, 0, 1, sig)  < 1) return 0;
+    if(macd[0] > sig[0]) return 1;
+    if(macd[0] < sig[0]) return -1;
+    return 0;
+}
+
+bool TechUptrend() {
+    double sma[]; ArraySetAsSeries(sma, true);
+    if(CopyBuffer(hTechMASMA[3], 0, 0, 1, sma) < 1) return true;
+    double price = iClose(_Symbol, InpTechTF, 0);
+    return price > sma[0];
+}
+
+int VoteStochRSI() {
+    double k, d;
+    StochRSICalc(k, d);
+    bool uptrend = TechUptrend();
+    if(!uptrend && k < 20 && d < 20 && k > d) return 1;
+    if(uptrend  && k > 80 && d > 80 && k < d) return -1;
+    return 0;
+}
+
+int VoteWPR() {
+    double buf[]; ArraySetAsSeries(buf, true);
+    if(CopyBuffer(hTechWPR, 0, 0, 2, buf) < 2) return 0;
+    if(buf[0] < -80 && buf[0] > buf[1]) return 1;
+    if(buf[0] > -20 && buf[0] < buf[1]) return -1;
+    return 0;
+}
+
+int VoteBullBearPower() {
+    double bull[], bear[];
+    ArraySetAsSeries(bull, true); ArraySetAsSeries(bear, true);
+    if(CopyBuffer(hTechBulls, 0, 0, 2, bull) < 2) return 0;
+    if(CopyBuffer(hTechBears, 0, 0, 2, bear) < 2) return 0;
+    bool uptrend = TechUptrend();
+    if(uptrend  && bear[0] < 0 && bear[0] > bear[1]) return 1;
+    if(!uptrend && bull[0] > 0 && bull[0] < bull[1]) return -1;
+    return 0;
+}
+
+int VoteUltimateOsc() {
+    double uo = UltimateOscillator(InpTechTF);
+    if(uo > 70) return 1;
+    if(uo < 30) return -1;
+    return 0;
+}
+
+string TechRatingLabel(double score) {
+    if(score < -0.5) return "Strong Sell";
+    if(score < -0.1) return "Sell";
+    if(score <=  0.1) return "Neutral";
+    if(score <=  0.5) return "Buy";
+    return "Strong Buy";
+}
+
+double GetTechnicalRatingScore() {
+    double price = iClose(_Symbol, InpTechTF, 0);
+
+    double maSum = 0; int maCount = 0;
+    double buf1[]; ArraySetAsSeries(buf1, true);
+    for(int i = 0; i < 6; i++) {
+        if(CopyBuffer(hTechMASMA[i], 0, 0, 1, buf1) == 1) { maSum += VoteMA(buf1[0], price); maCount++; }
+        if(CopyBuffer(hTechMAEMA[i], 0, 0, 1, buf1) == 1) { maSum += VoteMA(buf1[0], price); maCount++; }
+    }
+
+    double closeArr[]; ArraySetAsSeries(closeArr, true);
+    if(CopyClose(_Symbol, InpTechTF, 0, 30, closeArr) == 30) {
+        maSum += VoteMA(HullMA(closeArr, 0, 9), price); maCount++;
+        maSum += VoteMA(VWMA(20, InpTechTF), price);    maCount++;
+    }
+
+    maSum += VoteIchimoku(); maCount++;
+    double maScore = (maCount > 0) ? maSum / maCount : 0;
+
+    double oscSum = 0; int oscCount = 0;
+    oscSum += VoteRSI();           oscCount++;
+    oscSum += VoteStoch();         oscCount++;
+    oscSum += VoteCCI();           oscCount++;
+    oscSum += VoteADX();           oscCount++;
+    oscSum += VoteAO();            oscCount++;
+    oscSum += VoteMomentum();      oscCount++;
+    oscSum += VoteMACD();          oscCount++;
+    oscSum += VoteStochRSI();      oscCount++;
+    oscSum += VoteWPR();           oscCount++;
+    oscSum += VoteBullBearPower(); oscCount++;
+    oscSum += VoteUltimateOsc();   oscCount++;
+    double oscScore = (oscCount > 0) ? oscSum / oscCount : 0;
+
+    return (maScore + oscScore) / 2.0;
+}
+
+void UpdateTechnicalRating() {
+    g_TechRating = GetTechnicalRatingScore();
+    g_TechLabel  = TechRatingLabel(g_TechRating);
 }
 
 //+------------------------------------------------------------------+
@@ -1659,24 +1965,6 @@ void CheckTrimming() {
 
         int closedCycles = 0;
         for(int w = 0; w < g_TrimMaxCycles; w++) {
-            int    winIdx[];
-            ArrayResize(winIdx, g_TrimMaxWin);
-            int    wn2 = 0;
-            double winSum = 0;
-            for(int n = 0; n < g_TrimMaxWin; n++) {
-                int bIdx = -1;
-                for(int i = 0; i < cnt; i++) {
-                    if(used[i]) continue;
-                    if(bIdx < 0 || profits[i] > profits[bIdx]) bIdx = i;
-                }
-                if(bIdx < 0 || profits[bIdx] <= 0) break;
-                winIdx[wn2] = bIdx;
-                winSum     += profits[bIdx];
-                used[bIdx]  = true;
-                wn2++;
-            }
-            if(wn2 == 0) break;
-
             int    worstIdx[];
             ArrayResize(worstIdx, g_TrimMaxLoss);
             int    wn = 0;
@@ -1693,8 +1981,27 @@ void CheckTrimming() {
                 used[wIdx]   = true;
                 wn++;
             }
+            if(wn == 0) break;
 
-            if(wn > 0 && winSum + worstSum >= g_TrimTarget) {
+            int    winIdx[];
+            ArrayResize(winIdx, g_TrimMaxWin);
+            int    wn2 = 0;
+            double winSum = 0;
+            for(int n = 0; n < g_TrimMaxWin; n++) {
+                if(winSum + worstSum >= g_TrimTarget) break;
+                int bIdx = -1;
+                for(int i = 0; i < cnt; i++) {
+                    if(used[i]) continue;
+                    if(bIdx < 0 || profits[i] > profits[bIdx]) bIdx = i;
+                }
+                if(bIdx < 0 || profits[bIdx] <= 0) break;
+                winIdx[wn2] = bIdx;
+                winSum     += profits[bIdx];
+                used[bIdx]  = true;
+                wn2++;
+            }
+
+            if(winSum + worstSum >= g_TrimTarget) {
                 for(int i = 0; i < wn2; i++) Trade.PositionClose(tks[winIdx[i]]);
                 for(int i = 0; i < wn;  i++) Trade.PositionClose(tks[worstIdx[i]]);
                 closedCycles++;
@@ -1737,24 +2044,6 @@ void CheckTrimming() {
 
         int closedCycles = 0;
         for(int w = 0; w < g_TrimMaxCycles; w++) {
-            int    winIdx[];
-            ArrayResize(winIdx, g_TrimMaxWin);
-            int    wn2 = 0;
-            double winSum = 0;
-            for(int n = 0; n < g_TrimMaxWin; n++) {
-                int bIdx = -1;
-                for(int i = 0; i < cnt; i++) {
-                    if(used[i]) continue;
-                    if(bIdx < 0 || profits[i] > profits[bIdx]) bIdx = i;
-                }
-                if(bIdx < 0 || profits[bIdx] <= 0) break;
-                winIdx[wn2] = bIdx;
-                winSum     += profits[bIdx];
-                used[bIdx]  = true;
-                wn2++;
-            }
-            if(wn2 == 0) break;
-
             int    worstIdx[];
             ArrayResize(worstIdx, g_TrimMaxLoss);
             int    wn = 0;
@@ -1771,8 +2060,27 @@ void CheckTrimming() {
                 used[wIdx]   = true;
                 wn++;
             }
+            if(wn == 0) break;
 
-            if(wn > 0 && winSum + worstSum >= g_TrimTarget) {
+            int    winIdx[];
+            ArrayResize(winIdx, g_TrimMaxWin);
+            int    wn2 = 0;
+            double winSum = 0;
+            for(int n = 0; n < g_TrimMaxWin; n++) {
+                if(winSum + worstSum >= g_TrimTarget) break;
+                int bIdx = -1;
+                for(int i = 0; i < cnt; i++) {
+                    if(used[i]) continue;
+                    if(bIdx < 0 || profits[i] > profits[bIdx]) bIdx = i;
+                }
+                if(bIdx < 0 || profits[bIdx] <= 0) break;
+                winIdx[wn2] = bIdx;
+                winSum     += profits[bIdx];
+                used[bIdx]  = true;
+                wn2++;
+            }
+
+            if(winSum + worstSum >= g_TrimTarget) {
                 for(int i = 0; i < wn2; i++) Trade.PositionClose(tks[winIdx[i]]);
                 for(int i = 0; i < wn;  i++) Trade.PositionClose(tks[worstIdx[i]]);
                 closedCycles++;
@@ -2142,8 +2450,6 @@ void CreateRect(string name, int lx, int ly, int lw, int lh, color bg) {
     }
     ObjectSetInteger(0, obj, OBJPROP_XDISTANCE, lx);
     ObjectSetInteger(0, obj, OBJPROP_YDISTANCE, ly);
-    // Luôn cập nhật kích thước/màu mỗi lần gọi (không chỉ lúc tạo) — cần thiết cho thanh
-    // gauge DD (fillW đổi theo % mỗi giây), không chỉ đặt 1 lần rồi đứng yên vĩnh viễn.
     ObjectSetInteger(0, obj, OBJPROP_XSIZE,   lw);
     ObjectSetInteger(0, obj, OBJPROP_YSIZE,   lh);
     ObjectSetInteger(0, obj, OBJPROP_BGCOLOR, bg);
@@ -2166,8 +2472,6 @@ void Lbl(string name, string text, int x, int y, color clr = clrSilver, int sz =
     ObjectSetInteger(0, obj, OBJPROP_FONTSIZE, sz);
 }
 
-// Giống Lbl() nhưng neo theo cạnh PHẢI tại x (ANCHOR_RIGHT_UPPER) — dùng cho các giá trị
-// canh phải trong card kiểu "nhãn : giá trị" (label bên trái, value bên phải cùng hàng).
 void LblR(string name, string text, int xRight, int y, color clr = clrSilver, int sz = 9) {
     string obj = GUI + name;
     if(ObjectFind(0, obj) < 0) {
@@ -2185,7 +2489,6 @@ void LblR(string name, string text, int xRight, int y, color clr = clrSilver, in
     ObjectSetInteger(0, obj, OBJPROP_FONTSIZE, sz);
 }
 
-// 1 chip trạng thái nhỏ: nền phẳng + chữ, dùng cho Signal/Mode/Direction/Sync ở panel Console.
 void CreateChip(string name, string text, int lx, int ly, int lw, int lh, color bg, color fg) {
     CreateRect(name + "Bg", lx, ly, lw, lh, bg);
     string obj = GUI + name;
@@ -2204,7 +2507,6 @@ void CreateChip(string name, string text, int lx, int ly, int lw, int lh, color 
     ObjectSetInteger(0, obj, OBJPROP_FONTSIZE, 9);
 }
 
-// Thanh gauge ngang: track nền + fill tỉ lệ theo pct (0-100), dùng cho DD Now/DD Max.
 void DrawGauge(string name, int lx, int ly, int lw, int lh, double pct, color trackClr, color fillClr) {
     CreateRect(name + "Trk", lx, ly, lw, lh, trackClr);
     int fillW = (int)MathRound(lw * MathMax(0.0, MathMin(100.0, pct)) / 100.0);
@@ -2292,11 +2594,10 @@ void UpdateCalendarPanel(bool forceRecalc = false) {
         colW = MathMax(92, 6 + (int)maxContentW + 8);
     }
     int calW = colW * 7;
+    g_CalRightEdge = calX + calW;
 
     int cellH;
     {
-        // g_LastPanelBottom được UpdateGUI() tính lại mỗi lần vẽ (đáy thật của panel chính,
-        // vốn giờ co giãn theo nội dung — không còn là hằng số cố định như bố cục cũ).
         int availH = (g_LastPanelBottom - calY) - titleH - navH - wdH;
         cellH = MathMax(64, availH / rows);
     }
@@ -2424,6 +2725,200 @@ void UpdateCalendarPanel(bool forceRecalc = false) {
     }
 }
 
+//+------------------------------------------------------------------+
+//| TECHNICALS PANEL — đồng hồ bán nguyệt vẽ bằng CCanvas, cạnh Lịch  |
+//+------------------------------------------------------------------+
+uint LerpARGB(uint c1, uint c2, double t) {
+    t = MathMax(0.0, MathMin(1.0, t));
+    double a1 = (double)((c1 >> 24) & 0xFF), r1 = (double)((c1 >> 16) & 0xFF),
+           g1 = (double)((c1 >> 8)  & 0xFF), b1 = (double)(c1 & 0xFF);
+    double a2 = (double)((c2 >> 24) & 0xFF), r2 = (double)((c2 >> 16) & 0xFF),
+           g2 = (double)((c2 >> 8)  & 0xFF), b2 = (double)(c2 & 0xFF);
+    uchar a = (uchar)MathRound(a1 + (a2 - a1) * t);
+    uchar r = (uchar)MathRound(r1 + (r2 - r1) * t);
+    uchar g = (uchar)MathRound(g1 + (g2 - g1) * t);
+    uchar b = (uchar)MathRound(b1 + (b2 - b1) * t);
+    return ((uint)a << 24) | ((uint)r << 16) | ((uint)g << 8) | (uint)b;
+}
+
+uint GaugeColorAt(double angle) {
+    double stopAngles[5] = {162, 126, 90, 54, 18};
+    uint   stopColors[5]  = {0xFFB91C1C, 0xFFE0653A, 0xFF5B6472, 0xFF3FAE72, 0xFF16A34A};
+    if(angle >= stopAngles[0]) return stopColors[0];
+    if(angle <= stopAngles[4]) return stopColors[4];
+    for(int i = 0; i < 4; i++) {
+        if(angle <= stopAngles[i] && angle >= stopAngles[i + 1]) {
+            double t = (stopAngles[i] - angle) / (stopAngles[i] - stopAngles[i + 1]);
+            return LerpARGB(stopColors[i], stopColors[i + 1], t);
+        }
+    }
+    return stopColors[2];
+}
+
+void DrawGaugeRing(int cx, int cy, int rInner, int rOuter) {
+    int boundOuter2 = (rOuter + 1) * (rOuter + 1);
+    int boundInner2 = MathMax(0, (rInner - 1) * (rInner - 1));
+    for(int y = -rOuter - 1; y <= 0; y++) {
+        int yy = y * y;
+        for(int x = -rOuter - 1; x <= rOuter + 1; x++) {
+            int d2 = x * x + yy;
+            if(d2 < boundInner2 || d2 > boundOuter2) continue;
+            double d = MathSqrt((double)d2);
+            if(d < rInner - 1.0 || d > rOuter + 1.0) continue;
+            double angle = MathArctan2((double)(-y), (double)x) * 180.0 / RTB_PI;
+            if(angle < -0.01 || angle > 180.01) continue;
+            double cov = 1.0;
+            if(d < rInner) cov *= MathMax(0.0, MathMin(1.0, 1.0 - (rInner - d)));
+            if(d > rOuter) cov *= MathMax(0.0, MathMin(1.0, 1.0 - (d - rOuter)));
+            if(cov <= 0.0) continue;
+            uint clr  = GaugeColorAt(angle);
+            uchar a   = (uchar)MathRound(((clr >> 24) & 0xFF) * cov);
+            uint  px  = ((uint)a << 24) | (clr & 0x00FFFFFF);
+            g_TechCanvas.PixelSet(cx + x, cy + y, px);
+        }
+    }
+}
+
+void DrawLinePx(int x1, int y1, int x2, int y2, uint argb) {
+    int dx = MathAbs(x2 - x1), dy = -MathAbs(y2 - y1);
+    int sx = (x1 < x2) ? 1 : -1, sy = (y1 < y2) ? 1 : -1;
+    int err = dx + dy;
+    int x = x1, y = y1;
+    while(true) {
+        g_TechCanvas.PixelSet(x, y, argb);
+        if(x == x2 && y == y2) break;
+        int e2 = 2 * err;
+        if(e2 >= dy) { err += dy; x += sx; }
+        if(e2 <= dx) { err += dx; y += sy; }
+    }
+}
+
+void DrawThickLine(int x1, int y1, int x2, int y2, int width, uint argb) {
+    double dx = x2 - x1, dy = y2 - y1;
+    double len = MathSqrt(dx * dx + dy * dy);
+    double hw  = width / 2.0;
+    if(len < 0.001) {
+        int r = (int)MathCeil(hw);
+        for(int oy = -r; oy <= r; oy++)
+            for(int ox = -r; ox <= r; ox++)
+                if(ox * ox + oy * oy <= hw * hw) g_TechCanvas.PixelSet(x1 + ox, y1 + oy, argb);
+        return;
+    }
+    double ux = dx / len, uy = dy / len;
+    int minX = (int)MathFloor(MathMin(x1, x2) - hw) - 1;
+    int maxX = (int)MathCeil (MathMax(x1, x2) + hw) + 1;
+    int minY = (int)MathFloor(MathMin(y1, y2) - hw) - 1;
+    int maxY = (int)MathCeil (MathMax(y1, y2) + hw) + 1;
+    for(int y = minY; y <= maxY; y++) {
+        for(int x = minX; x <= maxX; x++) {
+            double px = x - x1, py = y - y1;
+            double t = px * ux + py * uy;
+            t = MathMax(0.0, MathMin(len, t));
+            double cx = x1 + ux * t, cy = y1 + uy * t;
+            double ddx = x - cx, ddy = y - cy;
+            if(ddx * ddx + ddy * ddy <= hw * hw) g_TechCanvas.PixelSet(x, y, argb);
+        }
+    }
+}
+
+void DrawTechnicalsGauge(int px, int py, int width, int height) {
+    string objName = GUI + "TechGauge";
+    if(!g_TechCanvasReady) {
+        if(!g_TechCanvas.CreateBitmapLabel(objName, px, py, width, height, COLOR_FORMAT_ARGB_NORMALIZE)) {
+            Print("RTB: Không tạo được canvas Technicals, err=", GetLastError());
+            return;
+        }
+        ObjectSetInteger(0, objName, OBJPROP_CORNER,     CORNER_LEFT_UPPER);
+        ObjectSetInteger(0, objName, OBJPROP_BACK,       false);
+        ObjectSetInteger(0, objName, OBJPROP_SELECTABLE, false);
+        g_TechCanvasReady = true;
+    }
+    ObjectSetInteger(0, objName, OBJPROP_XDISTANCE, px);
+    ObjectSetInteger(0, objName, OBJPROP_YDISTANCE, py);
+
+    g_TechCanvas.Erase(0x00000000);
+
+    int cx = width / 2;
+    int cy = height - 6;
+    int R  = MathMin(width / 2, height - 6) - 12;
+    int thickness = 20;
+    int rInner = R - thickness / 2, rOuter = R + thickness / 2;
+
+    DrawGaugeRing(cx, cy, rInner, rOuter);
+
+    for(int t = 0; t <= 5; t++) {
+        double a   = 180.0 - t * 36.0;
+        double rad = a * RTB_PI / 180.0;
+        int tx1 = cx + (int)MathRound((rOuter + 2) * MathCos(rad));
+        int ty1 = cy - (int)MathRound((rOuter + 2) * MathSin(rad));
+        int tx2 = cx + (int)MathRound((rOuter + 7) * MathCos(rad));
+        int ty2 = cy - (int)MathRound((rOuter + 7) * MathSin(rad));
+        DrawLinePx(tx1, ty1, tx2, ty2, 0xFF6B7280);
+    }
+
+    double angle = 90.0 * (1.0 - g_TechRating);
+    double rad   = angle * RTB_PI / 180.0;
+    int nx = cx + (int)MathRound((rInner - 4) * MathCos(rad));
+    int ny = cy - (int)MathRound((rInner - 4) * MathSin(rad));
+    DrawThickLine(cx, cy, nx, ny, 3, 0xFFEEF1F6);
+    g_TechCanvas.FillCircle(cx, cy, 6, 0xFF14192A);
+    g_TechCanvas.FillCircle(cx, cy, 4, 0xFFEEF1F6);
+
+    g_TechCanvas.Update();
+}
+
+void RemoveTechnicalsPanel() {
+    string names[] = {"TechCardBg", "TechCardBar", "TechEB", "TechSrc", "TechVerdict", "TechFoot",
+                       "TechZ0", "TechZ1", "TechZ2", "TechZ3", "TechZ4"};
+    for(int i = 0; i < ArraySize(names); i++) ObjectDelete(0, GUI + names[i]);
+    if(g_TechCanvasReady) { g_TechCanvas.Destroy(); g_TechCanvasReady = false; }
+}
+
+void UpdateTechnicalsPanel() {
+    if(!g_CalExpanded) { RemoveTechnicalsPanel(); return; }
+
+    UpdateTechnicalRating();
+
+    int px = g_CalRightEdge + 12;
+    int py = InpCalPanelY;
+    int cardW = 250, cardH = 224;
+
+    CreateRect("TechCardBg",  px, py, cardW, cardH, C'20,28,44');
+    CreateRect("TechCardBar", px, py, 2,     cardH, C'79,195,217');
+    Lbl("TechEB", "CHỈ BÁO KỸ THUẬT", px + 10, py + 6, C'95,108,132', 9);
+    ObjectSetString(0, GUI + "TechEB", OBJPROP_FONT, "Calibri Bold");
+    LblR("TechSrc", EnumToString(InpTechTF), px + cardW - 10, py + 6, C'95,108,132', 8);
+
+    DrawTechnicalsGauge(px + 8, py + 24, cardW - 16, 130);
+
+    string zoneNames[5] = {"Strong Sell", "Sell", "Neutral", "Buy", "Strong Buy"};
+    int zoneIdx = 2;
+    if(g_TechRating < -0.5)      zoneIdx = 0;
+    else if(g_TechRating < -0.1) zoneIdx = 1;
+    else if(g_TechRating <= 0.1) zoneIdx = 2;
+    else if(g_TechRating <= 0.5) zoneIdx = 3;
+    else                          zoneIdx = 4;
+
+    int zoneY  = py + 24 + 130 + 10;
+    int slotW  = (cardW - 16) / 5;
+    for(int z = 0; z < 5; z++) {
+        int zx = px + 8 + slotW * z + slotW / 2;
+        color zc = (z == zoneIdx) ? C'231,236,245' : C'95,108,132';
+        string objName = "TechZ" + IntegerToString(z);
+        Lbl(objName, zoneNames[z], zx, zoneY, zc, 7);
+        ObjectSetInteger(0, GUI + objName, OBJPROP_ANCHOR, ANCHOR_UPPER);
+    }
+
+    color vClr = (g_TechRating > 0.1) ? clrLimeGreen : (g_TechRating < -0.1 ? clrTomato : clrSilver);
+    string vTxt = zoneNames[zoneIdx];
+    StringToUpper(vTxt);
+    Lbl("TechVerdict", vTxt, px + cardW / 2, py + 192, vClr, 15);
+    ObjectSetInteger(0, GUI + "TechVerdict", OBJPROP_ANCHOR, ANCHOR_CENTER);
+    ObjectSetString(0, GUI + "TechVerdict", OBJPROP_FONT, "Calibri Bold");
+
+    Lbl("TechFoot", StringFormat("Score %.2f", g_TechRating), px + 10, py + cardH - 16, C'95,108,132', 8);
+}
+
 void UpdateGUI(bool forceCalRefresh = false) {
     if(!InpShowPanel) { RemoveGUI(); return; }
     int PX = InpPanelX;
@@ -2486,8 +2981,6 @@ void UpdateGUI(bool forceCalRefresh = false) {
     int bhw = (PW - 24) / 2;
     int bx2 = PX + 7 + bhw + 4;
 
-    // Dọn các object cũ của layout danh sách trước đây — không còn dùng sau khi chuyển
-    // sang bố cục Console (card + gauge), tránh để lại nhãn mồ côi trên chart.
     string legacyObjs[] = {"L0","Tim","Sig","Mod","Dir","Sync","L1","Bal","Ini","DayP","FP",
                             "L2","DD","MDD","L3","BuyP","BuyC","SelP","SelC","Tot","TClock",
                             "P3VC1","P3VC2","P3VC3","P3VC4","P3HR0","P3HR1","P3HR2","P3HR3",
@@ -2496,7 +2989,6 @@ void UpdateGUI(bool forceCalRefresh = false) {
                             "TR0BarFill","TR1BarFill","TR2BarFill","TR3BarFill"};
     for(int li = 0; li < ArraySize(legacyObjs); li++) ObjectDelete(0, GUI + legacyObjs[li]);
 
-    // Panel tiêu đề (banner vàng) giữ nguyên như bản gốc — không đổi sang phong cách Console.
     string bgt = GUI + "BGTitle";
     if(ObjectFind(0, bgt) < 0) {
         ObjectCreate(0, bgt, OBJ_RECTANGLE_LABEL, 0, 0, 0);
@@ -2813,11 +3305,15 @@ void UpdateGUI(bool forceCalRefresh = false) {
     }
 
     UpdateCalendarPanel(forceCalRefresh);
+    UpdateTechnicalsPanel();
 
     ChartRedraw(0);
 }
 
-void RemoveGUI() { ObjectsDeleteAll(0, GUI); }
+void RemoveGUI() {
+    if(g_TechCanvasReady) { g_TechCanvas.Destroy(); g_TechCanvasReady = false; }
+    ObjectsDeleteAll(0, GUI);
+}
 
 //+------------------------------------------------------------------+
 //| CHART COLOR SCHEME                                               |
@@ -3378,6 +3874,27 @@ int OnInit() {
         return INIT_FAILED;
     }
 
+    for(int i = 0; i < 6; i++) {
+        hTechMASMA[i] = iMA(_Symbol, InpTechTF, TechMAPeriods[i], 0, MODE_SMA, PRICE_CLOSE);
+        hTechMAEMA[i] = iMA(_Symbol, InpTechTF, TechMAPeriods[i], 0, MODE_EMA, PRICE_CLOSE);
+    }
+    hTechIchi  = iIchimoku(_Symbol, InpTechTF, InpIchiTenkan, InpIchiKijun, InpIchiSenkou);
+    hTechRSI   = iRSI(_Symbol, InpTechTF, 14, PRICE_CLOSE);
+    hTechStoch = iStochastic(_Symbol, InpTechTF, 14, 3, 3, MODE_SMA, STO_LOWHIGH);
+    hTechCCI   = iCCI(_Symbol, InpTechTF, 20, PRICE_TYPICAL);
+    hTechADX   = iADX(_Symbol, InpTechTF, 14);
+    hTechAO    = iAO(_Symbol, InpTechTF);
+    hTechMom   = iMomentum(_Symbol, InpTechTF, 10, PRICE_CLOSE);
+    hTechMACD  = iMACD(_Symbol, InpTechTF, 12, 26, 9, PRICE_CLOSE);
+    hTechWPR   = iWPR(_Symbol, InpTechTF, 14);
+    hTechBulls = iBullsPower(_Symbol, InpTechTF, 13);
+    hTechBears = iBearsPower(_Symbol, InpTechTF, 13);
+    if(hTechIchi == INVALID_HANDLE || hTechRSI == INVALID_HANDLE || hTechStoch == INVALID_HANDLE ||
+       hTechCCI == INVALID_HANDLE  || hTechADX == INVALID_HANDLE || hTechAO == INVALID_HANDLE     ||
+       hTechMom == INVALID_HANDLE  || hTechMACD == INVALID_HANDLE || hTechWPR == INVALID_HANDLE   ||
+       hTechBulls == INVALID_HANDLE || hTechBears == INVALID_HANDLE)
+        Print("RTB: CẢNH BÁO — một số indicator Technicals tạo lỗi, panel Technicals có thể thiếu dữ liệu.");
+
     WarmupATS(1000);
 
     InitBalance    = AccountInfoDouble(ACCOUNT_BALANCE);
@@ -3452,6 +3969,18 @@ void OnDeinit(const int reason) {
     IndicatorRelease(hBB);
     IndicatorRelease(hIchi);
     IndicatorRelease(hATR);
+    for(int i = 0; i < 6; i++) { IndicatorRelease(hTechMASMA[i]); IndicatorRelease(hTechMAEMA[i]); }
+    IndicatorRelease(hTechIchi);
+    IndicatorRelease(hTechRSI);
+    IndicatorRelease(hTechStoch);
+    IndicatorRelease(hTechCCI);
+    IndicatorRelease(hTechADX);
+    IndicatorRelease(hTechAO);
+    IndicatorRelease(hTechMom);
+    IndicatorRelease(hTechMACD);
+    IndicatorRelease(hTechWPR);
+    IndicatorRelease(hTechBulls);
+    IndicatorRelease(hTechBears);
 }
 
 void OnTick() {

@@ -67,4 +67,5 @@ Xem `.claude/rules/` để biết thêm chi tiết về từng hệ thống con:
 - [rtb-trimming.md](.claude/rules/rtb-trimming.md) — thứ tự ưu tiên trimming, điều khiển `InpTrimMaxLoss`/`InpTrimMaxWin`/`InpTrimMaxCycles`
 - [rtb-exit.md](.claude/rules/rtb-exit.md) — các section `CheckExit()`, tương tác với Stealth Mode
 - [rtb-gui.md](.claude/rules/rtb-gui.md) — bố cục panel, quy tắc màu sắc, logic Day P/L
+- [rtb-technicals.md](.claude/rules/rtb-technicals.md) — đồng hồ Technicals (26 chỉ báo kiểu TradingView), vẽ bằng CCanvas
 - [rtb-settings.md](.claude/rules/rtb-settings.md) — tham chiếu đầy đủ các tham số

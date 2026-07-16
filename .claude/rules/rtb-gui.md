@@ -21,6 +21,8 @@ Panel tự động vẽ góc trên-trái màn hình, cập nhật mỗi giây qu
 | Điều khiển lệnh | Nút Bot Toggle (Master)/Close All/Buy/Sell/Profit/Loss | `BG2`, `P2T`, `Btn...` |
 | Thống kê | Card viền trái cyan, bảng lưới 5 cột (Date/Pips/Profit/Gain/Lot) Today/Week/Month/Year, màu theo dấu lãi/lỗ cho Pips/Profit/Gain, 2 dải nền xen kẽ nhạt sau dòng Today/Month + nút Xem Lịch trong header | `BG3`, `StatsBar`, `P3T`, `TH0-4`, `TR{r}L/P/$/G/V`, `RowStripe0/1` |
 | Vào lệnh thủ công | Chỉ hiện khi `InpBotMode=MODE_SEMI_AUTO` | `BG4`, `P4T`, `BtnOpenBuy/Sell` |
+| Panel Lịch (rời) | Bảng thống kê theo ngày trong tháng, chỉ hiện khi bật "Xem Lịch »" | `CalBG`, `CalTitle`, `CalC*/CalD*/CalP*/CalL*` |
+| Panel Technicals (rời) | Đồng hồ bán nguyệt Strong Sell..Strong Buy, neo cạnh phải panel Lịch, ẩn/hiện cùng lúc — xem [rtb-technicals.md](rtb-technicals.md) | `TechCardBg/Bar`, `TechGauge` (CCanvas), `TechEB/Src/Verdict/Foot`, `TechZ0-4` |
 
 ## Chiều Cao Panel Co Giãn Theo Nội Dung
 

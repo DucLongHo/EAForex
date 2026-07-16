@@ -64,7 +64,7 @@ Xem `.claude/rules/` để biết thêm chi tiết về từng hệ thống con:
 - [rtb-dca.md](.claude/rules/rtb-dca.md) — thuật toán xác định tầng DCA, điều kiện kích hoạt
 - [rtb-pyramiding.md](.claude/rules/rtb-pyramiding.md) — logic pyramiding, prefix comment `"RTP|"`, fallback TP/SL theo tầng
 - [rtb-trailing.md](.claude/rules/rtb-trailing.md) — Basket vs Single trailing, `ApplyTrailToPos`
-- [rtb-trimming.md](.claude/rules/rtb-trimming.md) — thứ tự ưu tiên trimming, điều khiển `InpTrimMaxLoss`/`InpTrimMaxWin`
+- [rtb-trimming.md](.claude/rules/rtb-trimming.md) — thứ tự ưu tiên trimming, điều khiển `InpTrimMaxLoss`/`InpTrimMaxWin`/`InpTrimMaxCycles`
 - [rtb-exit.md](.claude/rules/rtb-exit.md) — các section `CheckExit()`, tương tác với Stealth Mode
 - [rtb-gui.md](.claude/rules/rtb-gui.md) — bố cục panel, quy tắc màu sắc, logic Day P/L
 - [rtb-settings.md](.claude/rules/rtb-settings.md) — tham chiếu đầy đủ các tham số

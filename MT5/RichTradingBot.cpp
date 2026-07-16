@@ -270,8 +270,9 @@ input  ENUM_TRIM_MODE InpTrimMode    = TRIM_OFF; // Chế độ (Off/Target/Part
 input  int     InpTrimTrigger    = 5;      // Kích hoạt khi số lệnh >= X
 input  double  InpTrimTarget     = 10.0;   // [Target/Hedge/HedgePts] Mục tiêu lợi nhuận sau tỉa ($)
 input  double  InpPartialTrimDD  = 20.0;   // [Partial DD] Kích hoạt khi DD% >
-input  int     InpTrimMaxLoss    = 1;      // Số lệnh âm tối đa cần tỉa mỗi lần
-input  int     InpTrimMaxWin     = 1;      // [Hedge] Số lệnh dương tối đa dùng để tỉa
+input  int     InpTrimMaxLoss    = 1;      // Số lệnh âm tối đa gộp mỗi lần ghép cặp (Hedge) / đóng mỗi lượt (mode khác)
+input  int     InpTrimMaxWin     = 1;      // [Hedge] Số lệnh dương tối đa gộp mỗi lần ghép cặp
+input  int     InpTrimMaxCycles  = 1;      // [Hedge] Số chu kỳ ghép cặp tối đa mỗi lượt tỉa
 
 //+------------------------------------------------------------------+
 //| INPUT: TRAILING STOP                                             |
@@ -422,7 +423,7 @@ double g_DCAArithStep;
 bool   g_PyraBuyEnable, g_PyraSellEnable;
 
 ENUM_TRIM_MODE g_TrimMode;
-int    g_TrimTrigger, g_TrimMaxLoss, g_TrimMaxWin;
+int    g_TrimTrigger, g_TrimMaxLoss, g_TrimMaxWin, g_TrimMaxCycles;
 double g_TrimTarget, g_PartialTrimDD;
 
 bool             g_TrailEnable;
@@ -1657,14 +1658,24 @@ void CheckTrimming() {
         }
 
         int closedCycles = 0;
-        for(int w = 0; w < g_TrimMaxWin; w++) {
-            int bestIdx = -1;
-            for(int i = 0; i < cnt; i++) {
-                if(used[i]) continue;
-                if(bestIdx < 0 || profits[i] > profits[bestIdx]) bestIdx = i;
+        for(int w = 0; w < g_TrimMaxCycles; w++) {
+            int    winIdx[];
+            ArrayResize(winIdx, g_TrimMaxWin);
+            int    wn2 = 0;
+            double winSum = 0;
+            for(int n = 0; n < g_TrimMaxWin; n++) {
+                int bIdx = -1;
+                for(int i = 0; i < cnt; i++) {
+                    if(used[i]) continue;
+                    if(bIdx < 0 || profits[i] > profits[bIdx]) bIdx = i;
+                }
+                if(bIdx < 0 || profits[bIdx] <= 0) break;
+                winIdx[wn2] = bIdx;
+                winSum     += profits[bIdx];
+                used[bIdx]  = true;
+                wn2++;
             }
-            if(bestIdx < 0 || profits[bestIdx] <= 0) break;
-            used[bestIdx] = true;
+            if(wn2 == 0) break;
 
             int    worstIdx[];
             ArrayResize(worstIdx, g_TrimMaxLoss);
@@ -1683,14 +1694,14 @@ void CheckTrimming() {
                 wn++;
             }
 
-            if(wn > 0 && profits[bestIdx] + worstSum >= g_TrimTarget) {
-                Trade.PositionClose(tks[bestIdx]);
-                for(int i = 0; i < wn; i++) Trade.PositionClose(tks[worstIdx[i]]);
+            if(wn > 0 && winSum + worstSum >= g_TrimTarget) {
+                for(int i = 0; i < wn2; i++) Trade.PositionClose(tks[winIdx[i]]);
+                for(int i = 0; i < wn;  i++) Trade.PositionClose(tks[worstIdx[i]]);
                 closedCycles++;
             } else break;
         }
         if(closedCycles > 0)
-            Print("RTB: Hedge trim cycles=", closedCycles, " x up to ", g_TrimMaxLoss, " losers");
+            Print("RTB: Hedge trim cycles=", closedCycles, " x up to ", g_TrimMaxWin, " winners / ", g_TrimMaxLoss, " losers");
         break;
     }
 
@@ -1725,14 +1736,24 @@ void CheckTrimming() {
         }
 
         int closedCycles = 0;
-        for(int w = 0; w < g_TrimMaxWin; w++) {
-            int bestIdx = -1;
-            for(int i = 0; i < cnt; i++) {
-                if(used[i]) continue;
-                if(bestIdx < 0 || profits[i] > profits[bestIdx]) bestIdx = i;
+        for(int w = 0; w < g_TrimMaxCycles; w++) {
+            int    winIdx[];
+            ArrayResize(winIdx, g_TrimMaxWin);
+            int    wn2 = 0;
+            double winSum = 0;
+            for(int n = 0; n < g_TrimMaxWin; n++) {
+                int bIdx = -1;
+                for(int i = 0; i < cnt; i++) {
+                    if(used[i]) continue;
+                    if(bIdx < 0 || profits[i] > profits[bIdx]) bIdx = i;
+                }
+                if(bIdx < 0 || profits[bIdx] <= 0) break;
+                winIdx[wn2] = bIdx;
+                winSum     += profits[bIdx];
+                used[bIdx]  = true;
+                wn2++;
             }
-            if(bestIdx < 0 || profits[bestIdx] <= 0) break;
-            used[bestIdx] = true;
+            if(wn2 == 0) break;
 
             int    worstIdx[];
             ArrayResize(worstIdx, g_TrimMaxLoss);
@@ -1751,14 +1772,14 @@ void CheckTrimming() {
                 wn++;
             }
 
-            if(wn > 0 && profits[bestIdx] + worstSum >= g_TrimTarget) {
-                Trade.PositionClose(tks[bestIdx]);
-                for(int i = 0; i < wn; i++) Trade.PositionClose(tks[worstIdx[i]]);
+            if(wn > 0 && winSum + worstSum >= g_TrimTarget) {
+                for(int i = 0; i < wn2; i++) Trade.PositionClose(tks[winIdx[i]]);
+                for(int i = 0; i < wn;  i++) Trade.PositionClose(tks[worstIdx[i]]);
                 closedCycles++;
             } else break;
         }
         if(closedCycles > 0)
-            Print("RTB: Hedge-by-Points trim cycles=", closedCycles, " x up to ", g_TrimMaxLoss, " losers");
+            Print("RTB: Hedge-by-Points trim cycles=", closedCycles, " x up to ", g_TrimMaxWin, " winners / ", g_TrimMaxLoss, " losers");
         break;
     }
 
@@ -2975,7 +2996,8 @@ string BuildConfigPayload(long version) {
     s += IntegerToString((int)g_TrimMode) + ";" +
          IntegerToString(g_TrimTrigger) + ";" + DoubleToString(g_TrimTarget, 2) + ";" +
          DoubleToString(g_PartialTrimDD, 2) + ";" +
-         IntegerToString(g_TrimMaxLoss) + ";" + IntegerToString(g_TrimMaxWin) + ";";
+         IntegerToString(g_TrimMaxLoss) + ";" + IntegerToString(g_TrimMaxWin) + ";" +
+         IntegerToString(g_TrimMaxCycles) + ";";
 
     s += (g_TrailEnable ? "1" : "0") + string(";") + IntegerToString((int)g_TrailMode) + ";" +
          IntegerToString(g_TrailMinOrds) + ";" + DoubleToString(g_TrailActivate, 1) + ";" +
@@ -2991,7 +3013,7 @@ string BuildConfigPayload(long version) {
     return s;
 }
 
-#define RTB_CONFIG_FIELD_COUNT 153
+#define RTB_CONFIG_FIELD_COUNT 154
 
 void ApplyBotEnabled(bool newVal) {
     if(g_BotEnabled && !newVal) {
@@ -3056,6 +3078,7 @@ bool ApplyConfigPayload(string data) {
     g_PartialTrimDD   = StringToDouble(f[idx++]);
     g_TrimMaxLoss     = (int)StringToInteger(f[idx++]);
     g_TrimMaxWin      = (int)StringToInteger(f[idx++]);
+    g_TrimMaxCycles   = (int)StringToInteger(f[idx++]);
 
     g_TrailEnable   = (f[idx++] == "1");
     g_TrailMode     = (ENUM_TRAIL_MODE)StringToInteger(f[idx++]);
@@ -3322,6 +3345,7 @@ int OnInit() {
     g_PyraBuyEnable = InpPyraBuyEnable; g_PyraSellEnable = InpPyraSellEnable;
     g_TrimMode = InpTrimMode; g_TrimTrigger = InpTrimTrigger;
     g_TrimTarget = InpTrimTarget; g_TrimMaxLoss = InpTrimMaxLoss; g_TrimMaxWin = InpTrimMaxWin;
+    g_TrimMaxCycles = InpTrimMaxCycles;
     g_PartialTrimDD = InpPartialTrimDD;
     g_TrailEnable = InpTrailEnable; g_TrailMode = InpTrailMode; g_TrailMinOrds = InpTrailMinOrds;
     g_TrailActivate = InpTrailActivate; g_TrailStep = InpTrailStep; g_TrailInit = InpTrailInit;

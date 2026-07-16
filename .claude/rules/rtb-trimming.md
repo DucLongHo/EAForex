@@ -29,8 +29,9 @@ Chỉ **1 chế độ** hoạt động tại một thời điểm (chọn qua dr
 | `InpTrimTrigger` | 5 | tất cả | Kích hoạt khi **tổng** số lệnh ≥ X |
 | `InpTrimTarget` | 10.0 | `TRIM_TARGET`, `TRIM_HEDGE`, `TRIM_HEDGE_PTS` | Mục tiêu lợi nhuận ròng sau tỉa ($) |
 | `InpPartialTrimDD` | 20.0 | `TRIM_PARTIAL_DD` | Ngưỡng DD% kích hoạt |
-| `InpTrimMaxLoss` | 1 | tất cả | Số lệnh âm tối đa cần tỉa mỗi lần |
-| `InpTrimMaxWin` | 1 | `TRIM_HEDGE`, `TRIM_HEDGE_PTS` | Số lệnh dương tối đa dùng để tỉa |
+| `InpTrimMaxLoss` | 1 | tất cả | Số lệnh âm tối đa gộp mỗi lần ghép cặp (Hedge) / đóng mỗi lượt (mode khác) |
+| `InpTrimMaxWin` | 1 | `TRIM_HEDGE`, `TRIM_HEDGE_PTS` | Số lệnh dương tối đa gộp mỗi lần ghép cặp |
+| `InpTrimMaxCycles` | 1 | `TRIM_HEDGE`, `TRIM_HEDGE_PTS` | Số chu kỳ ghép cặp tối đa mỗi lượt tỉa |
 
 ## Hành Vi Từng Mode (`CheckTrimming()`)
 
@@ -38,8 +39,8 @@ Chỉ **1 chế độ** hoạt động tại một thời điểm (chọn qua dr
 
 - **`TRIM_PARTIAL_DD`** — DD% hiện tại > `InpPartialTrimDD` → đóng lệnh có floating loss lớn nhất (`WorstTicket()`), lặp tối đa `InpTrimMaxLoss` lần.
 - **`TRIM_DAY_PROFIT`** — `DayProfit > |worstFloatLoss|` → đóng lệnh tệ nhất (lấy lãi ngày bù lỗ floating), lặp tối đa `InpTrimMaxLoss` lần.
-- **`TRIM_HEDGE`** — mỗi chu kỳ (tối đa `InpTrimMaxWin` chu kỳ): ghép lệnh tốt nhất (`BestTicket()`, phải >0) với tối đa `InpTrimMaxLoss` lệnh tệ nhất theo **$ lỗ** (`profits[i] < profits[wIdx]`); nếu tổng $ ≥ `InpTrimTarget` → đóng **cả hai phía** cùng lúc.
-- **`TRIM_HEDGE_PTS`** — giống hệt `TRIM_HEDGE` về cấu trúc chu kỳ và điều kiện đóng theo `InpTrimTarget` ($), nhưng chọn lệnh "tệ nhất" để ghép cặp theo **số điểm giá âm nhiều nhất** (`WorstTicketByPoints`-style, `pts[i] < pts[wIdx]`) thay vì theo $ lỗ — tránh tình trạng luôn chọn trúng lệnh lot lớn (lỗ $ nhiều) trong khi một lệnh lot nhỏ đang kẹt giá xa hơn nhiều lại bị bỏ qua. **Loại trừ lệnh gốc** (`"RTB|0|0"`) khỏi danh sách ứng viên "tệ nhất": về cấu trúc, lệnh gốc luôn là lệnh mở sớm nhất trong chuỗi DCA nên luôn cách giá hiện tại xa nhất (bằng tổng Dist các tầng đã mở) — nếu không loại trừ, gần như lần nào cũng chọn trúng lệnh gốc, kéo theo `CheckOrigRestart()` reset lại toàn bộ chuỗi DCA mỗi lần tỉa thay vì chỉ tỉa gọn 1 tầng đang kẹt giá.
+- **`TRIM_HEDGE`** — mỗi chu kỳ (tối đa `InpTrimMaxCycles` chu kỳ): gộp tối đa `InpTrimMaxWin` lệnh **thắng** ($ cao nhất, chưa dùng, dừng sớm nếu hết ứng viên dương) thành **nhóm thắng**, rồi gộp tối đa `InpTrimMaxLoss` lệnh **thua** tệ nhất theo **$ lỗ** (`profits[i] < profits[wIdx]`, chưa dùng) thành **nhóm thua**; nếu tổng $ hai nhóm ≥ `InpTrimTarget` → đóng **toàn bộ cả hai nhóm** cùng lúc. Mỗi chu kỳ độc lập — không cộng dồn phần dư từ chu kỳ trước, và dừng hẳn (`break`) ngay khi một chu kỳ không tìm đủ ứng viên hoặc không đạt target, dù còn quota `InpTrimMaxCycles`.
+- **`TRIM_HEDGE_PTS`** — giống hệt `TRIM_HEDGE` về cấu trúc nhóm thắng/nhóm thua, số chu kỳ, và điều kiện đóng theo `InpTrimTarget` ($), nhưng chọn lệnh "tệ nhất" cho **nhóm thua** theo **số điểm giá âm nhiều nhất** (`WorstTicketByPoints`-style, `pts[i] < pts[wIdx]`) thay vì theo $ lỗ — tránh tình trạng luôn chọn trúng lệnh lot lớn (lỗ $ nhiều) trong khi một lệnh lot nhỏ đang kẹt giá xa hơn nhiều lại bị bỏ qua. **Loại trừ lệnh gốc** (`"RTB|0|0"`) khỏi danh sách ứng viên "tệ nhất" (nhóm thua): về cấu trúc, lệnh gốc luôn là lệnh mở sớm nhất trong chuỗi DCA nên luôn cách giá hiện tại xa nhất (bằng tổng Dist các tầng đã mở) — nếu không loại trừ, gần như lần nào cũng chọn trúng lệnh gốc, kéo theo `CheckOrigRestart()` reset lại toàn bộ chuỗi DCA mỗi lần tỉa thay vì chỉ tỉa gọn 1 tầng đang kẹt giá. Nhóm thắng **không** loại trừ lệnh gốc — lệnh gốc đang lời vẫn có thể được gộp vào nhóm thắng.
 - **`TRIM_TARGET`** — `totalFloatProfit >= InpTrimTarget` → đóng lệnh tệ nhất nếu phần còn lại vẫn ≥ target, lặp tối đa `InpTrimMaxLoss` lần.
 
 ## Helper Functions
@@ -51,4 +52,4 @@ Chỉ **1 chế độ** hoạt động tại một thời điểm (chọn qua dr
 
 ## Remote Config Sync
 
-Payload đồng bộ (`BuildConfigPayload`/`ApplyConfigPayload`) serialize `g_TrimMode` như 1 số nguyên (enum index), thay vì 3 cờ bool riêng (`TrimEnable`/`PartialTrim`/`TrimByDayProfit`) như thiết kế cũ — `RTB_CONFIG_FIELD_COUNT` đã giảm từ 156 xuống 153 do bớt 3 field.
+Payload đồng bộ (`BuildConfigPayload`/`ApplyConfigPayload`) serialize `g_TrimMode` như 1 số nguyên (enum index), thay vì 3 cờ bool riêng (`TrimEnable`/`PartialTrim`/`TrimByDayProfit`) như thiết kế cũ. `RTB_CONFIG_FIELD_COUNT` đã tăng lên 154 sau khi thêm field `g_TrimMaxCycles` (nối ngay sau `g_TrimMaxWin` trong payload) cho tính năng gộp nhóm thắng/thua ở `TRIM_HEDGE`/`TRIM_HEDGE_PTS`.

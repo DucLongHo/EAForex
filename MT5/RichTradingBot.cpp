@@ -324,7 +324,7 @@ input  bool    InpShowPanel  = true;  // Hiện panel
 input  int     InpPanelX     = 5;     // Panel: tọa độ X
 input  int     InpPanelY     = 18;    // Panel: tọa độ Y
 input  int     InpPanelWidth = 252;   // Panel: chiều rộng
-input  int     InpCalPanelX  = 269;   // Lịch: tọa độ X
+input  int     InpCalPanelGap = 12;   // Lịch: khoảng cách với panel chính
 input  int     InpCalPanelY  = 18;    // Lịch: tọa độ Y
 
 //+------------------------------------------------------------------+
@@ -408,6 +408,7 @@ double HedgeInitSellPrice = 0.0;
 int    HedgeTrendSide     = -1;
 
 bool g_CalExpanded = false;
+bool g_PanelCollapsed = false;
 int  g_LastPanelBottom = 0;
 int  g_CalYear     = 0;
 int  g_CalMonth    = 0;
@@ -2546,7 +2547,7 @@ void UpdateCalendarPanel(bool forceRecalc = false) {
     }
 
     int titleH = 28, navH = 26, wdH = 22;
-    int calX = InpCalPanelX;
+    int calX = InpPanelX + InpPanelWidth + InpCalPanelGap;
     int calY = InpCalPanelY;
 
     int dim = DaysInMonth(g_CalYear, g_CalMonth);
@@ -3038,6 +3039,8 @@ void UpdateGUI(bool forceCalRefresh = false) {
     // ========== Hàng giờ hệ thống — nằm dưới banner tiêu đề, không chen vào header ==========
     int contentX = PX + 7, cardW = PW - 14, rightEdge = contentX + cardW - 8;
     int y2 = PY + titleOff + 6;
+
+    if(!g_PanelCollapsed) {
     Lbl("TimeRow", tStr, contentX, y2, C'127,139,163', 10);
     y2 += 16;
 
@@ -3063,13 +3066,29 @@ void UpdateGUI(bool forceCalRefresh = false) {
     else                                                 { syncTxt = "Sync LOST"; syncFg = C'239,83,80';   }
     CreateChip("ChipSync", syncTxt, bx2, y2, bhw, chH, C'24,34,54', syncFg);
     y2 += chH + 8;
+    } else {
+        ObjectDelete(0, GUI + "TimeRow");
+        ObjectDelete(0, GUI + "ChipSig");  ObjectDelete(0, GUI + "ChipSigBg");
+        ObjectDelete(0, GUI + "ChipDir");  ObjectDelete(0, GUI + "ChipDirBg");
+        ObjectDelete(0, GUI + "ChipMode"); ObjectDelete(0, GUI + "ChipModeBg");
+        ObjectDelete(0, GUI + "ChipSync"); ObjectDelete(0, GUI + "ChipSyncBg");
+    }
 
-    // ========== Card: Tài khoản ==========
+    // ========== Card: Tài khoản — LUÔN hiển thị, chứa nút thu gọn/mở rộng toàn panel ==========
     int acctH = 6 + 13 + 4*15 + 6;
     CreateRect("CardAcct",    contentX, y2, cardW, acctH, C'20,28,44');
     CreateRect("CardAcctBar", contentX, y2, 2,     acctH, C'79,195,217');
     Lbl("AcctH", "TÀI KHOẢN", contentX + 8, y2 + 5, C'95,108,132', 9);
     ObjectSetString(0, GUI + "AcctH", OBJPROP_FONT, "Calibri Bold");
+    {
+        bool expanded = !g_PanelCollapsed;
+        color pcBg = expanded ? C'10,70,35'   : C'45,18,18';
+        color pcBd = expanded ? C'55,200,110' : C'130,50,50';
+        CreateBtn("BtnPanelToggle", g_PanelCollapsed ? " + " : " - ", rightEdge - 18, y2 + 3, 18, 14, pcBg, pcBd);
+        ObjectSetInteger(0, GUI + "BtnPanelToggle", OBJPROP_COLOR,    expanded ? clrWhite : C'160,160,160');
+        ObjectSetString(0,  GUI + "BtnPanelToggle", OBJPROP_FONT,     "Consolas");
+        ObjectSetInteger(0, GUI + "BtnPanelToggle", OBJPROP_FONTSIZE, 8);
+    }
     int ya = y2 + 6 + 13;
     Lbl ("BalL", "Balance", contentX + 8, ya, C'127,139,163', 11);
     LblR("BalV", StringFormat("$%.2f", balance), rightEdge, ya, C'231,236,245', 11); ya += 15;
@@ -3103,6 +3122,7 @@ void UpdateGUI(bool forceCalRefresh = false) {
             hedgeText = "Hedge : Complete"; hedgeClr = C'90,90,90';
         }
     }
+    if(!g_PanelCollapsed) {
     int riskH = 6 + 13 + (13+7+3)*2 + (g_HedgeEnable ? 15 : 0) + 6;
     CreateRect("CardRisk",    contentX, y2, cardW, riskH, C'20,28,44');
     CreateRect("CardRiskBar", contentX, y2, 2,     riskH, C'240,166,63');
@@ -3140,12 +3160,23 @@ void UpdateGUI(bool forceCalRefresh = false) {
     Lbl ("TotL", "Total", contentX, y2, C'127,139,163', 10);
     LblR("TotV", StringFormat("%d orders", nBuy + nSell), rightEdge, y2, C'231,236,245', 10);
     y2 += 17;
+    } else {
+        string acctCollapsedObjs[] = {
+            "CardRisk", "CardRiskBar", "RiskH", "DDL", "DDV", "DDGTrk", "DDGFill",
+            "MDDL", "MDDV", "MDDGTrk", "MDDGFill", "HdgS",
+            "CardBuy", "CardBuyBar", "BuyL", "BuyV", "BuyLot",
+            "CardSell", "CardSellBar", "SelL", "SelV", "SelLot",
+            "TotL", "TotV"
+        };
+        for(int aci = 0; aci < ArraySize(acctCollapsedObjs); aci++) ObjectDelete(0, GUI + acctCollapsedObjs[aci]);
+    }
 
     int contentBottom = y2 + 6;
     int bgH  = contentBottom - (PY + titleOff);
     int bg2Y = contentBottom + 14;
     ObjectSetInteger(0, bg, OBJPROP_YSIZE, bgH);
 
+    if(!g_PanelCollapsed) {
     string bg2 = GUI + "BG2";
     if(ObjectFind(0, bg2) < 0) {
         ObjectCreate(0, bg2, OBJ_RECTANGLE_LABEL, 0, 0, 0);
@@ -3302,6 +3333,19 @@ void UpdateGUI(bool forceCalRefresh = false) {
         ObjectDelete(0, GUI + "BtnOpenBuy");
         ObjectDelete(0, GUI + "BtnOpenSell");
         g_LastPanelBottom = bg3Y + bg3H;
+    }
+
+    } else {
+        string collapsedObjs[] = {
+            "BG2", "P2T", "BtnBotToggle", "BtnCloseAll", "BtnCloseBuy", "BtnCloseProfit", "BtnCloseSell", "BtnCloseLoss",
+            "BG3", "P3T", "BtnCalToggle",
+            "TH0", "TH1", "TH2", "TH3", "TH4", "RowStripe0", "RowStripe1", "StatsBar",
+            "TR0L","TR0P","TR0$","TR0G","TR0V", "TR1L","TR1P","TR1$","TR1G","TR1V",
+            "TR2L","TR2P","TR2$","TR2G","TR2V", "TR3L","TR3P","TR3$","TR3G","TR3V",
+            "BG4", "P4T", "BtnOpenBuy", "BtnOpenSell"
+        };
+        for(int ci = 0; ci < ArraySize(collapsedObjs); ci++) ObjectDelete(0, GUI + collapsedObjs[ci]);
+        g_LastPanelBottom = contentBottom;
     }
 
     UpdateCalendarPanel(forceCalRefresh);
@@ -3776,7 +3820,7 @@ void RebuildDCAState(int posType) {
         double oPrice = OrderGetDouble(ORDER_PRICE_OPEN);
         bool   dupOfOpenSlot = false;
         for(int s = 0; s < count; s++) {
-            if(slotPosTk[s] > 0 && MathAbs(slotPrices[s] - oPrice) < tol) { dupOfOpenSlot = true; break; }
+            if(MathAbs(slotPrices[s] - oPrice) < tol) { dupOfOpenSlot = true; break; }
         }
         if(dupOfOpenSlot) {
             Trade.OrderDelete(tk);
@@ -4067,6 +4111,11 @@ void OnChartEvent(const int id, const long& lparam, const double& dparam, const 
             if(g_SyncAllowed) PushConfigToCloud();
             UpdateGUI();
         }
+    }
+    else if(sparam == GUI + "BtnPanelToggle") {
+        g_PanelCollapsed = !g_PanelCollapsed;
+        if(g_PanelCollapsed) g_CalExpanded = false;
+        UpdateGUI();
     }
     else if(sparam == GUI + "BtnCalToggle") {
         g_CalExpanded = !g_CalExpanded;

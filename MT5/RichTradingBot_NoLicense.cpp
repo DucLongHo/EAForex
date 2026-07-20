@@ -649,12 +649,16 @@ void CloseAll(int posType = -1) {
         ArrayInitialize(DCABuyPrices, 0); ArrayInitialize(DCABuyBounced, false);
         ArrayInitialize(DCABuyTickets, 0); ArrayInitialize(DCABuyLimitTk, 0);
         OrigBuyPrice = 0;
+        ClearSlotPrices(POSITION_TYPE_BUY, ArraySize(DCABuyPrices));
+        SavePeak(POSITION_TYPE_BUY, 0);
     }
     if(posType < 0 || posType == POSITION_TYPE_SELL) {
         TrailSell = 0; PeakDCASell = 0;
         ArrayInitialize(DCASellPrices, 0); ArrayInitialize(DCASellBounced, false);
         ArrayInitialize(DCASellTickets, 0); ArrayInitialize(DCASellLimitTk, 0);
         OrigSellPrice = 0;
+        ClearSlotPrices(POSITION_TYPE_SELL, ArraySize(DCASellPrices));
+        SavePeak(POSITION_TYPE_SELL, 0);
     }
 }
 
@@ -1194,26 +1198,79 @@ void UpdateTechnicalRating() {
 }
 
 //+------------------------------------------------------------------+
+//| PEAK PERSISTENCE — sống sót qua restart, tránh mất tầng nếu       |
+//| restart rơi đúng lúc 1 tầng vừa đóng nhưng refill chưa kịp đặt   |
+//+------------------------------------------------------------------+
+string PeakGVName(int posType) {
+    return "RTB_Peak_" + _Symbol + "_" + IntegerToString(InpMagic) + "_" + (posType == POSITION_TYPE_BUY ? "BUY" : "SELL");
+}
+
+void SavePeak(int posType, int val) {
+    GlobalVariableSet(PeakGVName(posType), (double)val);
+    GlobalVariablesFlush();
+}
+
+int LoadPeak(int posType) {
+    string name = PeakGVName(posType);
+    if(!GlobalVariableCheck(name)) return 0;
+    return (int)GlobalVariableGet(name);
+}
+
+string SlotPxGVName(int posType, int slot) {
+    return "RTB_SlotPx_" + _Symbol + "_" + IntegerToString(InpMagic) + "_" +
+           (posType == POSITION_TYPE_BUY ? "BUY" : "SELL") + "_" + IntegerToString(slot);
+}
+
+void SaveSlotPrice(int posType, int slot, double price) {
+    GlobalVariableSet(SlotPxGVName(posType, slot), price);
+}
+
+double LoadSlotPrice(int posType, int slot) {
+    string name = SlotPxGVName(posType, slot);
+    if(!GlobalVariableCheck(name)) return 0;
+    return GlobalVariableGet(name);
+}
+
+void ClearSlotPrices(int posType, int cap) {
+    for(int i = 0; i < cap; i++)
+        GlobalVariableDel(SlotPxGVName(posType, i));
+}
+
+//+------------------------------------------------------------------+
 //| INITIAL ENTRY (OnTick)                                           |
 //+------------------------------------------------------------------+
 void ResetDCAState(int posType) {
+    ENUM_ORDER_TYPE pendType1 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_STOP  : ORDER_TYPE_SELL_STOP;
+    ENUM_ORDER_TYPE pendType2 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_LIMIT : ORDER_TYPE_SELL_LIMIT;
+    for(int i = OrdersTotal() - 1; i >= 0; i--) {
+        ulong tk = OrderGetTicket(i);
+        if(tk == 0 || !OrderSelect(tk)) continue;
+        if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
+        if((long)OrderGetInteger(ORDER_MAGIC) != (long)InpMagic) continue;
+        ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+        if(ot != pendType1 && ot != pendType2) continue;
+        string cmt = OrderGetString(ORDER_COMMENT);
+        if(StringFind(cmt, "RTB|") != 0) continue;
+        string parts[];
+        int np = StringSplit(cmt, '|', parts);
+        if(np == 3 && parts[1] == "0" && parts[2] == "0") continue;
+        if(!Trade.OrderDelete(tk))
+            Print("RTB: ResetDCAState huỷ lệnh chờ ", (posType == POSITION_TYPE_BUY ? "BUY" : "SELL"),
+                  " ticket=", tk, " thất bại, err=", GetLastError());
+    }
+
     if(posType == POSITION_TYPE_BUY) {
-        for(int i = 0; i < ArraySize(DCABuyLimitTk); i++) {
-            if(DCABuyLimitTk[i] > 0 && !Trade.OrderDelete(DCABuyLimitTk[i]))
-                Print("RTB: ResetDCAState huỷ lệnh chờ BUY ticket=", DCABuyLimitTk[i], " thất bại, err=", GetLastError());
-        }
         TrailBuy = 0; PeakDCABuy = 0;
         ArrayInitialize(DCABuyPrices, 0); ArrayInitialize(DCABuyBounced, false);
         ArrayInitialize(DCABuyTickets, 0); ArrayInitialize(DCABuyLimitTk, 0);
+        ClearSlotPrices(posType, ArraySize(DCABuyPrices));
     } else {
-        for(int i = 0; i < ArraySize(DCASellLimitTk); i++) {
-            if(DCASellLimitTk[i] > 0 && !Trade.OrderDelete(DCASellLimitTk[i]))
-                Print("RTB: ResetDCAState huỷ lệnh chờ SELL ticket=", DCASellLimitTk[i], " thất bại, err=", GetLastError());
-        }
         TrailSell = 0; PeakDCASell = 0;
         ArrayInitialize(DCASellPrices, 0); ArrayInitialize(DCASellBounced, false);
         ArrayInitialize(DCASellTickets, 0); ArrayInitialize(DCASellLimitTk, 0);
+        ClearSlotPrices(posType, ArraySize(DCASellPrices));
     }
+    SavePeak(posType, 0);
 }
 
 bool HasPendingDCA(int posType) {
@@ -1697,8 +1754,9 @@ void CheckDCA(int posType) {
     if(nextTk > 0) {
         if(PositionSelectByTicket(nextTk)) {
             double fillPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-            if(posType == POSITION_TYPE_BUY) { DCABuyPrices[peak] = fillPrice; DCABuyTickets[peak] = nextTk; DCABuyLimitTk[peak] = 0; PeakDCABuy++; }
-            else                              { DCASellPrices[peak] = fillPrice; DCASellTickets[peak] = nextTk; DCASellLimitTk[peak] = 0; PeakDCASell++; }
+            SaveSlotPrice(posType, peak, fillPrice);
+            if(posType == POSITION_TYPE_BUY) { DCABuyPrices[peak] = fillPrice; DCABuyTickets[peak] = nextTk; DCABuyLimitTk[peak] = 0; PeakDCABuy++; SavePeak(posType, PeakDCABuy); }
+            else                              { DCASellPrices[peak] = fillPrice; DCASellTickets[peak] = nextTk; DCASellLimitTk[peak] = 0; PeakDCASell++; SavePeak(posType, PeakDCASell); }
             Print("RTB: DCA level ", lvl+1, " khớp bằng lệnh chờ tại ", fillPrice, " peak=", peak);
             return;
         }
@@ -1736,10 +1794,43 @@ void CheckDCA(int posType) {
             double fillPrice = 0;
             if(PositionSelectByTicket(newTk))
                 fillPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-            if(posType == POSITION_TYPE_BUY) { DCABuyPrices[peak] = fillPrice > 0 ? fillPrice : ask; DCABuyTickets[peak] = newTk; PeakDCABuy++; }
-            else                              { DCASellPrices[peak] = fillPrice > 0 ? fillPrice : bid; DCASellTickets[peak] = newTk; PeakDCASell++; }
+            double usedPrice = (posType == POSITION_TYPE_BUY) ? (fillPrice > 0 ? fillPrice : ask) : (fillPrice > 0 ? fillPrice : bid);
+            SaveSlotPrice(posType, peak, usedPrice);
+            if(posType == POSITION_TYPE_BUY) { DCABuyPrices[peak] = usedPrice; DCABuyTickets[peak] = newTk; PeakDCABuy++; SavePeak(posType, PeakDCABuy); }
+            else                              { DCASellPrices[peak] = usedPrice; DCASellTickets[peak] = newTk; PeakDCASell++; SavePeak(posType, PeakDCASell); }
         }
         return;
+    }
+
+    {
+        double tolDupPeak = 0.5 * point;
+        bool duplicateAtTarget = false;
+        for(int pi = PositionsTotal()-1; pi >= 0 && !duplicateAtTarget; pi--) {
+            ulong ptk = PositionGetTicket(pi);
+            if(!PositionSelectByTicket(ptk)) continue;
+            if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+            if((long)PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
+            if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
+            if(MathAbs(PositionGetDouble(POSITION_PRICE_OPEN) - target) < tolDupPeak) duplicateAtTarget = true;
+        }
+        if(!duplicateAtTarget) {
+            ENUM_ORDER_TYPE dupType1 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_STOP  : ORDER_TYPE_SELL_STOP;
+            ENUM_ORDER_TYPE dupType2 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_LIMIT : ORDER_TYPE_SELL_LIMIT;
+            for(int oi = OrdersTotal()-1; oi >= 0 && !duplicateAtTarget; oi--) {
+                ulong otk = OrderGetTicket(oi);
+                if(otk == 0 || !OrderSelect(otk)) continue;
+                if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
+                if((long)OrderGetInteger(ORDER_MAGIC) != (long)InpMagic) continue;
+                ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+                if(ot != dupType1 && ot != dupType2) continue;
+                if(MathAbs(OrderGetDouble(ORDER_PRICE_OPEN) - target) < tolDupPeak) duplicateAtTarget = true;
+            }
+        }
+        if(duplicateAtTarget) {
+            Print("RTB: Tầng ", lvl+1, " (", (posType == POSITION_TYPE_BUY ? "BUY" : "SELL"),
+                  ") đã có vị thế/lệnh chờ thật ở giá ", target, " — bỏ qua đặt trùng.");
+            return;
+        }
     }
 
     string cmt = (DCA_TP[lvl] == 0 && DCA_SL[lvl] == 0)
@@ -3479,9 +3570,14 @@ void RebuildDCAState(int posType) {
         count++;
     }
 
+    ulong  candTk[];
+    double candPx[];
+    ArrayResize(candTk, 0);
+    ArrayResize(candPx, 0);
+
     ENUM_ORDER_TYPE pendType1 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_STOP  : ORDER_TYPE_SELL_STOP;
     ENUM_ORDER_TYPE pendType2 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_LIMIT : ORDER_TYPE_SELL_LIMIT;
-    for(int i = 0; i < OrdersTotal() && count < cap; i++) {
+    for(int i = 0; i < OrdersTotal(); i++) {
         ulong tk = OrderGetTicket(i);
         if(tk == 0 || !OrderSelect(tk)) continue;
         if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
@@ -3505,11 +3601,24 @@ void RebuildDCAState(int posType) {
             continue;
         }
 
-        slotPrices[count]  = oPrice;
-        slotTimes[count]   = (datetime)OrderGetInteger(ORDER_TIME_SETUP);
-        slotPosTk[count]   = 0;
-        slotOrderTk[count] = tk;
-        count++;
+        bool isRefill = (onp >= 1 && oparts[onp-1] == "RF");
+        if(isRefill) {
+            if(count >= cap) continue;
+            slotPrices[count]  = oPrice;
+            slotTimes[count]   = (datetime)OrderGetInteger(ORDER_TIME_SETUP);
+            slotPosTk[count]   = 0;
+            slotOrderTk[count] = tk;
+            count++;
+        } else {
+            // Lệnh chờ "tầng mới kế tiếp" (chưa từng khớp) — KHÔNG được tính vào peak
+            // (peak chỉ đại diện cho các tầng ĐÃ kích hoạt). Gom lại, xử lý sau khi
+            // đã biết peak thật, để giữ đúng 1 lệnh và huỷ các lệnh dư (phantom).
+            int nc = ArraySize(candTk);
+            ArrayResize(candTk, nc + 1);
+            ArrayResize(candPx, nc + 1);
+            candTk[nc] = tk;
+            candPx[nc] = oPrice;
+        }
     }
 
     for(int i = 1; i < count; i++) {
@@ -3528,24 +3637,128 @@ void RebuildDCAState(int posType) {
         slotTimes[j+1] = kt; slotPrices[j+1] = kp; slotPosTk[j+1] = kpTk; slotOrderTk[j+1] = koTk;
     }
 
-    if(posType == POSITION_TYPE_BUY) {
-        PeakDCABuy = count;
-        for(int s = 0; s < count; s++) {
-            DCABuyPrices[s]    = slotPrices[s];
-            DCABuyTickets[s]   = slotPosTk[s];
-            DCABuyLimitTk[s]   = slotOrderTk[s];
-            DCABuyBounced[s]   = false;
+    int realCount = count;
+    int persisted = LoadPeak(posType);
+    int finalCount = realCount;
+    if(persisted > finalCount) finalCount = persisted;
+    if(finalCount > cap) {
+        Print("RTB: RebuildDCAState ", (posType==POSITION_TYPE_BUY?"BUY":"SELL"),
+              " peak lưu trữ (", persisted, ") vượt cap mảng (", cap, ") — có thể do giảm InpMaxBuy/Sell, dùng cap.");
+        finalCount = cap;
+    }
+
+    // Đối chiếu theo GIÁ đã lưu cho từng slot (SlotPx) thay vì theo vị trí mảng —
+    // vì mảng quét từ broker sẽ tự dồn lại (mất chỗ trống) nếu có tầng nào mất dấu
+    // ở giữa, khiến so khớp theo index bị lệch hoàn toàn so với tầng thật.
+    double   finalPrices[];
+    ulong    finalPosTk[];
+    ulong    finalOrderTk[];
+    ArrayResize(finalPrices, finalCount);
+    ArrayResize(finalPosTk, finalCount);
+    ArrayResize(finalOrderTk, finalCount);
+    ArrayInitialize(finalPrices, 0);
+    ArrayInitialize(finalPosTk, 0);
+    ArrayInitialize(finalOrderTk, 0);
+
+    bool claimed[];
+    ArrayResize(claimed, realCount);
+    ArrayInitialize(claimed, false);
+
+    int recoveredGaps = 0;
+    for(int slot = 0; slot < finalCount; slot++) {
+        double expected = LoadSlotPrice(posType, slot);
+        if(expected <= 0) continue;
+        int matchIdx = -1;
+        for(int b = 0; b < realCount; b++) {
+            if(claimed[b]) continue;
+            if(MathAbs(slotPrices[b] - expected) < tol) { matchIdx = b; break; }
         }
-    } else {
-        PeakDCASell = count;
-        for(int s = 0; s < count; s++) {
-            DCASellPrices[s]    = slotPrices[s];
-            DCASellTickets[s]   = slotPosTk[s];
-            DCASellLimitTk[s]   = slotOrderTk[s];
-            DCASellBounced[s]   = false;
+        if(matchIdx >= 0) {
+            finalPrices[slot]  = slotPrices[matchIdx];
+            finalPosTk[slot]   = slotPosTk[matchIdx];
+            finalOrderTk[slot] = slotOrderTk[matchIdx];
+            claimed[matchIdx]  = true;
+        } else {
+            finalPrices[slot] = expected;
+            recoveredGaps++;
         }
     }
-    Print("RTB: RebuildDCAState ", (posType==POSITION_TYPE_BUY?"BUY":"SELL"), " peak=", count);
+
+    // Dữ liệu cũ (trước khi có SlotPx, hoặc slot chưa từng được lưu) — lấp các ô
+    // còn trống theo đúng thứ tự vị trí như hành vi cũ (best-effort).
+    int nextUnclaimed = 0;
+    for(int slot = 0; slot < finalCount; slot++) {
+        if(finalPrices[slot] != 0) continue;
+        while(nextUnclaimed < realCount && claimed[nextUnclaimed]) nextUnclaimed++;
+        if(nextUnclaimed >= realCount) break;
+        finalPrices[slot]  = slotPrices[nextUnclaimed];
+        finalPosTk[slot]   = slotPosTk[nextUnclaimed];
+        finalOrderTk[slot] = slotOrderTk[nextUnclaimed];
+        claimed[nextUnclaimed] = true;
+        nextUnclaimed++;
+    }
+
+    if(recoveredGaps > 0)
+        Print("RTB: RebuildDCAState ", (posType==POSITION_TYPE_BUY?"BUY":"SELL"),
+              " khôi phục giá của ", recoveredGaps, " tầng mất dấu trên broker (nhờ GlobalVariable) — sẽ tự đặt lại lệnh refill.");
+
+    ulong  frontierTk = 0;
+    double frontierPx = 0;
+    int    nCand = ArraySize(candTk);
+    if(nCand > 0) {
+        double refPrice = (realCount > 0) ? slotPrices[realCount-1] : LastOpenPrice(posType);
+        if(refPrice == 0)
+            refPrice = (posType == POSITION_TYPE_BUY) ? SymbolInfoDouble(_Symbol, SYMBOL_ASK)
+                                                       : SymbolInfoDouble(_Symbol, SYMBOL_BID);
+        int    best     = -1;
+        double bestDist = 0;
+        for(int c = 0; c < nCand; c++) {
+            double d = MathAbs(candPx[c] - refPrice);
+            if(best < 0 || d < bestDist) { best = c; bestDist = d; }
+        }
+        for(int c = 0; c < nCand; c++) {
+            if(c == best) continue;
+            if(Trade.OrderDelete(candTk[c]))
+                Print("RTB: RebuildDCAState huỷ lệnh chờ tầng-kế-tiếp DƯ THỪA (phantom) ticket=", candTk[c], " giá=", candPx[c]);
+            else
+                Print("RTB: RebuildDCAState không huỷ được lệnh chờ dư thừa ticket=", candTk[c], ", err=", GetLastError());
+        }
+        if(best >= 0) {
+            if(finalCount < cap) { frontierTk = candTk[best]; frontierPx = candPx[best]; }
+            else {
+                // Đã dùng hết cap (đủ InpMaxBuy/Sell tầng) — không còn chỗ theo dõi
+                // lệnh chờ tầng-kế-tiếp này nữa, huỷ luôn thay vì bỏ mặc mồ côi.
+                if(Trade.OrderDelete(candTk[best]))
+                    Print("RTB: RebuildDCAState huỷ lệnh chờ tầng-kế-tiếp (đã đạt cap=", cap, ") ticket=", candTk[best], " giá=", candPx[best]);
+                else
+                    Print("RTB: RebuildDCAState không huỷ được lệnh chờ tầng-kế-tiếp (đã đạt cap) ticket=", candTk[best], ", err=", GetLastError());
+            }
+        }
+    }
+
+    if(posType == POSITION_TYPE_BUY) {
+        PeakDCABuy = finalCount;
+        for(int s = 0; s < finalCount; s++) {
+            DCABuyPrices[s]    = finalPrices[s];
+            DCABuyTickets[s]   = finalPosTk[s];
+            DCABuyLimitTk[s]   = finalOrderTk[s];
+            DCABuyBounced[s]   = false;
+        }
+        if(frontierTk > 0) { DCABuyPrices[finalCount] = frontierPx; DCABuyLimitTk[finalCount] = frontierTk; }
+    } else {
+        PeakDCASell = finalCount;
+        for(int s = 0; s < finalCount; s++) {
+            DCASellPrices[s]    = finalPrices[s];
+            DCASellTickets[s]   = finalPosTk[s];
+            DCASellLimitTk[s]   = finalOrderTk[s];
+            DCASellBounced[s]   = false;
+        }
+        if(frontierTk > 0) { DCASellPrices[finalCount] = frontierPx; DCASellLimitTk[finalCount] = frontierTk; }
+    }
+    for(int s = 0; s < finalCount; s++) SaveSlotPrice(posType, s, finalPrices[s]);
+    SavePeak(posType, finalCount);
+    Print("RTB: RebuildDCAState ", (posType==POSITION_TYPE_BUY?"BUY":"SELL"), " peak=", finalCount,
+          (frontierTk > 0 ? " (+1 lệnh chờ tầng kế tiếp)" : ""));
 }
 
 //+------------------------------------------------------------------+

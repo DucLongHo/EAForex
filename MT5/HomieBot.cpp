@@ -1032,6 +1032,15 @@ void CheckTeleH1Report() {
     QueueTelegramMessage(StringFormat("📊 [H1] DD: %.2f%% | Vốn: $%.2f", ddPct, balance));
 }
 
+double RealizedCloseProfit(double fallback) {
+    ulong dealTk = Trade.ResultDeal();
+    if(dealTk > 0 && HistoryDealSelect(dealTk))
+        return HistoryDealGetDouble(dealTk, DEAL_PROFIT) +
+               HistoryDealGetDouble(dealTk, DEAL_SWAP) +
+               HistoryDealGetDouble(dealTk, DEAL_COMMISSION);
+    return fallback;
+}
+
 void CheckTrimming() {
     if(g_TrimMode == TRIM_OFF) return;
     if(CountAllForTrim() < g_TrimTrigger) return;
@@ -1104,12 +1113,26 @@ void CheckTrimming() {
 
             double finalEffTarget = g_TrimTarget + (groupHasManual ? manualDebt : 0.0);
             if(winSum + worstSum >= finalEffTarget) {
-                for(int i = 0; i < wn2; i++) Trade.PositionClose(tks[winIdx[i]]);
-                for(int i = 0; i < wn;  i++) Trade.PositionClose(tks[worstIdx[i]]);
-                if(groupHasManual && manualDebt > 0) {
-                    g_ManualSLLossTotal = 0;
-                    GlobalVariableSet("RTB_ManualSLLoss_" + _Symbol + "_" + IntegerToString(InpMagic), 0.0);
-                    manualDebt = 0;
+                double realizedGroupPL = 0;
+                for(int i = 0; i < wn2; i++) {
+                    bool okClose = Trade.PositionClose(tks[winIdx[i]]);
+                    double rp = okClose ? RealizedCloseProfit(profits[winIdx[i]]) : profits[winIdx[i]];
+                    realizedGroupPL += rp;
+                    Print("RTB: Trim đóng ticket=", tks[winIdx[i]], " (thắng) profit=", rp);
+                }
+                for(int i = 0; i < wn;  i++) {
+                    bool okClose = Trade.PositionClose(tks[worstIdx[i]]);
+                    double rp = okClose ? RealizedCloseProfit(profits[worstIdx[i]]) : profits[worstIdx[i]];
+                    realizedGroupPL += rp;
+                    Print("RTB: Trim đóng ticket=", tks[worstIdx[i]], " (thua) profit=", rp);
+                }
+                if(groupHasManual) {
+                    double oldReserve = g_ManualSLLossTotal;
+                    g_ManualSLLossTotal += realizedGroupPL - g_TrimTarget;
+                    GlobalVariableSet("RTB_ManualSLLoss_" + _Symbol + "_" + IntegerToString(InpMagic), g_ManualSLLossTotal);
+                    manualDebt = (g_ManualSLLossTotal < 0) ? -g_ManualSLLossTotal : 0.0;
+                    Print("RTB: Trim dự trữ tay: realizedPL=", realizedGroupPL, " target=", g_TrimTarget,
+                          " cũ=", oldReserve, " mới=", g_ManualSLLossTotal);
                 }
                 closedCycles++;
             } else break;
@@ -1197,12 +1220,26 @@ void CheckTrimming() {
 
             double finalEffTarget = g_TrimTarget + (groupHasManual ? manualDebt : 0.0);
             if(winSum + worstSum >= finalEffTarget) {
-                for(int i = 0; i < wn2; i++) Trade.PositionClose(tks[winIdx[i]]);
-                for(int i = 0; i < wn;  i++) Trade.PositionClose(tks[worstIdx[i]]);
-                if(groupHasManual && manualDebt > 0) {
-                    g_ManualSLLossTotal = 0;
-                    GlobalVariableSet("RTB_ManualSLLoss_" + _Symbol + "_" + IntegerToString(InpMagic), 0.0);
-                    manualDebt = 0;
+                double realizedGroupPL = 0;
+                for(int i = 0; i < wn2; i++) {
+                    bool okClose = Trade.PositionClose(tks[winIdx[i]]);
+                    double rp = okClose ? RealizedCloseProfit(profits[winIdx[i]]) : profits[winIdx[i]];
+                    realizedGroupPL += rp;
+                    Print("RTB: Trim đóng ticket=", tks[winIdx[i]], " (thắng) profit=", rp);
+                }
+                for(int i = 0; i < wn;  i++) {
+                    bool okClose = Trade.PositionClose(tks[worstIdx[i]]);
+                    double rp = okClose ? RealizedCloseProfit(profits[worstIdx[i]]) : profits[worstIdx[i]];
+                    realizedGroupPL += rp;
+                    Print("RTB: Trim đóng ticket=", tks[worstIdx[i]], " (thua) profit=", rp);
+                }
+                if(groupHasManual) {
+                    double oldReserve = g_ManualSLLossTotal;
+                    g_ManualSLLossTotal += realizedGroupPL - g_TrimTarget;
+                    GlobalVariableSet("RTB_ManualSLLoss_" + _Symbol + "_" + IntegerToString(InpMagic), g_ManualSLLossTotal);
+                    manualDebt = (g_ManualSLLossTotal < 0) ? -g_ManualSLLossTotal : 0.0;
+                    Print("RTB: Trim dự trữ tay: realizedPL=", realizedGroupPL, " target=", g_TrimTarget,
+                          " cũ=", oldReserve, " mới=", g_ManualSLLossTotal);
                 }
                 closedCycles++;
             } else break;
@@ -2065,9 +2102,10 @@ void UpdateGUI(bool forceCalRefresh = false) {
     LblR("TrimTgtV", StringFormat("$%.2f", g_TrimTarget), rightEdge, yt, C'231,236,245', 10); yt += 15;
     Lbl ("TrimManL", "Lệnh tay", contentX + 8, yt, C'127,139,163', 10);
     LblR("TrimManV", g_TrimIncludeManual ? "Có tham gia" : "Không", rightEdge, yt, g_TrimIncludeManual ? C'62,207,142' : C'127,139,163', 10); yt += 15;
-    Lbl ("TrimSLL", "SL lệnh tay", contentX + 8, yt, C'127,139,163', 10);
-    LblR("TrimSLV", StringFormat("%s$%.2f", g_ManualSLLossTotal > 0 ? "+" : "-", MathAbs(g_ManualSLLossTotal)),
-         rightEdge, yt, g_ManualSLLossTotal < 0 ? clrTomato : C'231,236,245', 10);
+    Lbl ("TrimSLL", "Vốn dự trữ", contentX + 8, yt, C'127,139,163', 10);
+    color trimSLClr = (g_ManualSLLossTotal > 0) ? clrLimeGreen : (g_ManualSLLossTotal < 0 ? clrTomato : C'231,236,245');
+    LblR("TrimSLV", StringFormat("%s$%.2f", g_ManualSLLossTotal >= 0 ? "+" : "-", MathAbs(g_ManualSLLossTotal)),
+         rightEdge, yt, trimSLClr, 10);
     y2 += trimH + 8;
 
     int twinH = 6 + 12 + 3 + 17 + 3 + 12 + 6;
@@ -2529,34 +2567,18 @@ void OnTimer() {
     FlushTelegramQueue();
 }
 
-void TrackManualSLLoss(ulong dealTk) {
+void TrackManualCloseDebt(ulong dealTk) {
     if(dealTk == 0 || !HistoryDealSelect(dealTk)) return;
     if(HistoryDealGetString(dealTk, DEAL_SYMBOL) != _Symbol) return;
     if(HistoryDealGetInteger(dealTk, DEAL_MAGIC) != 0) return;
     ENUM_DEAL_ENTRY de = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(dealTk, DEAL_ENTRY);
     if(de != DEAL_ENTRY_OUT && de != DEAL_ENTRY_OUT_BY) return;
-    if((ENUM_DEAL_REASON)HistoryDealGetInteger(dealTk, DEAL_REASON) != DEAL_REASON_SL) return;
+    if((ENUM_DEAL_REASON)HistoryDealGetInteger(dealTk, DEAL_REASON) == DEAL_REASON_EXPERT) return;
 
-    g_ManualSLLossTotal += HistoryDealGetDouble(dealTk, DEAL_PROFIT) +
-                           HistoryDealGetDouble(dealTk, DEAL_SWAP) +
-                           HistoryDealGetDouble(dealTk, DEAL_COMMISSION);
-    GlobalVariableSet("RTB_ManualSLLoss_" + _Symbol + "_" + IntegerToString(InpMagic), g_ManualSLLossTotal);
-}
-
-void TrackManualTPProfit(ulong dealTk) {
-    if(g_ManualSLLossTotal >= 0) return;
-    if(dealTk == 0 || !HistoryDealSelect(dealTk)) return;
-    if(HistoryDealGetString(dealTk, DEAL_SYMBOL) != _Symbol) return;
-    if(HistoryDealGetInteger(dealTk, DEAL_MAGIC) != 0) return;
-    ENUM_DEAL_ENTRY de = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(dealTk, DEAL_ENTRY);
-    if(de != DEAL_ENTRY_OUT && de != DEAL_ENTRY_OUT_BY) return;
-    if((ENUM_DEAL_REASON)HistoryDealGetInteger(dealTk, DEAL_REASON) != DEAL_REASON_TP) return;
-
-    double dealProfit = HistoryDealGetDouble(dealTk, DEAL_PROFIT) +
-                         HistoryDealGetDouble(dealTk, DEAL_SWAP) +
-                         HistoryDealGetDouble(dealTk, DEAL_COMMISSION);
-    g_ManualSLLossTotal += dealProfit;
-    if(g_ManualSLLossTotal > 0) g_ManualSLLossTotal = 0;
+    double dealPL = HistoryDealGetDouble(dealTk, DEAL_PROFIT) +
+                    HistoryDealGetDouble(dealTk, DEAL_SWAP) +
+                    HistoryDealGetDouble(dealTk, DEAL_COMMISSION);
+    g_ManualSLLossTotal += dealPL;
     GlobalVariableSet("RTB_ManualSLLoss_" + _Symbol + "_" + IntegerToString(InpMagic), g_ManualSLLossTotal);
 }
 
@@ -2566,8 +2588,7 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
     if(trans.type == TRADE_TRANSACTION_DEAL_ADD) {
         UpdateDayProfit();
         CheckDayLimit();
-        TrackManualSLLoss(trans.deal);
-        TrackManualTPProfit(trans.deal);
+        TrackManualCloseDebt(trans.deal);
         UpdateGUI(true);
     }
 }

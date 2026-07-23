@@ -382,7 +382,7 @@ double DCAOrderLot(double baseLot, int orderIdx1) {
     return NormLot(baseLot * DCA_Mult);
 }
 
-bool OpenOrder(int ordType, double lot, double tp_pts = 0, double sl_pts = 0, bool isDCA = false) {
+bool OpenOrder(int ordType, double lot, double tp_pts = 0, double sl_pts = 0, bool isDCA = false, int slotIdx = -1) {
     double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
     double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
     double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
@@ -408,10 +408,11 @@ bool OpenOrder(int ordType, double lot, double tp_pts = 0, double sl_pts = 0, bo
 
     string comment;
     if(isDCA) {
-        if(tp_pts == 0 && sl_pts == 0)
-            comment = "RTB|0|0|D";
+        string base = (tp_pts == 0 && sl_pts == 0) ? "RTB|0|0" : StringFormat("RTB|%.0f|%.0f", tp_pts, sl_pts);
+        if(slotIdx >= 0)
+            comment = base + "|S" + IntegerToString(slotIdx);
         else
-            comment = StringFormat("RTB|%.0f|%.0f", tp_pts, sl_pts);
+            comment = (tp_pts == 0 && sl_pts == 0) ? base + "|D" : base;
     }
     else comment = "RTB|0|0";
 
@@ -781,9 +782,10 @@ void CheckDCA(int posType) {
                 }
 
                 double lot = DCAOrderLot(InpLotSize, slot + 1);
-                string cmt = (DCA_TP == 0 && DCA_SL == 0)
-                    ? "RTB|0|0|D|RF"
-                    : "RTB|" + IntegerToString((int)DCA_TP) + "|" + IntegerToString((int)DCA_SL) + "|RF";
+                string cmt = ((DCA_TP == 0 && DCA_SL == 0)
+                    ? "RTB|0|0"
+                    : "RTB|" + IntegerToString((int)DCA_TP) + "|" + IntegerToString((int)DCA_SL))
+                    + "|S" + IntegerToString(slot) + "|RF";
                 bool ok = false;
                 if(posType == POSITION_TYPE_BUY) {
                     double tp_p = DCA_TP > 0 ? NormalizeDouble(slotPrice + DCA_TP * point, _Digits) : 0;
@@ -874,7 +876,7 @@ void CheckDCA(int posType) {
     if(goMarket) {
         int ord = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
         Print("RTB: DCA vào market. peak=", peak);
-        bool ok = OpenOrder(ord, lot, DCA_TP, DCA_SL, true);
+        bool ok = OpenOrder(ord, lot, DCA_TP, DCA_SL, true, peak);
         ulong newTk = Trade.ResultOrder();
         if(ok && newTk > 0) {
             double fillPrice = 0;
@@ -919,9 +921,10 @@ void CheckDCA(int posType) {
         }
     }
 
-    string cmt = (DCA_TP == 0 && DCA_SL == 0)
-        ? "RTB|0|0|D"
-        : "RTB|" + IntegerToString((int)DCA_TP) + "|" + IntegerToString((int)DCA_SL);
+    string cmt = ((DCA_TP == 0 && DCA_SL == 0)
+        ? "RTB|0|0"
+        : "RTB|" + IntegerToString((int)DCA_TP) + "|" + IntegerToString((int)DCA_SL))
+        + "|S" + IntegerToString(peak);
     bool placed;
     if(posType == POSITION_TYPE_BUY) {
         double tp_p = DCA_TP > 0 ? NormalizeDouble(target + DCA_TP * point, _Digits) : 0;
@@ -2142,7 +2145,7 @@ void UpdateGUI(bool forceCalRefresh = false) {
     int bg2Y = contentBottom + 8;
 
     if(!g_PanelCollapsed) {
-    int bg3Y = bg2Y + 88 + 8;
+    int bg3Y = bg2Y + 66 + 8;
 
     int y = bg2Y + 10;
     Lbl("P2T", "ĐIỀU KHIỂN LỆNH", x + 8, y, C'95,108,132', 9);
@@ -2155,8 +2158,6 @@ void UpdateGUI(bool forceCalRefresh = false) {
         CreateBtn("BtnBotToggle", botTxt, PX+7, y, bfw, bh, botBg, botBd);
         y += bh + 4;
     }
-
-    CreateBtn("BtnCloseAll",    "  Close All",     PX+7, y, bfw, bh, C'20,60,150',  C'80,130,230');
 
     int y3 = bg3Y + 10;
     Lbl("P3T", "THỐNG KÊ", contentX + 8, y3, C'95,108,132', 9);
@@ -2182,7 +2183,7 @@ void UpdateGUI(bool forceCalRefresh = false) {
 
     } else {
         string collapsedObjs[] = {
-            "P2T", "BtnBotToggle", "BtnCloseAll",
+            "P2T", "BtnBotToggle",
             "P3T", "BtnCalToggle",
             "P4T", "BtnOpenBuy", "BtnOpenSell"
         };
@@ -2237,6 +2238,22 @@ void ApplyBotEnabled(bool newVal) {
     g_BotEnabled = newVal;
 }
 
+int ParseSlotTag(string cmt) {
+    string parts[];
+    int np = StringSplit(cmt, '|', parts);
+    for(int i = 0; i < np; i++) {
+        if(StringLen(parts[i]) < 2 || StringGetCharacter(parts[i], 0) != 'S') continue;
+        string digits = StringSubstr(parts[i], 1);
+        bool allDigits = StringLen(digits) > 0;
+        for(int c = 0; c < StringLen(digits) && allDigits; c++) {
+            ushort ch = StringGetCharacter(digits, c);
+            if(ch < '0' || ch > '9') allDigits = false;
+        }
+        if(allDigits) return (int)StringToInteger(digits);
+    }
+    return -1;
+}
+
 void RebuildDCAState(int posType) {
     int cap = (posType == POSITION_TYPE_BUY) ? ArraySize(DCABuyPrices) : ArraySize(DCASellPrices);
 
@@ -2244,10 +2261,12 @@ void RebuildDCAState(int posType) {
     datetime slotTimes[];
     ulong    slotPosTk[];
     ulong    slotOrderTk[];
+    int      slotTag[];
     ArrayResize(slotPrices, cap);
     ArrayResize(slotTimes, cap);
     ArrayResize(slotPosTk, cap);
     ArrayResize(slotOrderTk, cap);
+    ArrayResize(slotTag, cap);
     int      count = 0;
     double   tol = 5.0 * _Point;
 
@@ -2271,6 +2290,7 @@ void RebuildDCAState(int posType) {
         slotTimes[count]   = (datetime)PositionGetInteger(POSITION_TIME);
         slotPosTk[count]   = tk;
         slotOrderTk[count] = 0;
+        slotTag[count]     = ParseSlotTag(cmt);
         count++;
     }
 
@@ -2312,6 +2332,7 @@ void RebuildDCAState(int posType) {
             slotTimes[count]   = (datetime)OrderGetInteger(ORDER_TIME_SETUP);
             slotPosTk[count]   = 0;
             slotOrderTk[count] = tk;
+            slotTag[count]     = ParseSlotTag(cmt);
             count++;
         } else {
             int nc = ArraySize(candTk);
@@ -2325,17 +2346,20 @@ void RebuildDCAState(int posType) {
     for(int i = 1; i < count; i++) {
         datetime kt = slotTimes[i]; double kp = slotPrices[i];
         ulong kpTk = slotPosTk[i];  ulong koTk = slotOrderTk[i];
+        int kTag = slotTag[i];
         int j = i - 1;
         bool outOfOrder = (posType == POSITION_TYPE_BUY) ? (j >= 0 && slotPrices[j] < kp)
                                                           : (j >= 0 && slotPrices[j] > kp);
         while(outOfOrder) {
             slotTimes[j+1] = slotTimes[j]; slotPrices[j+1] = slotPrices[j];
             slotPosTk[j+1] = slotPosTk[j]; slotOrderTk[j+1] = slotOrderTk[j];
+            slotTag[j+1] = slotTag[j];
             j--;
             outOfOrder = (posType == POSITION_TYPE_BUY) ? (j >= 0 && slotPrices[j] < kp)
                                                          : (j >= 0 && slotPrices[j] > kp);
         }
         slotTimes[j+1] = kt; slotPrices[j+1] = kp; slotPosTk[j+1] = kpTk; slotOrderTk[j+1] = koTk;
+        slotTag[j+1] = kTag;
     }
 
     int realCount = count;
@@ -2365,18 +2389,23 @@ void RebuildDCAState(int posType) {
     int recoveredGaps = 0;
     for(int slot = 0; slot < finalCount; slot++) {
         double expected = LoadSlotPrice(posType, slot);
-        if(expected <= 0) continue;
         int matchIdx = -1;
         for(int b = 0; b < realCount; b++) {
             if(claimed[b]) continue;
-            if(MathAbs(slotPrices[b] - expected) < tol) { matchIdx = b; break; }
+            if(slotTag[b] == slot) { matchIdx = b; break; }
+        }
+        if(matchIdx < 0 && expected > 0) {
+            for(int b = 0; b < realCount; b++) {
+                if(claimed[b]) continue;
+                if(MathAbs(slotPrices[b] - expected) < tol) { matchIdx = b; break; }
+            }
         }
         if(matchIdx >= 0) {
             finalPrices[slot]  = slotPrices[matchIdx];
             finalPosTk[slot]   = slotPosTk[matchIdx];
             finalOrderTk[slot] = slotOrderTk[matchIdx];
             claimed[matchIdx]  = true;
-        } else {
+        } else if(expected > 0) {
             finalPrices[slot] = expected;
             recoveredGaps++;
         }
@@ -2595,8 +2624,7 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
 
 void OnChartEvent(const int id, const long& lparam, const double& dparam, const string& sparam) {
     if(id != CHARTEVENT_OBJECT_CLICK) return;
-    if     (sparam == GUI + "BtnCloseAll")    { ApplyBotEnabled(false); UpdateGUI(); }
-    else if(sparam == GUI + "BtnOpenBuy") {
+    if     (sparam == GUI + "BtnOpenBuy") {
         if(!DayLimitHit && g_BotEnabled && CountBuy() < DCA_MaxOrd + 1) {
             Trade.SetExpertMagicNumber(0);
             OpenOrder(ORDER_TYPE_BUY, InpLotSize, g_TP_Points, g_SL_Points);

@@ -1,8 +1,3 @@
-//+------------------------------------------------------------------+
-//|                                              HomieBot.mq5        |
-//|                             Homie Bot v1.0 (MQL5)                 |
-//|   Bản rút gọn — không Pyramiding (Nhồi Dương), không License/Sync |
-//+------------------------------------------------------------------+
 #property copyright "Homie Bot v1.0"
 #property version   "1.00"
 #property strict
@@ -12,19 +7,12 @@
 
 CTrade    Trade;
 
-//+------------------------------------------------------------------+
-//| ENUMS                                                            |
-//+------------------------------------------------------------------+
-enum ENUM_SIGNAL_MODE  { SIG_SIMULATED, SIG_UT_BOT };
 enum ENUM_DIRECTION    { DIR_BOTH, DIR_ONLY_BUY, DIR_ONLY_SELL };
 enum ENUM_DCA_MODE     { DCA_STOP, DCA_STEP, DCA_STEP_TF };
 enum ENUM_TRAIL_MODE   { TRAIL_BASKET, TRAIL_SINGLE };
 enum ENUM_BOT_MODE     { MODE_AUTO, MODE_SEMI_AUTO };
 enum ENUM_TRIM_MODE    { TRIM_OFF, TRIM_HEDGE, TRIM_HEDGE_PTS };
 
-//+------------------------------------------------------------------+
-//| INPUT: BASE SETTINGS                                             |
-//+------------------------------------------------------------------+
 input group         "══════ CÀI ĐẶT CƠ BẢN ══════"; //
 input  ENUM_BOT_MODE InpBotMode = MODE_AUTO;  // Chế độ: Tự động / Bán tự động
 input  bool    InpBotEnabled   = true;    // Bật Bot (tắt = đóng toàn bộ lệnh + dừng mọi hoạt động)
@@ -37,24 +25,14 @@ input  ulong   InpMagic        = 202601;  // Magic Number
 input  double  InpTP_Points    = 3000.0;  // TP mỗi lệnh (points)
 input  double  InpSL_Points    = 0.0;     // SL mỗi lệnh (points, 0=tắt)
 
-//+------------------------------------------------------------------+
-//| INPUT: ENTRY SIGNAL                                              |
-//+------------------------------------------------------------------+
 input group         "══════ TÍN HIỆU VÀO LỆNH ══════"; //
-input  ENUM_SIGNAL_MODE InpSignalMode = SIG_UT_BOT;   // Chiến lược tín hiệu
 input  ENUM_DIRECTION   InpDirection  = DIR_BOTH;     // Hướng giao dịch
-input  ENUM_TIMEFRAMES  InpSignalTF   = PERIOD_H1;    // Khung thời gian tín hiệu
 
-//+------------------------------------------------------------------+
-//| INPUT: UT BOT                                                    |
-//+------------------------------------------------------------------+
-input group         "══════ UT BOT ══════"; //
-input  int     InpUTKeyValue  = 1;    // Key Value (độ nhạy ATR)
-input  int     InpUTATRPeriod = 10;   // ATR Period
+input group         "══════ LỆNH TAY - AUTO TP/SL ══════"; //
+input  bool    InpManualAutoSLTP  = false;   // Tự động đặt TP/SL cho lệnh tay
+input  double  InpManualTP_Points = 3000.0;  // TP tự động cho lệnh tay (points, 0=tắt)
+input  double  InpManualSL_Points = 0.0;     // SL tự động cho lệnh tay (points, 0=tắt)
 
-//+------------------------------------------------------------------+
-//| INPUT: DCA                                                       |
-//+------------------------------------------------------------------+
 input group         "══════ DCA - CÀI ĐẶT CHUNG ══════"; //
 input  ENUM_DCA_MODE InpDCAMode     = DCA_STEP; // DCA: Chế độ
 input  bool          InpDCABuyEnable  = true;   // DCA: Bật DCA chiều Buy
@@ -69,9 +47,6 @@ input  double  InpDCA1Dist = 1000.0; // DCA: Khoảng cách (points)
 input  double  InpDCA1TP   = 500.0;  // DCA: TP (points)
 input  double  InpDCA1SL   = 0.0;    // DCA: SL (points, 0=tắt)
 
-//+------------------------------------------------------------------+
-//| INPUT: ORDER TRIMMING                                            |
-//+------------------------------------------------------------------+
 input group         "══════ TỈA LỆNH (TRIMMING) ══════"; //
 input  ENUM_TRIM_MODE InpTrimMode    = TRIM_OFF; // Chế độ (Off/Hedge/Hedge theo điểm)
 input  int     InpTrimTrigger    = 5;      // Kích hoạt khi số lệnh >= X
@@ -81,9 +56,6 @@ input  int     InpTrimMaxWin     = 1;      // [Hedge] Số lệnh dương tối 
 input  int     InpTrimMaxCycles  = 1;      // [Hedge] Số chu kỳ ghép cặp tối đa mỗi lượt tỉa
 input  bool    InpTrimIncludeManual = false; // Cho phép lệnh tay (Magic=0) tham gia tỉa kể cả ở chế độ Tự Động
 
-//+------------------------------------------------------------------+
-//| INPUT: TRAILING STOP                                             |
-//+------------------------------------------------------------------+
 input group         "══════ TRAILING STOP ══════"; //
 input  bool          InpTrailEnable   = false;        // Bật Trailing
 input  ENUM_TRAIL_MODE InpTrailMode   = TRAIL_BASKET; // Basket hoặc Đơn lẻ
@@ -96,9 +68,6 @@ input  color         InpTrailBuyColor = clrLimeGreen; // Màu đường Trail Bu
 input  color         InpTrailSellColor= clrTomato;    // Màu đường Trail Sell
 input  int           InpTrailLineWidth= 2;            // Độ dày đường Trail (1-5)
 
-//+------------------------------------------------------------------+
-//| INPUT: EXIT LOGIC                                                |
-//+------------------------------------------------------------------+
 input group         "══════ ĐÓNG LỆNH TỔNG ══════"; //
 input  double  InpCloseProfit  = 0.0;  // Chốt lời khi tổng lãi đạt ($, 0=tắt)
 input  double  InpCloseLoss    = 0.0;  // Cắt lỗ khi tổng lỗ đạt ($, 0=tắt)
@@ -106,18 +75,11 @@ input  double  InpClosePerPips = 0.0;  // Đóng từng lệnh khi đạt (point
 input  double  InpDayMaxLoss   = 0.0;  // Dừng bot khi lỗ ngày đạt ($, 0=tắt)
 input  double  InpDayMaxProfit = 0.0;  // Dừng bot khi lãi ngày đạt ($, 0=tắt)
 
-//+------------------------------------------------------------------+
-//| INPUT: TELEGRAM ALERT                                            |
-//+------------------------------------------------------------------+
 input group         "══════ TELEGRAM ALERT ══════"; //
-input  bool    InpTeleEnable   = false; // Bật báo Telegram
+input  bool    InpTeleEnable   = false; // Bật báo Telegram (DD + Vốn mỗi khi đóng nến H1)
 input  string  InpTeleBotToken = "8854647005:AAGgjy92keWNlVs9RhnBp_F_eP6sFxU4qOg";    // Bot Token
 input  string  InpTeleChatID   = "-5513792765";    // Chat ID
-input  double  InpTeleDDStep   = 20.0;  // Báo khi DD vượt mỗi X% (0=tắt)
 
-//+------------------------------------------------------------------+
-//| INPUT: PANEL                                                     |
-//+------------------------------------------------------------------+
 input group         "══════ PANEL ══════"; //
 input  bool    InpShowPanel  = true;  // Hiện panel
 input  int     InpPanelX     = 5;     // Panel: tọa độ X
@@ -125,15 +87,6 @@ input  int     InpPanelY     = 18;    // Panel: tọa độ Y
 input  int     InpPanelWidth = 252;   // Panel: chiều rộng
 input  int     InpCalPanelGap = 12;   // Lịch: khoảng cách với panel chính
 input  int     InpCalPanelY  = 18;    // Lịch: tọa độ Y
-
-//+------------------------------------------------------------------+
-//| GLOBAL STATE                                                     |
-//+------------------------------------------------------------------+
-int      hATR       = INVALID_HANDLE;
-
-double   g_ats_ut        = 0.0;
-int      g_ats_ut_signal = 0;
-datetime g_last_bar_ut   = 0;
 
 ENUM_DCA_MODE DCA_Mode;
 double        DCA_Mult;
@@ -187,9 +140,10 @@ const string GUI = "RTB_";
 bool     g_BotEnabled           = true;
 datetime g_LastBotToggleClick   = 0;
 
-ENUM_SIGNAL_MODE g_SignalMode;
 ENUM_DIRECTION   g_Direction;
-int              g_UTKeyValue;
+
+bool   g_ManualAutoSLTP;
+double g_ManualTP_Points, g_ManualSL_Points;
 
 bool   g_UseTakeProfit, g_UseStopLoss, g_StealthMode;
 int    g_OrderDelay;
@@ -210,15 +164,13 @@ double           g_TrailActivate, g_TrailStep, g_TrailInit;
 
 double g_CloseProfit, g_CloseLoss, g_ClosePerPips, g_DayMaxLoss, g_DayMaxProfit;
 
-bool   g_TeleEnable;
-string g_TeleBotToken, g_TeleChatID;
-double g_TeleDDStep;
-int    g_LastDDAlertLevel = 0;
-string g_TeleQueue[];
+bool     g_TeleEnable;
+string   g_TeleBotToken, g_TeleChatID;
+datetime g_LastTeleH1Bar = 0;
+string   g_TeleQueue[];
 
-//+------------------------------------------------------------------+
-//| UTILITY FUNCTIONS                                                |
-//+------------------------------------------------------------------+
+double g_ManualSLLossTotal = 0.0;
+
 
 bool IsManaged() {
     if(PositionGetString(POSITION_SYMBOL) != _Symbol) return false;
@@ -228,9 +180,6 @@ bool IsManaged() {
     return false;
 }
 
-// Dùng riêng cho hệ thống Tỉa Lệnh — khi InpTrimIncludeManual=true, lệnh tay
-// (Magic=0) được tính là "quản lý" cho mục đích tỉa NGAY CẢ ở chế độ Tự Động
-// (bình thường IsManaged() chỉ chấp nhận Magic=0 ở chế độ Bán Tự Động).
 bool IsManagedForTrim() {
     if(PositionGetString(POSITION_SYMBOL) != _Symbol) return false;
     long magic = PositionGetInteger(POSITION_MAGIC);
@@ -239,9 +188,6 @@ bool IsManagedForTrim() {
     return false;
 }
 
-// Dùng riêng cho panel GUI — luôn tính cả lệnh tay (Magic=0) bất kể InpBotMode,
-// để panel phản ánh đúng toàn bộ vị thế đang có trên symbol này (chỉ hiển thị,
-// không ảnh hưởng logic vào/tỉa/đóng lệnh nào cả).
 bool IsManagedForDisplay() {
     if(PositionGetString(POSITION_SYMBOL) != _Symbol) return false;
     long magic = PositionGetInteger(POSITION_MAGIC);
@@ -262,8 +208,6 @@ int CountPos(int posType) {
 int CountBuy()  { return CountPos(POSITION_TYPE_BUY);  }
 int CountSell() { return CountPos(POSITION_TYPE_SELL); }
 
-// Đếm riêng cho Tỉa Lệnh — dùng IsManagedForTrim() thay vì IsManaged(), để lệnh
-// tay được tính vào ngưỡng InpTrimTrigger khi InpTrimIncludeManual=true.
 int CountAllForTrim() {
     int n = 0;
     for(int i = PositionsTotal()-1; i >= 0; i--) {
@@ -438,9 +382,6 @@ double DCAOrderLot(double baseLot, int orderIdx1) {
     return NormLot(baseLot * DCA_Mult);
 }
 
-//+------------------------------------------------------------------+
-//| OPEN ORDER                                                       |
-//+------------------------------------------------------------------+
 bool OpenOrder(int ordType, double lot, double tp_pts = 0, double sl_pts = 0, bool isDCA = false) {
     double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
     double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
@@ -492,52 +433,6 @@ bool OpenOrder(int ordType, double lot, double tp_pts = 0, double sl_pts = 0, bo
     return ok;
 }
 
-//+------------------------------------------------------------------+
-//| ENTRY SIGNALS                                                    |
-//+------------------------------------------------------------------+
-
-void WarmupATS(int bars) {
-    int need = bars + 5;
-    double atr[], cls[];
-    ArraySetAsSeries(atr, true);
-    ArraySetAsSeries(cls, true);
-    if(CopyBuffer(hATR, 0, 0, need, atr) < need ||
-       CopyClose(_Symbol, InpSignalTF, 0, need, cls) < need) return;
-    double ats = 0.0;
-    for(int i = bars; i >= 1; i--) {
-        double s=cls[i], sp=cls[i+1], nl=g_UTKeyValue*atr[i];
-        if     (s>ats&&sp>ats) ats=MathMax(ats,s-nl);
-        else if(s<ats&&sp<ats) ats=MathMin(ats,s+nl);
-        else if(s>ats)          ats=s-nl;
-        else                    ats=s+nl;
-    }
-    g_ats_ut = ats;
-}
-
-int SignalUTBot() {
-    datetime t0 = iTime(_Symbol, InpSignalTF, 0);
-    if(t0 == g_last_bar_ut) return g_ats_ut_signal;
-    g_last_bar_ut = t0;
-
-    double atr[];
-    ArraySetAsSeries(atr, true);
-    if(CopyBuffer(hATR, 0, 1, 1, atr) < 1) { g_ats_ut_signal = 0; return 0; }
-
-    double src      = iClose(_Symbol, InpSignalTF, 1);
-    double src_prev = iClose(_Symbol, InpSignalTF, 2);
-    double nLoss    = g_UTKeyValue * atr[0];
-    double ats_prev = g_ats_ut;
-
-    if     (src > ats_prev && src_prev > ats_prev) g_ats_ut = MathMax(ats_prev, src - nLoss);
-    else if(src < ats_prev && src_prev < ats_prev) g_ats_ut = MathMin(ats_prev, src + nLoss);
-    else if(src > ats_prev)                         g_ats_ut = src - nLoss;
-    else                                            g_ats_ut = src + nLoss;
-
-    g_ats_ut_signal = 0;
-    if(src > g_ats_ut && src_prev <= ats_prev) g_ats_ut_signal =  1;
-    if(src < g_ats_ut && src_prev >= ats_prev) g_ats_ut_signal = -1;
-    return g_ats_ut_signal;
-}
 
 int SignalSimulated() {
     if(g_Direction == DIR_ONLY_BUY)  return  1;
@@ -546,22 +441,9 @@ int SignalSimulated() {
 }
 
 int GetSignal() {
-    int sig = 0;
-    switch(g_SignalMode) {
-        case SIG_SIMULATED: sig = SignalSimulated(); break;
-        case SIG_UT_BOT:    sig = SignalUTBot();    break;
-    }
-    if(g_SignalMode != SIG_SIMULATED) {
-        if(g_Direction == DIR_ONLY_BUY  && sig < 0) return 0;
-        if(g_Direction == DIR_ONLY_SELL && sig > 0) return 0;
-    }
-    return sig;
+    return SignalSimulated();
 }
 
-//+------------------------------------------------------------------+
-//| PEAK PERSISTENCE — sống sót qua restart, tránh mất tầng nếu       |
-//| restart rơi đúng lúc 1 tầng vừa đóng nhưng refill chưa kịp đặt   |
-//+------------------------------------------------------------------+
 string PeakGVName(int posType) {
     return "RTB_Peak_" + _Symbol + "_" + IntegerToString(InpMagic) + "_" + (posType == POSITION_TYPE_BUY ? "BUY" : "SELL");
 }
@@ -597,9 +479,6 @@ void ClearSlotPrices(int posType, int cap) {
         GlobalVariableDel(SlotPxGVName(posType, i));
 }
 
-//+------------------------------------------------------------------+
-//| INITIAL ENTRY (OnTick)                                           |
-//+------------------------------------------------------------------+
 void ResetDCAState(int posType) {
     ENUM_ORDER_TYPE pendType1 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_STOP  : ORDER_TYPE_SELL_STOP;
     ENUM_ORDER_TYPE pendType2 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_LIMIT : ORDER_TYPE_SELL_LIMIT;
@@ -688,9 +567,6 @@ void CheckEntry() {
     if(sig < 0) TryOpenSell();
 }
 
-//+------------------------------------------------------------------+
-//| DCA PRIMARY CHAIN HELPERS (Semi-Auto multi-entry)               |
-//+------------------------------------------------------------------+
 
 int CountBotDCA(int posType) {
     int n = 0;
@@ -759,9 +635,6 @@ double LastPrimaryPrice(int posType) {
     return OldestManualPrice(posType);
 }
 
-//+------------------------------------------------------------------+
-//| DCA LOGIC                                                        |
-//+------------------------------------------------------------------+
 
 bool IsSlotOpen(int posType, int slot) {
     ulong tk = (posType == POSITION_TYPE_BUY) ? DCABuyTickets[slot] : DCASellTickets[slot];
@@ -878,7 +751,7 @@ void CheckDCA(int posType) {
                     if(posType == POSITION_TYPE_SELL && sig != -1) continue;
                 }
 
-                double tolDup = 0.5 * point;
+                double tolDup = 50.0 * point;
                 bool duplicateExists = false;
                 for(int pi = PositionsTotal()-1; pi >= 0 && !duplicateExists; pi--) {
                     ulong ptk = PositionGetTicket(pi);
@@ -1016,7 +889,7 @@ void CheckDCA(int posType) {
     }
 
     {
-        double tolDupPeak = 0.5 * point;
+        double tolDupPeak = 50.0 * point;
         bool duplicateAtTarget = false;
         for(int pi = PositionsTotal()-1; pi >= 0 && !duplicateAtTarget; pi--) {
             ulong ptk = PositionGetTicket(pi);
@@ -1106,9 +979,6 @@ void CheckOrigRestart(int posType) {
     }
 }
 
-//+------------------------------------------------------------------+
-//| TELEGRAM ALERT                                                    |
-//+------------------------------------------------------------------+
 string UrlEncode(string text) {
     uchar arr[];
     int len = StringToCharArray(text, arr, 0, -1, CP_UTF8) - 1;
@@ -1138,9 +1008,6 @@ bool SendTelegramMessage(string text) {
     return true;
 }
 
-// Xếp hàng đợi thay vì gửi ngay — WebRequest() chặn đồng bộ, nếu gọi giữa lúc
-// đang xử lý DCA/Trim/GUI trong OnTimer() sẽ làm trễ toàn bộ phần còn lại của
-// tick đó. FlushTelegramQueue() ở cuối OnTimer() mới thực sự gửi đi.
 void QueueTelegramMessage(string text) {
     int n = ArraySize(g_TeleQueue);
     ArrayResize(g_TeleQueue, n + 1);
@@ -1153,47 +1020,18 @@ void FlushTelegramQueue() {
     ArrayResize(g_TeleQueue, 0);
 }
 
-void CheckDDAlert() {
-    if(!g_TeleEnable || g_TeleDDStep <= 0) return;
+void CheckTeleH1Report() {
+    if(!g_TeleEnable) return;
+    datetime curBar = iTime(_Symbol, PERIOD_H1, 0);
+    if(curBar == 0 || curBar == g_LastTeleH1Bar) return;
+    g_LastTeleH1Bar = curBar;
+
     double balance = AccountInfoDouble(ACCOUNT_BALANCE);
     double equity  = AccountInfoDouble(ACCOUNT_EQUITY);
-    if(balance <= 0) return;
-    double ddPct = (equity < balance) ? (balance - equity) / balance * 100.0 : 0;
-    int level = (int)(ddPct / g_TeleDDStep);
-    if(level > g_LastDDAlertLevel) {
-        g_LastDDAlertLevel = level;
-        QueueTelegramMessage(StringFormat("⚠ Drawdown vượt mức %.0f%% (hiện tại: %.2f%%)",
-                             level * g_TeleDDStep, ddPct));
-    } else if(ddPct <= (g_LastDDAlertLevel * g_TeleDDStep) - (g_TeleDDStep / 2.0)) {
-        // Chỉ "tháo chốt" mốc đã báo khi DD lùi sâu hơn nửa bước dưới mốc đó — có đệm
-        // chống dao động quanh đúng ranh giới (tránh báo lặp lại liên tục nếu DD cứ
-        // nhấp nhô ngay sát mốc, ví dụ 19.9% <-> 20.1%).
-        g_LastDDAlertLevel = (int)(ddPct / g_TeleDDStep);
-    }
+    double ddPct   = (balance > 0 && equity < balance) ? (balance - equity) / balance * 100.0 : 0;
+    QueueTelegramMessage(StringFormat("📊 [H1] DD: %.2f%% | Vốn: $%.2f", ddPct, balance));
 }
 
-void NotifyManualTrimClose(ulong ticket, double profit) {
-    if(!g_TeleEnable) return;
-    QueueTelegramMessage(StringFormat("🔔 Lệnh tay (ticket=%I64u) đã bị đóng do Tỉa Lệnh, P/L=$%.2f",
-                         ticket, profit));
-}
-
-// Lấy lợi nhuận THỰC TẾ của deal đóng lệnh (profit + swap + commission) từ lịch sử,
-// thay vì dùng con số profit nổi đã chụp lúc quét đầu CheckTrimming() — giữa lúc quét
-// và lúc lệnh thực sự khớp đóng, giá đã trôi thêm (đặc biệt khi đóng nhiều lệnh liên
-// tiếp trong 1 lượt tỉa), nên con số cũ luôn lệch so với giá trị chốt lệnh thật.
-double RealizedCloseProfit(double fallback) {
-    ulong dealTk = Trade.ResultDeal();
-    if(dealTk > 0 && HistoryDealSelect(dealTk))
-        return HistoryDealGetDouble(dealTk, DEAL_PROFIT) +
-               HistoryDealGetDouble(dealTk, DEAL_SWAP) +
-               HistoryDealGetDouble(dealTk, DEAL_COMMISSION);
-    return fallback;
-}
-
-//+------------------------------------------------------------------+
-//| ORDER TRIMMING                                                   |
-//+------------------------------------------------------------------+
 void CheckTrimming() {
     if(g_TrimMode == TRIM_OFF) return;
     if(CountAllForTrim() < g_TrimTrigger) return;
@@ -1221,18 +1059,14 @@ void CheckTrimming() {
             cnt++;
         }
 
-        ulong  notifyTk[];
-        double notifyProfit[];
-        int    notifyCount = 0;
-        ArrayResize(notifyTk, cnt);
-        ArrayResize(notifyProfit, cnt);
-
         int closedCycles = 0;
+        double manualDebt = (g_ManualSLLossTotal < 0) ? -g_ManualSLLossTotal : 0.0;
         for(int w = 0; w < g_TrimMaxCycles; w++) {
             int    worstIdx[];
             ArrayResize(worstIdx, g_TrimMaxLoss);
             int    wn = 0;
             double worstSum = 0;
+            bool   groupHasManual = false;
             for(int n = 0; n < g_TrimMaxLoss; n++) {
                 int wIdx = -1;
                 for(int i = 0; i < cnt; i++) {
@@ -1243,6 +1077,7 @@ void CheckTrimming() {
                 worstIdx[wn] = wIdx;
                 worstSum    += profits[wIdx];
                 used[wIdx]   = true;
+                if(magics[wIdx] == 0) groupHasManual = true;
                 wn++;
             }
             if(wn == 0) break;
@@ -1252,7 +1087,8 @@ void CheckTrimming() {
             int    wn2 = 0;
             double winSum = 0;
             for(int n = 0; n < g_TrimMaxWin; n++) {
-                if(winSum + worstSum >= g_TrimTarget) break;
+                double effTarget = g_TrimTarget + (groupHasManual ? manualDebt : 0.0);
+                if(winSum + worstSum >= effTarget) break;
                 int bIdx = -1;
                 for(int i = 0; i < cnt; i++) {
                     if(used[i]) continue;
@@ -1262,33 +1098,24 @@ void CheckTrimming() {
                 winIdx[wn2] = bIdx;
                 winSum     += profits[bIdx];
                 used[bIdx]  = true;
+                if(magics[bIdx] == 0) groupHasManual = true;
                 wn2++;
             }
 
-            if(winSum + worstSum >= g_TrimTarget) {
-                for(int i = 0; i < wn2; i++) {
-                    bool okClose = Trade.PositionClose(tks[winIdx[i]]);
-                    if(magics[winIdx[i]] == 0) {
-                        double realProfit = okClose ? RealizedCloseProfit(profits[winIdx[i]]) : profits[winIdx[i]];
-                        notifyTk[notifyCount] = tks[winIdx[i]]; notifyProfit[notifyCount] = realProfit; notifyCount++;
-                    }
-                }
-                for(int i = 0; i < wn;  i++) {
-                    bool okClose = Trade.PositionClose(tks[worstIdx[i]]);
-                    if(magics[worstIdx[i]] == 0) {
-                        double realProfit = okClose ? RealizedCloseProfit(profits[worstIdx[i]]) : profits[worstIdx[i]];
-                        notifyTk[notifyCount] = tks[worstIdx[i]]; notifyProfit[notifyCount] = realProfit; notifyCount++;
-                    }
+            double finalEffTarget = g_TrimTarget + (groupHasManual ? manualDebt : 0.0);
+            if(winSum + worstSum >= finalEffTarget) {
+                for(int i = 0; i < wn2; i++) Trade.PositionClose(tks[winIdx[i]]);
+                for(int i = 0; i < wn;  i++) Trade.PositionClose(tks[worstIdx[i]]);
+                if(groupHasManual && manualDebt > 0) {
+                    g_ManualSLLossTotal = 0;
+                    GlobalVariableSet("RTB_ManualSLLoss_" + _Symbol + "_" + IntegerToString(InpMagic), 0.0);
+                    manualDebt = 0;
                 }
                 closedCycles++;
             } else break;
         }
         if(closedCycles > 0)
             Print("RTB: Hedge trim cycles=", closedCycles, " x up to ", g_TrimMaxWin, " winners / ", g_TrimMaxLoss, " losers");
-        // Gửi Telegram SAU KHI đã đóng xong toàn bộ lệnh của lượt tỉa này — WebRequest()
-        // là lệnh gọi mạng đồng bộ, chặn nếu đặt xen giữa các PositionClose() sẽ làm
-        // trễ việc đóng lệnh thật khi Telegram phản hồi chậm.
-        for(int i = 0; i < notifyCount; i++) NotifyManualTrimClose(notifyTk[i], notifyProfit[i]);
         break;
     }
 
@@ -1325,18 +1152,14 @@ void CheckTrimming() {
             cnt++;
         }
 
-        ulong  notifyTk[];
-        double notifyProfit[];
-        int    notifyCount = 0;
-        ArrayResize(notifyTk, cnt);
-        ArrayResize(notifyProfit, cnt);
-
         int closedCycles = 0;
+        double manualDebt = (g_ManualSLLossTotal < 0) ? -g_ManualSLLossTotal : 0.0;
         for(int w = 0; w < g_TrimMaxCycles; w++) {
             int    worstIdx[];
             ArrayResize(worstIdx, g_TrimMaxLoss);
             int    wn = 0;
             double worstSum = 0;
+            bool   groupHasManual = false;
             for(int n = 0; n < g_TrimMaxLoss; n++) {
                 int wIdx = -1;
                 for(int i = 0; i < cnt; i++) {
@@ -1347,6 +1170,7 @@ void CheckTrimming() {
                 worstIdx[wn] = wIdx;
                 worstSum    += profits[wIdx];
                 used[wIdx]   = true;
+                if(magics[wIdx] == 0) groupHasManual = true;
                 wn++;
             }
             if(wn == 0) break;
@@ -1356,7 +1180,8 @@ void CheckTrimming() {
             int    wn2 = 0;
             double winSum = 0;
             for(int n = 0; n < g_TrimMaxWin; n++) {
-                if(winSum + worstSum >= g_TrimTarget) break;
+                double effTarget = g_TrimTarget + (groupHasManual ? manualDebt : 0.0);
+                if(winSum + worstSum >= effTarget) break;
                 int bIdx = -1;
                 for(int i = 0; i < cnt; i++) {
                     if(used[i]) continue;
@@ -1366,41 +1191,29 @@ void CheckTrimming() {
                 winIdx[wn2] = bIdx;
                 winSum     += profits[bIdx];
                 used[bIdx]  = true;
+                if(magics[bIdx] == 0) groupHasManual = true;
                 wn2++;
             }
 
-            if(winSum + worstSum >= g_TrimTarget) {
-                for(int i = 0; i < wn2; i++) {
-                    bool okClose = Trade.PositionClose(tks[winIdx[i]]);
-                    if(magics[winIdx[i]] == 0) {
-                        double realProfit = okClose ? RealizedCloseProfit(profits[winIdx[i]]) : profits[winIdx[i]];
-                        notifyTk[notifyCount] = tks[winIdx[i]]; notifyProfit[notifyCount] = realProfit; notifyCount++;
-                    }
-                }
-                for(int i = 0; i < wn;  i++) {
-                    bool okClose = Trade.PositionClose(tks[worstIdx[i]]);
-                    if(magics[worstIdx[i]] == 0) {
-                        double realProfit = okClose ? RealizedCloseProfit(profits[worstIdx[i]]) : profits[worstIdx[i]];
-                        notifyTk[notifyCount] = tks[worstIdx[i]]; notifyProfit[notifyCount] = realProfit; notifyCount++;
-                    }
+            double finalEffTarget = g_TrimTarget + (groupHasManual ? manualDebt : 0.0);
+            if(winSum + worstSum >= finalEffTarget) {
+                for(int i = 0; i < wn2; i++) Trade.PositionClose(tks[winIdx[i]]);
+                for(int i = 0; i < wn;  i++) Trade.PositionClose(tks[worstIdx[i]]);
+                if(groupHasManual && manualDebt > 0) {
+                    g_ManualSLLossTotal = 0;
+                    GlobalVariableSet("RTB_ManualSLLoss_" + _Symbol + "_" + IntegerToString(InpMagic), 0.0);
+                    manualDebt = 0;
                 }
                 closedCycles++;
             } else break;
         }
         if(closedCycles > 0)
             Print("RTB: Hedge-by-Points trim cycles=", closedCycles, " x up to ", g_TrimMaxWin, " winners / ", g_TrimMaxLoss, " losers");
-        // Gửi Telegram SAU KHI đã đóng xong toàn bộ lệnh của lượt tỉa này — WebRequest()
-        // là lệnh gọi mạng đồng bộ, chặn nếu đặt xen giữa các PositionClose() sẽ làm
-        // trễ việc đóng lệnh thật khi Telegram phản hồi chậm.
-        for(int i = 0; i < notifyCount; i++) NotifyManualTrimClose(notifyTk[i], notifyProfit[i]);
         break;
     }
     }
 }
 
-//+------------------------------------------------------------------+
-//| TRAILING STOP                                                    |
-//+------------------------------------------------------------------+
 void ApplyTrailToPos(ulong tk, int posType, double newSL) {
     if(!PositionSelectByTicket(tk)) return;
     double curSL   = PositionGetDouble(POSITION_SL);
@@ -1498,9 +1311,40 @@ void CheckTrailing() {
     }
 }
 
-//+------------------------------------------------------------------+
-//| EXIT LOGIC                                                       |
-//+------------------------------------------------------------------+
+void CheckManualAutoSLTP() {
+    if(!g_ManualAutoSLTP) return;
+    if(g_ManualTP_Points <= 0 && g_ManualSL_Points <= 0) return;
+
+    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+    for(int i = PositionsTotal()-1; i >= 0; i--) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(PositionGetInteger(POSITION_MAGIC) != 0) continue;
+        string cmt = PositionGetString(POSITION_COMMENT);
+        if(StringFind(cmt, "RTB|") == 0) continue;
+
+        if(PositionGetDouble(POSITION_TP) != 0 || PositionGetDouble(POSITION_SL) != 0) continue;
+
+        int    pt  = (int)PositionGetInteger(POSITION_TYPE);
+        double opn = PositionGetDouble(POSITION_PRICE_OPEN);
+        double tp = 0, sl = 0;
+        if(pt == POSITION_TYPE_BUY) {
+            if(g_ManualTP_Points > 0) tp = NormalizeDouble(opn + g_ManualTP_Points * point, _Digits);
+            if(g_ManualSL_Points > 0) sl = NormalizeDouble(opn - g_ManualSL_Points * point, _Digits);
+        } else {
+            if(g_ManualTP_Points > 0) tp = NormalizeDouble(opn - g_ManualTP_Points * point, _Digits);
+            if(g_ManualSL_Points > 0) sl = NormalizeDouble(opn + g_ManualSL_Points * point, _Digits);
+        }
+        if(tp == 0 && sl == 0) continue;
+
+        if(Trade.PositionModify(tk, sl, tp))
+            Print("RTB: Tự động đặt TP/SL cho lệnh tay ticket=", tk, " tp=", tp, " sl=", sl);
+        else
+            Print("RTB: Đặt TP/SL tự động cho lệnh tay ticket=", tk, " thất bại, err=", GetLastError());
+    }
+}
+
 void CheckExit() {
     if(TrailBuy > 0 || TrailSell > 0) {
         double _ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
@@ -1567,6 +1411,36 @@ void CheckExit() {
         }
     }
 
+    if(g_ManualAutoSLTP && (g_ManualTP_Points > 0 || g_ManualSL_Points > 0)) {
+        double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+        double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+        double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+
+        for(int i = PositionsTotal()-1; i >= 0; i--) {
+            ulong tk = PositionGetTicket(i);
+            if(!PositionSelectByTicket(tk)) continue;
+            if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+            if(PositionGetInteger(POSITION_MAGIC) != 0) continue;
+            string cmt = PositionGetString(POSITION_COMMENT);
+            if(StringFind(cmt, "RTB|") == 0) continue;
+
+            int    pt  = (int)PositionGetInteger(POSITION_TYPE);
+            double opn = PositionGetDouble(POSITION_PRICE_OPEN);
+
+            if(pt == POSITION_TYPE_BUY) {
+                if(g_ManualTP_Points > 0 && bid >= opn + g_ManualTP_Points * point)
+                    { Trade.PositionClose(tk); continue; }
+                if(g_ManualSL_Points > 0 && bid <= opn - g_ManualSL_Points * point)
+                    Trade.PositionClose(tk);
+            } else {
+                if(g_ManualTP_Points > 0 && ask <= opn - g_ManualTP_Points * point)
+                    { Trade.PositionClose(tk); continue; }
+                if(g_ManualSL_Points > 0 && ask >= opn + g_ManualSL_Points * point)
+                    Trade.PositionClose(tk);
+            }
+        }
+    }
+
     if(g_StealthMode) {
         double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
         double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
@@ -1617,9 +1491,6 @@ void CheckExit() {
     }
 }
 
-//+------------------------------------------------------------------+
-//| DAY PROFIT TRACKING                                              |
-//+------------------------------------------------------------------+
 void UpdateDayProfit() {
     MqlDateTime dt;
     TimeToStruct(TimeCurrent(), dt);
@@ -1645,9 +1516,6 @@ void UpdateDayProfit() {
     DayProfit = closed;
 }
 
-//+------------------------------------------------------------------+
-//| DAY LIMIT CHECK                                                  |
-//+------------------------------------------------------------------+
 void CheckDayLimit() {
     if(DayLimitHit) return;
     double equity = DayProfit + FloatProfit();
@@ -1664,9 +1532,6 @@ void CheckDayLimit() {
     }
 }
 
-//+------------------------------------------------------------------+
-//| GUI                                                              |
-//+------------------------------------------------------------------+
 struct PeriodStats { double pips, profit, gain, lot; };
 
 PeriodStats GetPeriodStats(datetime from, datetime to) {
@@ -1804,9 +1669,6 @@ int DaysInMonth(int year, int month) {
     return d;
 }
 
-//+------------------------------------------------------------------+
-//| CALENDAR PANEL — bảng thống kê P/L + Lot theo từng ngày trong tháng |
-//+------------------------------------------------------------------+
 void UpdateCalendarPanel(bool forceRecalc = false) {
     if(!g_CalExpanded) {
         ObjectDelete(0, GUI + "CalBG");
@@ -2034,11 +1896,7 @@ void UpdateGUI(bool forceCalRefresh = false) {
     double ddPct   = (balance > 0 && equity < balance) ? (balance - equity) / balance * 100.0 : 0;
     if(ddPct > MaxDrawdownPct) MaxDrawdownPct = ddPct;
 
-    string sigName = "";
-    switch(g_SignalMode) {
-        case SIG_SIMULATED: sigName = "Simulated";      break;
-        case SIG_UT_BOT:    sigName = "UT Bot";         break;
-    }
+    string sigName = "Simulated";
 
     string dirName = "";
     color  dirClr  = clrSilver;
@@ -2118,7 +1976,6 @@ void UpdateGUI(bool forceCalRefresh = false) {
     ObjectSetInteger(0, bg, OBJPROP_XDISTANCE, PX);
     ObjectSetInteger(0, bg, OBJPROP_YDISTANCE, PY + titleOff);
 
-    // ========== Hàng giờ hệ thống — nằm dưới banner tiêu đề, không chen vào header ==========
     int contentX = PX + 7, cardW = PW - 14, rightEdge = contentX + cardW - 8;
     int y2 = PY + titleOff + 6;
     int topRowY = y2;
@@ -2127,7 +1984,6 @@ void UpdateGUI(bool forceCalRefresh = false) {
     Lbl("TimeRow", tStr, contentX, y2, C'127,139,163', 10);
     y2 += 16;
 
-    // ========== Chips: Signal / Direction / Mode+Role / Sync ==========
     int chH = 17;
 
     color dirBg = (g_Direction == DIR_BOTH) ? C'18,50,68' : (g_Direction == DIR_ONLY_BUY ? C'15,36,25' : C'36,18,20');
@@ -2148,7 +2004,6 @@ void UpdateGUI(bool forceCalRefresh = false) {
         ObjectDelete(0, GUI + "ChipMode"); ObjectDelete(0, GUI + "ChipModeBg");
     }
 
-    // ========== Card: Tài khoản — LUÔN hiển thị, chứa nút thu gọn/mở rộng toàn panel ==========
     int acctH = 6 + 13 + 4*15 + 6;
     CreateRect("CardAcct",    contentX, y2, cardW, acctH, C'20,28,44');
     CreateRect("CardAcctBar", contentX, y2, 2,     acctH, C'79,195,217');
@@ -2174,7 +2029,6 @@ void UpdateGUI(bool forceCalRefresh = false) {
     LblR("FloV", StringFormat("%s$%.2f (%.2f%%)", totalProfit >= 0 ? "+" : "-", MathAbs(totalProfit), pnlPct), rightEdge, ya, cProfit, 11);
     y2 += acctH + 8;
 
-    // ========== Card: Rủi ro (Drawdown) ==========
     color ddColor  = ddPct > 60          ? clrTomato : (ddPct > 20          ? clrOrangeRed : clrSilver);
     color mddColor = MaxDrawdownPct > 60 ? clrTomato : (MaxDrawdownPct > 20 ? clrOrangeRed : clrSilver);
     if(!g_PanelCollapsed) {
@@ -2194,12 +2048,11 @@ void UpdateGUI(bool forceCalRefresh = false) {
     ObjectDelete(0, GUI + "HdgS");
     y2 += riskH + 8;
 
-    // ========== Card: Tỉa Lệnh (Trimming) ==========
     string trimModeTxt = (g_TrimMode == TRIM_OFF) ? "Tắt" : (g_TrimMode == TRIM_HEDGE ? "Hedge" : "Hedge Điểm");
     color  trimModeClr = (g_TrimMode == TRIM_OFF) ? C'127,139,163' : C'62,207,142';
     int    trimCount   = CountAllForTrim();
     color  trimCntClr  = (g_TrimMode != TRIM_OFF && trimCount >= g_TrimTrigger) ? clrLimeGreen : C'231,236,245';
-    int trimH = 6 + 13 + 15*3 + 6;
+    int trimH = 6 + 13 + 15*4 + 6;
     CreateRect("CardTrim",    contentX, y2, cardW, trimH, C'20,28,44');
     CreateRect("CardTrimBar", contentX, y2, 2,     trimH, C'160,110,220');
     Lbl("TrimH", "TỈA LỆNH", contentX + 8, y2 + 5, C'95,108,132', 9);
@@ -2211,10 +2064,12 @@ void UpdateGUI(bool forceCalRefresh = false) {
     Lbl ("TrimTgtL", "Mục tiêu", contentX + 8, yt, C'127,139,163', 10);
     LblR("TrimTgtV", StringFormat("$%.2f", g_TrimTarget), rightEdge, yt, C'231,236,245', 10); yt += 15;
     Lbl ("TrimManL", "Lệnh tay", contentX + 8, yt, C'127,139,163', 10);
-    LblR("TrimManV", g_TrimIncludeManual ? "Có tham gia" : "Không", rightEdge, yt, g_TrimIncludeManual ? C'62,207,142' : C'127,139,163', 10);
+    LblR("TrimManV", g_TrimIncludeManual ? "Có tham gia" : "Không", rightEdge, yt, g_TrimIncludeManual ? C'62,207,142' : C'127,139,163', 10); yt += 15;
+    Lbl ("TrimSLL", "SL lệnh tay", contentX + 8, yt, C'127,139,163', 10);
+    LblR("TrimSLV", StringFormat("%s$%.2f", g_ManualSLLossTotal > 0 ? "+" : "-", MathAbs(g_ManualSLLossTotal)),
+         rightEdge, yt, g_ManualSLLossTotal < 0 ? clrTomato : C'231,236,245', 10);
     y2 += trimH + 8;
 
-    // ========== Twin cards: Buy / Sell ==========
     int twinH = 6 + 12 + 3 + 17 + 3 + 12 + 6;
     CreateRect("CardBuy",    contentX, y2, bhw, twinH, C'20,28,44');
     CreateRect("CardBuyBar", contentX, y2, bhw, 2,     C'44,107,82');
@@ -2229,7 +2084,6 @@ void UpdateGUI(bool forceCalRefresh = false) {
     Lbl("SelLot", StringFormat("Lot %.2f", lotSell),          bx2 + 8, y2 + 43, C'127,139,163', 10);
     y2 += twinH + 6;
 
-    // ========== Total ==========
     Lbl ("TotL", "Total", contentX, y2, C'127,139,163', 10);
     LblR("TotV", StringFormat("%d orders", nBuy + nSell), rightEdge, y2, C'231,236,245', 10);
     y2 += 17;
@@ -2238,7 +2092,7 @@ void UpdateGUI(bool forceCalRefresh = false) {
             "CardRisk", "CardRiskBar", "RiskH", "DDL", "DDV", "DDGTrk", "DDGFill",
             "MDDL", "MDDV", "MDDGTrk", "MDDGFill",
             "CardTrim", "CardTrimBar", "TrimH", "TrimMode", "TrimCntL", "TrimCntV",
-            "TrimTgtL", "TrimTgtV", "TrimManL", "TrimManV",
+            "TrimTgtL", "TrimTgtV", "TrimManL", "TrimManV", "TrimSLL", "TrimSLV",
             "CardBuy", "CardBuyBar", "BuyL", "BuyV", "BuyLot",
             "CardSell", "CardSellBar", "SelL", "SelV", "SelLot",
             "TotL", "TotV"
@@ -2309,9 +2163,6 @@ void RemoveGUI() {
     ObjectsDeleteAll(0, GUI);
 }
 
-//+------------------------------------------------------------------+
-//| CHART COLOR SCHEME                                               |
-//+------------------------------------------------------------------+
 void SetupChartColors() {
     ChartSetInteger(0, CHART_COLOR_BACKGROUND,  C'11,11,11');
     ChartSetInteger(0, CHART_COLOR_FOREGROUND,  clrMistyRose);
@@ -2331,9 +2182,6 @@ void SetupChartColors() {
     ChartRedraw(0);
 }
 
-//+------------------------------------------------------------------+
-//| INIT DCA ARRAYS                                                  |
-//+------------------------------------------------------------------+
 void InitDCA() {
     DCA_Mode   = InpDCAMode;
     DCA_Mult   = InpDCA1Mult;
@@ -2351,9 +2199,6 @@ void ApplyBotEnabled(bool newVal) {
     g_BotEnabled = newVal;
 }
 
-//+------------------------------------------------------------------+
-//| REBUILD DCA STATE FROM LIVE POSITIONS + PENDING ORDERS           |
-//+------------------------------------------------------------------+
 void RebuildDCAState(int posType) {
     int cap = (posType == POSITION_TYPE_BUY) ? ArraySize(DCABuyPrices) : ArraySize(DCASellPrices);
 
@@ -2431,9 +2276,6 @@ void RebuildDCAState(int posType) {
             slotOrderTk[count] = tk;
             count++;
         } else {
-            // Lệnh chờ "tầng mới kế tiếp" (chưa từng khớp) — KHÔNG được tính vào peak
-            // (peak chỉ đại diện cho các tầng ĐÃ kích hoạt). Gom lại, xử lý sau khi
-            // đã biết peak thật, để giữ đúng 1 lệnh và huỷ các lệnh dư (phantom).
             int nc = ArraySize(candTk);
             ArrayResize(candTk, nc + 1);
             ArrayResize(candPx, nc + 1);
@@ -2468,9 +2310,6 @@ void RebuildDCAState(int posType) {
         finalCount = cap;
     }
 
-    // Đối chiếu theo GIÁ đã lưu cho từng slot (SlotPx) thay vì theo vị trí mảng —
-    // vì mảng quét từ broker sẽ tự dồn lại (mất chỗ trống) nếu có tầng nào mất dấu
-    // ở giữa, khiến so khớp theo index bị lệch hoàn toàn so với tầng thật.
     double   finalPrices[];
     ulong    finalPosTk[];
     ulong    finalOrderTk[];
@@ -2505,8 +2344,6 @@ void RebuildDCAState(int posType) {
         }
     }
 
-    // Dữ liệu cũ (trước khi có SlotPx, hoặc slot chưa từng được lưu) — lấp các ô
-    // còn trống theo đúng thứ tự vị trí như hành vi cũ (best-effort).
     int nextUnclaimed = 0;
     for(int slot = 0; slot < finalCount; slot++) {
         if(finalPrices[slot] != 0) continue;
@@ -2547,8 +2384,6 @@ void RebuildDCAState(int posType) {
         if(best >= 0) {
             if(finalCount < cap) { frontierTk = candTk[best]; frontierPx = candPx[best]; }
             else {
-                // Đã dùng hết cap (đủ InpDCA1Max lệnh) — không còn chỗ theo dõi
-                // lệnh chờ tầng-kế-tiếp này nữa, huỷ luôn thay vì bỏ mặc mồ côi.
                 if(Trade.OrderDelete(candTk[best]))
                     Print("RTB: RebuildDCAState huỷ lệnh chờ tầng-kế-tiếp (đã đạt cap=", cap, ") ticket=", candTk[best], " giá=", candPx[best]);
                 else
@@ -2582,11 +2417,10 @@ void RebuildDCAState(int posType) {
           (frontierTk > 0 ? " (+1 lệnh chờ tầng kế tiếp)" : ""));
 }
 
-//+------------------------------------------------------------------+
-//| EVENT HANDLERS                                                   |
-//+------------------------------------------------------------------+
 int OnInit() {
-    g_SignalMode = InpSignalMode; g_Direction = InpDirection; g_UTKeyValue = InpUTKeyValue;
+    g_Direction = InpDirection;
+    g_ManualAutoSLTP = InpManualAutoSLTP;
+    g_ManualTP_Points = InpManualTP_Points; g_ManualSL_Points = InpManualSL_Points;
     g_UseTakeProfit = InpUseTakeProfit; g_UseStopLoss = InpUseStopLoss; g_StealthMode = InpStealthMode;
     g_OrderDelay = InpOrderDelay; g_TP_Points = InpTP_Points; g_SL_Points = InpSL_Points;
     g_DCABuyEnable = InpDCABuyEnable; g_DCASellEnable = InpDCASellEnable;
@@ -2600,7 +2434,7 @@ int OnInit() {
     g_CloseProfit = InpCloseProfit; g_CloseLoss = InpCloseLoss; g_ClosePerPips = InpClosePerPips;
     g_DayMaxLoss = InpDayMaxLoss; g_DayMaxProfit = InpDayMaxProfit;
     g_TeleEnable = InpTeleEnable; g_TeleBotToken = InpTeleBotToken; g_TeleChatID = InpTeleChatID;
-    g_TeleDDStep = InpTeleDDStep;
+    g_LastTeleH1Bar = iTime(_Symbol, PERIOD_H1, 0);
 
     g_BotEnabled = InpBotEnabled;
 
@@ -2612,14 +2446,10 @@ int OnInit() {
 
     InitDCA();
 
-    hATR     = iATR(_Symbol, InpSignalTF, InpUTATRPeriod);
-
-    if(hATR == INVALID_HANDLE) {
-        Print("RTB: ERROR — failed to create indicator handles!");
-        return INIT_FAILED;
+    {
+        string gvName = "RTB_ManualSLLoss_" + _Symbol + "_" + IntegerToString(InpMagic);
+        g_ManualSLLossTotal = GlobalVariableCheck(gvName) ? GlobalVariableGet(gvName) : 0.0;
     }
-
-    WarmupATS(1000);
 
     InitBalance    = AccountInfoDouble(ACCOUNT_BALANCE);
     MaxDrawdownPct = 0;
@@ -2657,17 +2487,13 @@ int OnInit() {
 
     EventSetTimer(1);
 
-    if(g_TeleEnable)
-        SendTelegramMessage("✅ Homie Bot đã kết nối Telegram thành công.");
-
-    Print("RTB: Initialized. Magic=", InpMagic, " Signal=", EnumToString(g_SignalMode));
+    Print("RTB: Initialized. Magic=", InpMagic);
     return INIT_SUCCEEDED;
 }
 
 void OnDeinit(const int reason) {
     EventKillTimer();
     RemoveGUI();
-    IndicatorRelease(hATR);
 }
 
 void OnTick() {
@@ -2679,10 +2505,12 @@ void OnTick() {
 void OnTimer() {
     UpdateDayProfit();
     CheckDayLimit();
-    CheckDDAlert();
+    CheckTeleH1Report();
 
     if(CountBuy()  == 0 && !HasPendingDCA(POSITION_TYPE_BUY))  ResetDCAState(POSITION_TYPE_BUY);
     if(CountSell() == 0 && !HasPendingDCA(POSITION_TYPE_SELL)) ResetDCAState(POSITION_TYPE_SELL);
+
+    CheckManualAutoSLTP();
 
     if(!g_StealthMode) CheckExit();
 
@@ -2698,10 +2526,38 @@ void OnTimer() {
 
     UpdateGUI();
 
-    // Gửi Telegram SAU CÙNG — sau khi mọi logic giao dịch + vẽ GUI của tick này
-    // đã chạy xong, để WebRequest() (chặn đồng bộ) không trì hoãn bất kỳ phần nào
-    // ở trên nếu mạng chậm.
     FlushTelegramQueue();
+}
+
+void TrackManualSLLoss(ulong dealTk) {
+    if(dealTk == 0 || !HistoryDealSelect(dealTk)) return;
+    if(HistoryDealGetString(dealTk, DEAL_SYMBOL) != _Symbol) return;
+    if(HistoryDealGetInteger(dealTk, DEAL_MAGIC) != 0) return;
+    ENUM_DEAL_ENTRY de = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(dealTk, DEAL_ENTRY);
+    if(de != DEAL_ENTRY_OUT && de != DEAL_ENTRY_OUT_BY) return;
+    if((ENUM_DEAL_REASON)HistoryDealGetInteger(dealTk, DEAL_REASON) != DEAL_REASON_SL) return;
+
+    g_ManualSLLossTotal += HistoryDealGetDouble(dealTk, DEAL_PROFIT) +
+                           HistoryDealGetDouble(dealTk, DEAL_SWAP) +
+                           HistoryDealGetDouble(dealTk, DEAL_COMMISSION);
+    GlobalVariableSet("RTB_ManualSLLoss_" + _Symbol + "_" + IntegerToString(InpMagic), g_ManualSLLossTotal);
+}
+
+void TrackManualTPProfit(ulong dealTk) {
+    if(g_ManualSLLossTotal >= 0) return;
+    if(dealTk == 0 || !HistoryDealSelect(dealTk)) return;
+    if(HistoryDealGetString(dealTk, DEAL_SYMBOL) != _Symbol) return;
+    if(HistoryDealGetInteger(dealTk, DEAL_MAGIC) != 0) return;
+    ENUM_DEAL_ENTRY de = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(dealTk, DEAL_ENTRY);
+    if(de != DEAL_ENTRY_OUT && de != DEAL_ENTRY_OUT_BY) return;
+    if((ENUM_DEAL_REASON)HistoryDealGetInteger(dealTk, DEAL_REASON) != DEAL_REASON_TP) return;
+
+    double dealProfit = HistoryDealGetDouble(dealTk, DEAL_PROFIT) +
+                         HistoryDealGetDouble(dealTk, DEAL_SWAP) +
+                         HistoryDealGetDouble(dealTk, DEAL_COMMISSION);
+    g_ManualSLLossTotal += dealProfit;
+    if(g_ManualSLLossTotal > 0) g_ManualSLLossTotal = 0;
+    GlobalVariableSet("RTB_ManualSLLoss_" + _Symbol + "_" + IntegerToString(InpMagic), g_ManualSLLossTotal);
 }
 
 void OnTradeTransaction(const MqlTradeTransaction& trans,
@@ -2710,6 +2566,8 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
     if(trans.type == TRADE_TRANSACTION_DEAL_ADD) {
         UpdateDayProfit();
         CheckDayLimit();
+        TrackManualSLLoss(trans.deal);
+        TrackManualTPProfit(trans.deal);
         UpdateGUI(true);
     }
 }

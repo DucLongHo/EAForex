@@ -34,6 +34,16 @@ input  double  InpManualTP_Points = 3000.0;  // TP tự động cho lệnh tay (
 input  double  InpManualSL_Points = 0.0;     // SL tự động cho lệnh tay (points, 0=tắt)
 input  double  InpManualLotSize   = 0.01;    // Lots cho nút Buy/Sell Tay trên panel
 
+input group         "══════ AUTO VÀO LỆNH KHI ÂM SÂU (MARUBOZU + NO SUPPLY/DEMAND) ══════"; //
+input  bool             InpDDAutoTradeEnable = false;         // Bật tự động vào lệnh theo nến khi âm sâu
+input  double           InpDDAutoTradePct    = 10.0;          // Ngưỡng % âm (so Initial Balance) để kích hoạt
+input  ENUM_TIMEFRAMES  InpDDPatternTF       = PERIOD_CURRENT;// Khung thời gian đọc mẫu nến
+input  double           InpMarubozuWickPct   = 10.0;          // Marubozu: râu nến tối đa (% biên độ nến)
+
+input group         "══════ AUTO RESET KHI QUÁ TẢI LỆNH ══════"; //
+input  bool    InpMassResetEnable     = false; // Bật tự động reset khi quá tải lệnh
+input  int     InpMassResetOrderCount = 50;    // Ngưỡng tổng lệnh (chờ + đang chạy) để xét reset
+
 input group         "══════ DCA - CÀI ĐẶT CHUNG ══════"; //
 input  ENUM_DCA_MODE InpDCAMode     = DCA_STEP; // DCA: Chế độ
 input  bool          InpDCABuyEnable  = true;   // DCA: Bật DCA chiều Buy
@@ -120,6 +130,7 @@ ulong    DCASellLimitTk[];
 bool g_CalExpanded = false;
 bool g_PanelCollapsed = false;
 int  g_LastPanelBottom = 0;
+int  g_CalRightEdge    = 0;
 int  g_CalYear     = 0;
 int  g_CalMonth    = 0;
 
@@ -162,6 +173,14 @@ double           g_TrailActivate, g_TrailStep, g_TrailInit;
 double g_CloseProfit, g_CloseLoss, g_ClosePerPips, g_DayMaxLoss, g_DayMaxProfit;
 
 double g_ManualSLLossTotal = 0.0;
+datetime g_LastDDPatternBar = 0;
+bool     g_DDAutoTradeEnable;
+bool     g_MassResetEnable;
+
+int    g_HedgeMrbCount = 0, g_HedgeMrbWins = 0;
+double g_HedgeMrbPL    = 0.0;
+int    g_HedgeNsdCount = 0, g_HedgeNsdWins = 0;
+double g_HedgeNsdPL    = 0.0;
 
 
 bool IsManaged() {
@@ -242,6 +261,34 @@ double FloatProfit(int posType = -1, bool includeManual = false) {
         p += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
     }
     return p;
+}
+
+double TotalFloatAll() {
+    double p = 0;
+    for(int i = PositionsTotal()-1; i >= 0; i--) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        p += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+    }
+    return p;
+}
+
+int TotalOrdersAll() {
+    int n = 0;
+    for(int i = PositionsTotal()-1; i >= 0; i--) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        n++;
+    }
+    for(int i = OrdersTotal()-1; i >= 0; i--) {
+        ulong tk = OrderGetTicket(i);
+        if(tk == 0 || !OrderSelect(tk)) continue;
+        if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
+        n++;
+    }
+    return n;
 }
 
 double TotalLot(int posType) {
@@ -461,6 +508,25 @@ void CloseAllManual() {
     }
 }
 
+void CheckMassReset() {
+    if(!g_MassResetEnable) return;
+    if(TotalOrdersAll() <= InpMassResetOrderCount) return;
+
+    double floatAll = TotalFloatAll();
+    if(floatAll >= -g_ManualSLLossTotal) return;
+
+    Print("RTB: Auto reset — tổng lệnh=", TotalOrdersAll(), " > ", InpMassResetOrderCount,
+          ", floatPL=", DoubleToString(floatAll, 2), " vượt vốn dự trữ=", DoubleToString(-g_ManualSLLossTotal, 2),
+          " → đóng toàn bộ & reset.");
+
+    double botPL = FloatProfit();
+    CloseAll();
+    g_ManualSLLossTotal += botPL;
+    GlobalVariableSet("RTB_ManualSLLoss_" + _Symbol + "_" + IntegerToString(InpMagic), g_ManualSLLossTotal);
+
+    CloseAllManual();
+}
+
 double NormLot(double lot) {
     double minL  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
     double maxL  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
@@ -540,6 +606,89 @@ void OpenManualOrder(int ordType) {
         Print("RTB: Mở lệnh tay ", (ordType == ORDER_TYPE_BUY ? "BUY" : "SELL"), " lot=", lot);
     else
         Print("RTB: Mở lệnh tay thất bại, err=", GetLastError());
+}
+
+int SignalMarubozu(ENUM_TIMEFRAMES tf, int shift) {
+    double o = iOpen(_Symbol, tf, shift);
+    double h = iHigh(_Symbol, tf, shift);
+    double l = iLow(_Symbol, tf, shift);
+    double c = iClose(_Symbol, tf, shift);
+    double range = h - l;
+    if(range <= 0) return 0;
+    double wick = range * (InpMarubozuWickPct / 100.0);
+    if(c > o && (o - l) <= wick && (h - c) <= wick) return  1;
+    if(c < o && (h - o) <= wick && (c - l) <= wick) return -1;
+    return 0;
+}
+
+int SignalNoSupplyDemand(ENUM_TIMEFRAMES tf, int shift) {
+    double o1 = iOpen(_Symbol, tf, shift),      h1 = iHigh(_Symbol, tf, shift),
+           l1 = iLow(_Symbol, tf, shift),       c1 = iClose(_Symbol, tf, shift);
+    double o2 = iOpen(_Symbol, tf, shift + 1),  h2 = iHigh(_Symbol, tf, shift + 1),
+           l2 = iLow(_Symbol, tf, shift + 1),   c2 = iClose(_Symbol, tf, shift + 1);
+
+    double range1 = h1 - l1;
+    if(range1 <= 0) return 0;
+    double wick = range1 * (InpMarubozuWickPct / 100.0);
+
+    bool prevUp   = c2 > o2;
+    bool prevDown = c2 < o2;
+
+    if(prevDown && c1 > o1 && (h1 - c1) <= wick && l1 < l2) return  1;
+    if(prevUp   && c1 < o1 && (c1 - l1) <= wick && h1 > h2) return -1;
+    return 0;
+}
+
+void OpenDDPatternOrder(int ordType, int patternTag) {
+    double lot = NormLot(InpManualLotSize);
+    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    Trade.SetExpertMagicNumber(0);
+    bool ok = (ordType == ORDER_TYPE_BUY)
+        ? Trade.Buy(lot, _Symbol, ask, 0, 0, "")
+        : Trade.Sell(lot, _Symbol, bid, 0, 0, "");
+    Trade.SetExpertMagicNumber(InpMagic);
+    if(ok) {
+        ulong posTk = Trade.ResultOrder();
+        if(posTk > 0)
+            GlobalVariableSet("RTB_HedgeTag_" + _Symbol + "_" + IntegerToString(InpMagic) + "_" + IntegerToString((long)posTk),
+                               (double)patternTag);
+        Print("RTB: Auto Hedge mở lệnh ", (ordType == ORDER_TYPE_BUY ? "BUY" : "SELL"), " lot=", lot,
+              " pattern=", (patternTag == 1 ? "Marubozu" : "No Supply/Demand"));
+    } else {
+        Print("RTB: Auto Hedge mở lệnh thất bại, err=", GetLastError());
+    }
+}
+
+void CheckDDAutoTrade() {
+    if(!g_DDAutoTradeEnable) return;
+    if(DayLimitHit || !g_BotEnabled) return;
+    if(InitBalance <= 0) return;
+
+    double ddPct = -TotalFloatAll() / InitBalance * 100.0;
+    if(ddPct < InpDDAutoTradePct) return;
+
+    datetime curBar = iTime(_Symbol, InpDDPatternTF, 0);
+    if(curBar == 0 || curBar == g_LastDDPatternBar) return;
+
+    int periodSecs = PeriodSeconds(InpDDPatternTF);
+    int secsLeft   = (int)(curBar + periodSecs - TimeCurrent());
+    if(secsLeft > 2) return;
+
+    int mrbSig = SignalMarubozu(InpDDPatternTF, 0);
+    int nsdSig = (mrbSig == 0) ? SignalNoSupplyDemand(InpDDPatternTF, 0) : 0;
+    int sig        = (mrbSig != 0) ? mrbSig : nsdSig;
+    int patternTag = (mrbSig != 0) ? 1 : 2;
+    if(sig == 0) return;
+    if(g_Direction == DIR_ONLY_BUY  && sig < 0) return;
+    if(g_Direction == DIR_ONLY_SELL && sig > 0) return;
+
+    g_LastDDPatternBar = curBar;
+
+    Print("RTB: Âm sâu ", DoubleToString(ddPct, 2), "% >= ngưỡng ", InpDDAutoTradePct,
+          "% — phát hiện mẫu ", (patternTag == 1 ? "Marubozu" : "No Supply/Demand"),
+          " (còn ", secsLeft, "s đóng nến), tự vào lệnh tay ", (sig > 0 ? "BUY" : "SELL"));
+    OpenDDPatternOrder(sig > 0 ? ORDER_TYPE_BUY : ORDER_TYPE_SELL, patternTag);
 }
 
 
@@ -1826,6 +1975,7 @@ void UpdateCalendarPanel(bool forceRecalc = false) {
         colW = MathMax(92, 6 + (int)maxContentW + 8);
     }
     int calW = colW * 7;
+    g_CalRightEdge = calX + calW;
 
     int cellH;
     {
@@ -1956,6 +2106,145 @@ void UpdateCalendarPanel(bool forceRecalc = false) {
     }
 }
 
+void UpdateTrimSidePanel() {
+    if(!g_CalExpanded) {
+        string delObjs[] = {
+            "TrimSideBG", "TrimSideH",
+            "TrimModeL", "TrimMode", "TrimCntL", "TrimCntV", "TrimManL", "TrimManV",
+            "TrimWorstL", "TrimWorstV", "TrimSLL", "TrimSLV",
+            "BtnTrimToggle", "BtnResetReserve",
+            "DDAutoH", "BtnDDAutoToggle", "DDAutoPctL", "DDAutoPctV", "DDAutoLotL", "DDAutoLotV",
+            "HedgeMrbL", "HedgeMrbV", "HedgeMrbPLL", "HedgeMrbPLV",
+            "HedgeNsdL", "HedgeNsdV", "HedgeNsdPLL", "HedgeNsdPLV",
+            "MassRstH", "BtnMassResetToggle", "MassRstCntL", "MassRstCntV"
+        };
+        for(int i = 0; i < ArraySize(delObjs); i++) ObjectDelete(0, GUI + delObjs[i]);
+        return;
+    }
+
+    int sideX     = g_CalRightEdge + 12;
+    int sideY     = InpCalPanelY;
+    int sideW     = 230;
+    int rightEdge = sideX + sideW - 8;
+    int rowH      = 15;
+    int titleH    = 24;
+
+    string trimModeTxt = (g_TrimMode == TRIM_OFF) ? "Tắt" : (g_TrimMode == TRIM_HEDGE ? "Hedge" : "Hedge Điểm");
+    color  trimModeClr = (g_TrimMode == TRIM_OFF) ? C'127,139,163' : C'62,207,142';
+    int    trimCount   = CountAllForTrim();
+    color  trimCntClr  = (g_TrimMode != TRIM_OFF && trimCount >= g_TrimTrigger) ? clrLimeGreen : C'231,236,245';
+
+    double wProfit, wPts;
+    bool   hasWorst = WorstTrimCandidate(wProfit, wPts);
+    string worstTxt = hasWorst ? StringFormat("%s$%.2f", wProfit >= 0 ? "+" : "-", MathAbs(wProfit)) : "—";
+    color  worstClr = hasWorst ? ((wProfit < 0) ? clrTomato : clrLimeGreen) : C'127,139,163';
+
+    color trimSLClr = (g_ManualSLLossTotal > 0) ? clrLimeGreen : (g_ManualSLLossTotal < 0 ? clrTomato : C'231,236,245');
+
+    double ddPctNow       = (InitBalance > 0) ? -TotalFloatAll() / InitBalance * 100.0 : 0;
+    color  ddPctClr       = (ddPctNow >= InpDDAutoTradePct) ? clrTomato : C'231,236,245';
+
+    int    totalOrdersNow = TotalOrdersAll();
+    color  massCntClr     = (totalOrdersNow > InpMassResetOrderCount) ? clrTomato : C'231,236,245';
+
+    double mrbWinPct = (g_HedgeMrbCount > 0) ? (100.0 * g_HedgeMrbWins / g_HedgeMrbCount) : 0.0;
+    double nsdWinPct = (g_HedgeNsdCount > 0) ? (100.0 * g_HedgeNsdWins / g_HedgeNsdCount) : 0.0;
+    color  mrbPLClr  = (g_HedgeMrbPL >= 0) ? clrLimeGreen : clrTomato;
+    color  nsdPLClr  = (g_HedgeNsdPL >= 0) ? clrLimeGreen : clrTomato;
+
+    int cardH = titleH + rowH*4 + (rowH+4) + (18+8) + 13 + (18+4) + rowH*6 + 4 + 8 + 13 + (18+4) + rowH + 10;
+
+    string bgc = GUI + "TrimSideBG";
+    if(ObjectFind(0, bgc) < 0) {
+        ObjectCreate(0, bgc, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+        ObjectSetInteger(0, bgc, OBJPROP_CORNER,      CORNER_LEFT_UPPER);
+        ObjectSetInteger(0, bgc, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+        ObjectSetInteger(0, bgc, OBJPROP_COLOR,       C'60,80,140');
+        ObjectSetInteger(0, bgc, OBJPROP_WIDTH,       1);
+        ObjectSetInteger(0, bgc, OBJPROP_BACK,        false);
+        ObjectSetInteger(0, bgc, OBJPROP_SELECTABLE,  false);
+    }
+    ObjectSetInteger(0, bgc, OBJPROP_XDISTANCE, sideX);
+    ObjectSetInteger(0, bgc, OBJPROP_YDISTANCE, sideY);
+    ObjectSetInteger(0, bgc, OBJPROP_XSIZE,     sideW);
+    ObjectSetInteger(0, bgc, OBJPROP_YSIZE,     cardH);
+    ObjectSetInteger(0, bgc, OBJPROP_BGCOLOR,   C'10,13,20');
+
+    {
+        uint tw = 0, th = 0;
+        TextSetFont("Calibri Bold", 10);
+        TextGetSize("TỈA LỆNH & VỐN DỰ TRỮ", tw, th);
+        Lbl("TrimSideH", "TỈA LỆNH & VỐN DỰ TRỮ", sideX + sideW/2 - (int)tw/2, sideY + 7, C'90,160,255', 10);
+        ObjectSetString(0, GUI + "TrimSideH", OBJPROP_FONT, "Calibri Bold");
+    }
+
+    int y = sideY + titleH;
+    Lbl ("TrimModeL", "Chế độ", sideX + 8, y, C'127,139,163', 10);
+    LblR("TrimMode", trimModeTxt, rightEdge, y, trimModeClr, 10); y += rowH;
+
+    Lbl ("TrimCntL", "Số lệnh", sideX + 8, y, C'127,139,163', 10);
+    LblR("TrimCntV", StringFormat("%d / %d", trimCount, g_TrimTrigger), rightEdge, y, trimCntClr, 10); y += rowH;
+
+    Lbl ("TrimManL", "Lệnh tay", sideX + 8, y, C'127,139,163', 10);
+    LblR("TrimManV", g_TrimIncludeManual ? "Có tham gia" : "Không", rightEdge, y, g_TrimIncludeManual ? C'62,207,142' : C'127,139,163', 10); y += rowH;
+
+    Lbl ("TrimWorstL", "Lệnh phải tỉa", sideX + 8, y, C'127,139,163', 10);
+    LblR("TrimWorstV", worstTxt, rightEdge, y, worstClr, 10); y += rowH;
+
+    Lbl ("TrimSLL", "Vốn dự trữ", sideX + 8, y, C'127,139,163', 10);
+    LblR("TrimSLV", StringFormat("%s$%.2f", g_ManualSLLossTotal >= 0 ? "+" : "-", MathAbs(g_ManualSLLossTotal)), rightEdge, y, trimSLClr, 10);
+    y += rowH + 4;
+
+    {
+        int    trimBtnW  = (sideW - 16 - 6) / 2;
+        string trimBtnTxt = g_TrimEnabled ? "Trim: On" : "Trim: Off";
+        color  trimBtnBg  = g_TrimEnabled ? C'10,70,35'   : C'45,18,18';
+        color  trimBtnBd  = g_TrimEnabled ? C'55,200,110' : C'130,50,50';
+        CreateBtn("BtnTrimToggle",   trimBtnTxt,  sideX + 8, y, trimBtnW, 18, trimBtnBg, trimBtnBd);
+        CreateBtn("BtnResetReserve", "Reset Vốn", sideX + 8 + trimBtnW + 6, y, trimBtnW, 18, C'45,18,18', C'130,50,50');
+        y += 18 + 8;
+    }
+
+    Lbl("DDAutoH", "AUTO HEDGE", sideX + 8, y, C'95,108,132', 9);
+    ObjectSetString(0, GUI + "DDAutoH", OBJPROP_FONT, "Calibri Bold"); y += 13;
+    {
+        string ddBtnTxt = g_DDAutoTradeEnable ? "Auto Hedge: On" : "Auto Hedge: Off";
+        color  ddBtnBg  = g_DDAutoTradeEnable ? C'10,70,35'   : C'45,18,18';
+        color  ddBtnBd  = g_DDAutoTradeEnable ? C'55,200,110' : C'130,50,50';
+        CreateBtn("BtnDDAutoToggle", ddBtnTxt, sideX + 8, y, sideW - 16, 18, ddBtnBg, ddBtnBd);
+        y += 18 + 4;
+    }
+    Lbl ("DDAutoPctL", "Âm hiện tại", sideX + 8, y, C'127,139,163', 10);
+    LblR("DDAutoPctV", StringFormat("%.2f%% / %.1f%%", ddPctNow, InpDDAutoTradePct), rightEdge, y, ddPctClr, 10); y += rowH;
+
+    Lbl ("DDAutoLotL", "Khối lượng", sideX + 8, y, C'127,139,163', 10);
+    LblR("DDAutoLotV", StringFormat("%.2f lot", InpManualLotSize), rightEdge, y, C'231,236,245', 10); y += rowH;
+
+    Lbl ("HedgeMrbL", "Marubozu", sideX + 8, y, C'231,236,245', 10);
+    ObjectSetString(0, GUI + "HedgeMrbL", OBJPROP_FONT, "Calibri Bold");
+    LblR("HedgeMrbV", StringFormat("%d lệnh · %.0f%%", g_HedgeMrbCount, mrbWinPct), rightEdge, y, C'231,236,245', 10); y += rowH;
+    Lbl ("HedgeMrbPLL", "Profit/Loss", sideX + 22, y, C'127,139,163', 10);
+    LblR("HedgeMrbPLV", StringFormat("%s$%.2f", g_HedgeMrbPL >= 0 ? "+" : "-", MathAbs(g_HedgeMrbPL)), rightEdge, y, mrbPLClr, 10); y += rowH + 4;
+
+    Lbl ("HedgeNsdL", "No S/D", sideX + 8, y, C'231,236,245', 10);
+    ObjectSetString(0, GUI + "HedgeNsdL", OBJPROP_FONT, "Calibri Bold");
+    LblR("HedgeNsdV", StringFormat("%d lệnh · %.0f%%", g_HedgeNsdCount, nsdWinPct), rightEdge, y, C'231,236,245', 10); y += rowH;
+    Lbl ("HedgeNsdPLL", "Profit/Loss", sideX + 22, y, C'127,139,163', 10);
+    LblR("HedgeNsdPLV", StringFormat("%s$%.2f", g_HedgeNsdPL >= 0 ? "+" : "-", MathAbs(g_HedgeNsdPL)), rightEdge, y, nsdPLClr, 10); y += rowH + 8;
+
+    Lbl("MassRstH", "AUTO RESET QUÁ TẢI", sideX + 8, y, C'95,108,132', 9);
+    ObjectSetString(0, GUI + "MassRstH", OBJPROP_FONT, "Calibri Bold"); y += 13;
+    {
+        string massBtnTxt = g_MassResetEnable ? "Auto Reset: On" : "Auto Reset: Off";
+        color  massBtnBg  = g_MassResetEnable ? C'10,70,35'   : C'45,18,18';
+        color  massBtnBd  = g_MassResetEnable ? C'55,200,110' : C'130,50,50';
+        CreateBtn("BtnMassResetToggle", massBtnTxt, sideX + 8, y, sideW - 16, 18, massBtnBg, massBtnBd);
+        y += 18 + 4;
+    }
+    Lbl ("MassRstCntL", "Tổng lệnh", sideX + 8, y, C'127,139,163', 10);
+    LblR("MassRstCntV", StringFormat("%d / %d", totalOrdersNow, InpMassResetOrderCount), rightEdge, y, massCntClr, 10);
+}
+
 void UpdateGUI(bool forceCalRefresh = false) {
     if(!InpShowPanel) { RemoveGUI(); return; }
     int PX = InpPanelX;
@@ -2014,7 +2303,8 @@ void UpdateGUI(bool forceCalRefresh = false) {
                             "P3VC1","P3VC2","P3VC3","P3VC4","P3HR0","P3HR1","P3HR2","P3HR3",
                             "TR0S","TR1S","TR2S","TR3S",
                             "TR0BarTrk","TR1BarTrk","TR2BarTrk","TR3BarTrk",
-                            "TR0BarFill","TR1BarFill","TR2BarFill","TR3BarFill"};
+                            "TR0BarFill","TR1BarFill","TR2BarFill","TR3BarFill",
+                            "CardTrim","CardTrimBar","TrimH"};
     for(int li = 0; li < ArraySize(legacyObjs); li++) ObjectDelete(0, GUI + legacyObjs[li]);
 
     string bgt = GUI + "BGTitle";
@@ -2135,49 +2425,6 @@ void UpdateGUI(bool forceCalRefresh = false) {
     ObjectDelete(0, GUI + "HdgS");
     y2 += riskH + 8;
 
-    string trimModeTxt = (g_TrimMode == TRIM_OFF) ? "Tắt" : (g_TrimMode == TRIM_HEDGE ? "Hedge" : "Hedge Điểm");
-    color  trimModeClr = (g_TrimMode == TRIM_OFF) ? C'127,139,163' : C'62,207,142';
-    int    trimCount   = CountAllForTrim();
-    color  trimCntClr  = (g_TrimMode != TRIM_OFF && trimCount >= g_TrimTrigger) ? clrLimeGreen : C'231,236,245';
-    int trimH = 6 + 13 + 15*4 + 4 + 18 + 6;
-    CreateRect("CardTrim",    contentX, y2, cardW, trimH, C'20,28,44');
-    CreateRect("CardTrimBar", contentX, y2, 2,     trimH, C'160,110,220');
-    Lbl("TrimH", "TỈA LỆNH", contentX + 8, y2 + 5, C'95,108,132', 9);
-    ObjectSetString(0, GUI + "TrimH", OBJPROP_FONT, "Calibri Bold");
-    LblR("TrimMode", trimModeTxt, rightEdge, y2 + 5, trimModeClr, 9);
-    int yt = y2 + 6 + 13;
-    Lbl ("TrimCntL", "Số lệnh", contentX + 8, yt, C'127,139,163', 10);
-    LblR("TrimCntV", StringFormat("%d / %d", trimCount, g_TrimTrigger), rightEdge, yt, trimCntClr, 10); yt += 15;
-    Lbl ("TrimManL", "Lệnh tay", contentX + 8, yt, C'127,139,163', 10);
-    LblR("TrimManV", g_TrimIncludeManual ? "Có tham gia" : "Không", rightEdge, yt, g_TrimIncludeManual ? C'62,207,142' : C'127,139,163', 10); yt += 15;
-    {
-        double wProfit, wPts;
-        bool   hasWorst = WorstTrimCandidate(wProfit, wPts);
-        string worstTxt = "—";
-        color  worstClr = C'127,139,163';
-        if(hasWorst) {
-            worstTxt = StringFormat("%s$%.2f", wProfit >= 0 ? "+" : "-", MathAbs(wProfit));
-            worstClr = (wProfit < 0) ? clrTomato : clrLimeGreen;
-        }
-        Lbl ("TrimWorstL", "Lệnh phải tỉa", contentX + 8, yt, C'127,139,163', 10);
-        LblR("TrimWorstV", worstTxt, rightEdge, yt, worstClr, 10);
-        yt += 15;
-    }
-    Lbl ("TrimSLL", "Vốn dự trữ", contentX + 8, yt, C'127,139,163', 10);
-    color trimSLClr = (g_ManualSLLossTotal > 0) ? clrLimeGreen : (g_ManualSLLossTotal < 0 ? clrTomato : C'231,236,245');
-    LblR("TrimSLV", StringFormat("%s$%.2f", g_ManualSLLossTotal >= 0 ? "+" : "-", MathAbs(g_ManualSLLossTotal)),
-         rightEdge, yt, trimSLClr, 10);
-    yt += 15 + 4;
-    {
-        int    trimBtnW  = (cardW - 16 - 6) / 2;
-        string trimBtnTxt = g_TrimEnabled ? "Trim: On" : "Trim: Off";
-        color  trimBtnBg  = g_TrimEnabled ? C'10,70,35'   : C'45,18,18';
-        color  trimBtnBd  = g_TrimEnabled ? C'55,200,110' : C'130,50,50';
-        CreateBtn("BtnTrimToggle",   trimBtnTxt,          contentX + 8, yt, trimBtnW, 18, trimBtnBg, trimBtnBd);
-        CreateBtn("BtnResetReserve", "Reset Vốn", contentX + 8 + trimBtnW + 6, yt, trimBtnW, 18, C'45,18,18', C'130,50,50');
-    }
-    y2 += trimH + 8;
-
     int twinH = 6 + 12 + 3 + 17 + 3 + 12 + 6;
     CreateRect("CardBuy",    contentX, y2, bhw, twinH, C'20,28,44');
     CreateRect("CardBuyBar", contentX, y2, bhw, 2,     C'44,107,82');
@@ -2199,8 +2446,6 @@ void UpdateGUI(bool forceCalRefresh = false) {
         string acctCollapsedObjs[] = {
             "CardRisk", "CardRiskBar", "RiskH", "DDL", "DDV", "DDGTrk", "DDGFill",
             "MDDL", "MDDV", "MDDGTrk", "MDDGFill",
-            "CardTrim", "CardTrimBar", "TrimH", "TrimMode", "TrimCntL", "TrimCntV",
-            "TrimManL", "TrimManV", "TrimWorstL", "TrimWorstV", "TrimSLL", "TrimSLV", "BtnTrimToggle", "BtnResetReserve",
             "CardBuy", "CardBuyBar", "BuyL", "BuyV", "BuyLot",
             "CardSell", "CardSellBar", "SelL", "SelV", "SelLot",
             "TotL", "TotV"
@@ -2268,6 +2513,7 @@ void UpdateGUI(bool forceCalRefresh = false) {
     ObjectSetInteger(0, bg, OBJPROP_YSIZE, g_LastPanelBottom - (PY + titleOff));
 
     UpdateCalendarPanel(forceCalRefresh);
+    UpdateTrimSidePanel();
 
     ChartRedraw(0);
 }
@@ -2578,6 +2824,8 @@ int OnInit() {
     g_TrailActivate = InpTrailActivate; g_TrailStep = InpTrailStep; g_TrailInit = InpTrailInit;
     g_CloseProfit = InpCloseProfit; g_CloseLoss = InpCloseLoss; g_ClosePerPips = InpClosePerPips;
     g_DayMaxLoss = InpDayMaxLoss; g_DayMaxProfit = InpDayMaxProfit;
+    g_DDAutoTradeEnable = InpDDAutoTradeEnable;
+    g_MassResetEnable   = InpMassResetEnable;
 
     g_BotEnabled = InpBotEnabled;
 
@@ -2592,6 +2840,16 @@ int OnInit() {
     {
         string gvName = "RTB_ManualSLLoss_" + _Symbol + "_" + IntegerToString(InpMagic);
         g_ManualSLLossTotal = GlobalVariableCheck(gvName) ? GlobalVariableGet(gvName) : 0.0;
+    }
+    {
+        string magicStr = IntegerToString(InpMagic);
+        string k;
+        k = "RTB_HedgeMrbCount_" + _Symbol + "_" + magicStr; g_HedgeMrbCount = GlobalVariableCheck(k) ? (int)GlobalVariableGet(k) : 0;
+        k = "RTB_HedgeMrbWins_"  + _Symbol + "_" + magicStr; g_HedgeMrbWins  = GlobalVariableCheck(k) ? (int)GlobalVariableGet(k) : 0;
+        k = "RTB_HedgeMrbPL_"    + _Symbol + "_" + magicStr; g_HedgeMrbPL    = GlobalVariableCheck(k) ? GlobalVariableGet(k) : 0.0;
+        k = "RTB_HedgeNsdCount_" + _Symbol + "_" + magicStr; g_HedgeNsdCount = GlobalVariableCheck(k) ? (int)GlobalVariableGet(k) : 0;
+        k = "RTB_HedgeNsdWins_"  + _Symbol + "_" + magicStr; g_HedgeNsdWins  = GlobalVariableCheck(k) ? (int)GlobalVariableGet(k) : 0;
+        k = "RTB_HedgeNsdPL_"    + _Symbol + "_" + magicStr; g_HedgeNsdPL    = GlobalVariableCheck(k) ? GlobalVariableGet(k) : 0.0;
     }
 
     InitBalance    = AccountInfoDouble(ACCOUNT_BALANCE);
@@ -2653,6 +2911,8 @@ void OnTimer() {
     if(CountSell() == 0 && !HasPendingDCA(POSITION_TYPE_SELL)) ResetDCAState(POSITION_TYPE_SELL);
 
     CheckManualAutoSLTP();
+    CheckMassReset();
+    CheckDDAutoTrade();
 
     if(!g_StealthMode) CheckExit();
 
@@ -2684,6 +2944,41 @@ void TrackManualCloseDebt(ulong dealTk) {
     GlobalVariableSet("RTB_ManualSLLoss_" + _Symbol + "_" + IntegerToString(InpMagic), g_ManualSLLossTotal);
 }
 
+void TrackHedgeClose(ulong dealTk) {
+    if(dealTk == 0 || !HistoryDealSelect(dealTk)) return;
+    if(HistoryDealGetString(dealTk, DEAL_SYMBOL) != _Symbol) return;
+    ENUM_DEAL_ENTRY de = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(dealTk, DEAL_ENTRY);
+    if(de != DEAL_ENTRY_OUT && de != DEAL_ENTRY_OUT_BY) return;
+
+    long   posId   = (long)HistoryDealGetInteger(dealTk, DEAL_POSITION_ID);
+    string tagName = "RTB_HedgeTag_" + _Symbol + "_" + IntegerToString(InpMagic) + "_" + IntegerToString(posId);
+    if(!GlobalVariableCheck(tagName)) return;
+    int patternTag = (int)GlobalVariableGet(tagName);
+    GlobalVariableDel(tagName);
+
+    double dealPL = HistoryDealGetDouble(dealTk, DEAL_PROFIT) +
+                    HistoryDealGetDouble(dealTk, DEAL_SWAP) +
+                    HistoryDealGetDouble(dealTk, DEAL_COMMISSION);
+
+    string magicStr = IntegerToString(InpMagic);
+    if(patternTag == 1) {
+        g_HedgeMrbCount++;
+        if(dealPL > 0) g_HedgeMrbWins++;
+        g_HedgeMrbPL += dealPL;
+        GlobalVariableSet("RTB_HedgeMrbCount_" + _Symbol + "_" + magicStr, g_HedgeMrbCount);
+        GlobalVariableSet("RTB_HedgeMrbWins_"  + _Symbol + "_" + magicStr, g_HedgeMrbWins);
+        GlobalVariableSet("RTB_HedgeMrbPL_"    + _Symbol + "_" + magicStr, g_HedgeMrbPL);
+    } else if(patternTag == 2) {
+        g_HedgeNsdCount++;
+        if(dealPL > 0) g_HedgeNsdWins++;
+        g_HedgeNsdPL += dealPL;
+        GlobalVariableSet("RTB_HedgeNsdCount_" + _Symbol + "_" + magicStr, g_HedgeNsdCount);
+        GlobalVariableSet("RTB_HedgeNsdWins_"  + _Symbol + "_" + magicStr, g_HedgeNsdWins);
+        GlobalVariableSet("RTB_HedgeNsdPL_"    + _Symbol + "_" + magicStr, g_HedgeNsdPL);
+    }
+    Print("RTB: Auto Hedge đóng lệnh (", (patternTag == 1 ? "Marubozu" : "No Supply/Demand"), ") P/L=", dealPL);
+}
+
 void OnTradeTransaction(const MqlTradeTransaction& trans,
                         const MqlTradeRequest&     req,
                         const MqlTradeResult&      res) {
@@ -2691,6 +2986,7 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
         UpdateDayProfit();
         CheckDayLimit();
         TrackManualCloseDebt(trans.deal);
+        TrackHedgeClose(trans.deal);
         UpdateGUI(true);
     }
 }
@@ -2729,6 +3025,16 @@ void OnChartEvent(const int id, const long& lparam, const double& dparam, const 
     else if(sparam == GUI + "BtnTrimToggle") {
         g_TrimEnabled = !g_TrimEnabled;
         Print("RTB: Tỉa lệnh ", (g_TrimEnabled ? "BẬT" : "TẮT"), " (thủ công qua panel).");
+        UpdateGUI();
+    }
+    else if(sparam == GUI + "BtnDDAutoToggle") {
+        g_DDAutoTradeEnable = !g_DDAutoTradeEnable;
+        Print("RTB: Auto Âm Sâu (nến) ", (g_DDAutoTradeEnable ? "BẬT" : "TẮT"), " (thủ công qua panel).");
+        UpdateGUI();
+    }
+    else if(sparam == GUI + "BtnMassResetToggle") {
+        g_MassResetEnable = !g_MassResetEnable;
+        Print("RTB: Auto Reset quá tải lệnh ", (g_MassResetEnable ? "BẬT" : "TẮT"), " (thủ công qua panel).");
         UpdateGUI();
     }
     else if(sparam == GUI + "BtnManualBuy") {

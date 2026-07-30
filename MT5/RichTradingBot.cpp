@@ -88,6 +88,15 @@ input  int     InpMaxBuy   = 10;   // Số lệnh Buy tối đa
 input  int     InpMaxSell  = 10;   // Số lệnh Sell tối đa
 
 //+------------------------------------------------------------------+
+//| INPUT: LỆNH TAY - AUTO TP/SL                                     |
+//+------------------------------------------------------------------+
+input group         "══════ LỆNH TAY - AUTO TP/SL ══════"; //
+input  bool    InpManualAutoSLTP  = false;   // Tự động đặt TP/SL cho lệnh tay
+input  double  InpManualTP_Points = 3000.0;  // TP tự động cho lệnh tay (points, 0=tắt)
+input  double  InpManualSL_Points = 0.0;     // SL tự động cho lệnh tay (points, 0=tắt)
+input  double  InpManualLotSize   = 0.01;    // Lots cho nút Buy/Sell Tay trên panel
+
+//+------------------------------------------------------------------+
 //| INPUT: DCA (8 LEVELS)                                            |
 //+------------------------------------------------------------------+
 input group         "══════ DCA - CÀI ĐẶT CHUNG ══════"; //
@@ -277,6 +286,7 @@ input  double  InpPartialTrimDD  = 20.0;   // [Partial DD] Kích hoạt khi DD% 
 input  int     InpTrimMaxLoss    = 1;      // Số lệnh âm tối đa gộp mỗi lần ghép cặp (Hedge) / đóng mỗi lượt (mode khác)
 input  int     InpTrimMaxWin     = 1;      // [Hedge] Số lệnh dương tối đa gộp mỗi lần ghép cặp
 input  int     InpTrimMaxCycles  = 1;      // [Hedge] Số chu kỳ ghép cặp tối đa mỗi lượt tỉa
+input  bool    InpTrimIncludeManual = false; // Cho phép lệnh tay (Magic=0) tham gia tỉa kể cả ở chế độ Tự Động
 
 //+------------------------------------------------------------------+
 //| INPUT: TRAILING STOP                                             |
@@ -449,6 +459,10 @@ bool   g_UseTakeProfit, g_UseStopLoss, g_StealthMode;
 int    g_OrderDelay;
 double g_TP_Points, g_SL_Points;
 
+bool   g_ManualAutoSLTP;
+double g_ManualTP_Points, g_ManualSL_Points;
+double g_ManualSLLossTotal = 0.0;
+
 bool   g_DCABuyEnable, g_DCASellEnable, g_DCAArithEnable;
 double g_DCAArithStep;
 bool   g_PyraBuyEnable, g_PyraSellEnable;
@@ -456,6 +470,8 @@ bool   g_PyraBuyEnable, g_PyraSellEnable;
 ENUM_TRIM_MODE g_TrimMode;
 int    g_TrimTrigger, g_TrimMaxLoss, g_TrimMaxWin, g_TrimMaxCycles;
 double g_TrimTarget, g_PartialTrimDD;
+bool   g_TrimIncludeManual;
+bool   g_TrimEnabled = true;
 
 bool             g_TrailEnable;
 ENUM_TRAIL_MODE  g_TrailMode;
@@ -479,6 +495,26 @@ bool IsManaged() {
     return false;
 }
 
+bool IsManagedForTrim() {
+    if(PositionGetString(POSITION_SYMBOL) != _Symbol) return false;
+    long magic = PositionGetInteger(POSITION_MAGIC);
+    if(magic == (long)InpMagic) return true;
+    if((InpBotMode == MODE_SEMI_AUTO || g_TrimIncludeManual) && magic == 0) return true;
+    return false;
+}
+
+bool IsManagedForDisplay() {
+    if(PositionGetString(POSITION_SYMBOL) != _Symbol) return false;
+    long magic = PositionGetInteger(POSITION_MAGIC);
+    return magic == (long)InpMagic || magic == 0;
+}
+
+bool IsManagedForTrail() {
+    if(PositionGetString(POSITION_SYMBOL) != _Symbol) return false;
+    long magic = PositionGetInteger(POSITION_MAGIC);
+    return magic == (long)InpMagic || magic == 0;
+}
+
 int CountPos(int posType) {
     int n = 0;
     for(int i = PositionsTotal()-1; i >= 0; i--) {
@@ -493,6 +529,17 @@ int CountPos(int posType) {
 int CountBuy()  { return CountPos(POSITION_TYPE_BUY);  }
 int CountSell() { return CountPos(POSITION_TYPE_SELL); }
 int CountAll()  { return CountBuy() + CountSell(); }
+
+int CountAllForTrim() {
+    int n = 0;
+    for(int i = PositionsTotal()-1; i >= 0; i--) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(!IsManagedForTrim()) continue;
+        n++;
+    }
+    return n;
+}
 
 int CountManual(int posType) {
     int n = 0;
@@ -586,17 +633,80 @@ double AvgOpenPrice(int posType) {
     return (totalLot > 0) ? totalCost / totalLot : 0;
 }
 
+int CountPosForTrail(int posType) {
+    int n = 0;
+    for(int i = PositionsTotal()-1; i >= 0; i--) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(!IsManagedForTrail()) continue;
+        if((int)PositionGetInteger(POSITION_TYPE) == posType) n++;
+    }
+    return n;
+}
+
+double AvgOpenPriceForTrail(int posType) {
+    double totalLot = 0, totalCost = 0;
+    for(int i = PositionsTotal()-1; i >= 0; i--) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(!IsManagedForTrail()) continue;
+        if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
+        double lot   = PositionGetDouble(POSITION_VOLUME);
+        double price = PositionGetDouble(POSITION_PRICE_OPEN);
+        totalLot  += lot;
+        totalCost += lot * price;
+    }
+    return (totalLot > 0) ? totalCost / totalLot : 0;
+}
+
 ulong WorstTicket() {
     ulong  tk_worst = 0;
     double worst    = 0;
     for(int i = PositionsTotal()-1; i >= 0; i--) {
         ulong tk = PositionGetTicket(i);
         if(!PositionSelectByTicket(tk)) continue;
-        if(!IsManaged()) continue;
+        if(!IsManagedForTrim()) continue;
         double p = PositionGetDouble(POSITION_PROFIT);
         if(p < worst) { worst = p; tk_worst = tk; }
     }
     return tk_worst;
+}
+
+bool WorstTrimCandidate(double &outProfit, double &outPts) {
+    outProfit = 0; outPts = 0;
+    if(g_TrimMode == TRIM_OFF) return false;
+
+    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+    double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+
+    bool   found      = false;
+    double bestMetric = 0;
+
+    for(int i = PositionsTotal()-1; i >= 0; i--) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(!IsManagedForTrim()) continue;
+
+        double profit = PositionGetDouble(POSITION_PROFIT);
+        double pts    = 0;
+        if(g_TrimMode == TRIM_HEDGE_PTS) {
+            string cmt = PositionGetString(POSITION_COMMENT);
+            if(cmt == "RTB|0|0") continue;
+            int    pt  = (int)PositionGetInteger(POSITION_TYPE);
+            double opn = PositionGetDouble(POSITION_PRICE_OPEN);
+            pts = (pt == POSITION_TYPE_BUY) ? (bid - opn) / point : (opn - ask) / point;
+        }
+
+        double metric = (g_TrimMode == TRIM_HEDGE_PTS) ? pts : profit;
+        if(!found || metric < bestMetric) {
+            found      = true;
+            bestMetric = metric;
+            outProfit  = profit;
+            outPts     = pts;
+        }
+    }
+    return found;
 }
 
 ulong BestTicket() {
@@ -732,7 +842,7 @@ double DCAOrderLot(double baseLot, int orderIdx1, int lvl) {
 //| OPEN ORDER                                                       |
 //+------------------------------------------------------------------+
 bool OpenOrder(int ordType, double lot, double tp_pts = 0, double sl_pts = 0,
-               bool isDCA = false, bool isPyra = false) {
+               bool isDCA = false, bool isPyra = false, int slotIdx = -1) {
     double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
     double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
     double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
@@ -768,6 +878,8 @@ bool OpenOrder(int ordType, double lot, double tp_pts = 0, double sl_pts = 0,
             comment = "RTB|0|0|D";
         else
             comment = StringFormat("RTB|%.0f|%.0f", tp_pts, sl_pts);
+        if(slotIdx >= 0)
+            comment += "|S" + IntegerToString(slotIdx);
     }
     else                comment = "RTB|0|0";
 
@@ -787,6 +899,54 @@ bool OpenOrder(int ordType, double lot, double tp_pts = 0, double sl_pts = 0,
         Print("RTB: OpenOrder FAILED type=", ordType, " err=", GetLastError());
     }
     return ok;
+}
+
+void OpenManualOrder(int ordType) {
+    double lot = NormLot(InpManualLotSize);
+    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    Trade.SetExpertMagicNumber(0);
+    bool ok = (ordType == ORDER_TYPE_BUY)
+        ? Trade.Buy(lot, _Symbol, ask, 0, 0, "")
+        : Trade.Sell(lot, _Symbol, bid, 0, 0, "");
+    Trade.SetExpertMagicNumber(InpMagic);
+    if(ok)
+        Print("RTB: Mở lệnh tay ", (ordType == ORDER_TYPE_BUY ? "BUY" : "SELL"), " lot=", lot);
+    else
+        Print("RTB: Mở lệnh tay thất bại, err=", GetLastError());
+}
+
+void CloseAllManual() {
+    ulong  tickets[];
+    int    count = 0;
+    double closingPL = 0;
+    ArrayResize(tickets, PositionsTotal());
+    for(int i = PositionsTotal()-1; i >= 0; i--) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(PositionGetInteger(POSITION_MAGIC) != 0) continue;
+        closingPL += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
+        tickets[count++] = tk;
+    }
+    if(count > 0) {
+        Trade.SetAsyncMode(true);
+        for(int i = 0; i < count; i++)
+            Trade.PositionClose(tickets[i]);
+        Trade.SetAsyncMode(false);
+
+        g_ManualSLLossTotal += closingPL;
+        GlobalVariableSet("RTB_ManualSLLoss_" + _Symbol + "_" + IntegerToString(InpMagic), g_ManualSLLossTotal);
+        Print("RTB: Đóng toàn bộ lệnh tay (", count, " lệnh), kết quả=", closingPL, " → vốn dự trữ mới=", g_ManualSLLossTotal);
+    }
+
+    for(int i = OrdersTotal()-1; i >= 0; i--) {
+        ulong otk = OrderGetTicket(i);
+        if(otk == 0 || !OrderSelect(otk)) continue;
+        if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
+        if(OrderGetInteger(ORDER_MAGIC) != 0) continue;
+        Trade.OrderDelete(otk);
+    }
 }
 
 //+------------------------------------------------------------------+
@@ -1707,9 +1867,10 @@ void CheckDCA(int posType) {
                 }
 
                 double lot = DCAOrderLot(InpLotSize, slot + 1, slotLvl);
-                string cmt = (DCA_TP[slotLvl] == 0 && DCA_SL[slotLvl] == 0)
-                    ? "RTB|0|0|D|RF"
-                    : "RTB|" + IntegerToString((int)DCA_TP[slotLvl]) + "|" + IntegerToString((int)DCA_SL[slotLvl]) + "|RF";
+                string cmt = ((DCA_TP[slotLvl] == 0 && DCA_SL[slotLvl] == 0)
+                    ? "RTB|0|0|D"
+                    : "RTB|" + IntegerToString((int)DCA_TP[slotLvl]) + "|" + IntegerToString((int)DCA_SL[slotLvl]))
+                    + "|S" + IntegerToString(slot) + "|RF";
                 bool ok = false;
                 if(posType == POSITION_TYPE_BUY) {
                     double tp_p = DCA_TP[slotLvl] > 0 ? NormalizeDouble(slotPrice + DCA_TP[slotLvl] * point, _Digits) : 0;
@@ -1806,7 +1967,7 @@ void CheckDCA(int posType) {
     if(goMarket) {
         int ord = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY : ORDER_TYPE_SELL;
         Print("RTB: DCA level ", lvl+1, " vào market. peak=", peak);
-        bool ok = OpenOrder(ord, lot, DCA_TP[lvl], DCA_SL[lvl], true);
+        bool ok = OpenOrder(ord, lot, DCA_TP[lvl], DCA_SL[lvl], true, false, peak);
         ulong newTk = Trade.ResultOrder();
         if(ok && newTk > 0) {
             double fillPrice = 0;
@@ -1851,9 +2012,10 @@ void CheckDCA(int posType) {
         }
     }
 
-    string cmt = (DCA_TP[lvl] == 0 && DCA_SL[lvl] == 0)
+    string cmt = ((DCA_TP[lvl] == 0 && DCA_SL[lvl] == 0)
         ? "RTB|0|0|D"
-        : "RTB|" + IntegerToString((int)DCA_TP[lvl]) + "|" + IntegerToString((int)DCA_SL[lvl]);
+        : "RTB|" + IntegerToString((int)DCA_TP[lvl]) + "|" + IntegerToString((int)DCA_SL[lvl]))
+        + "|S" + IntegerToString(peak);
     bool placed;
     if(posType == POSITION_TYPE_BUY) {
         double tp_p = DCA_TP[lvl] > 0 ? NormalizeDouble(target + DCA_TP[lvl] * point, _Digits) : 0;
@@ -1997,9 +2159,18 @@ void CheckPyramiding(int posType) {
 //+------------------------------------------------------------------+
 //| ORDER TRIMMING                                                   |
 //+------------------------------------------------------------------+
+double RealizedCloseProfit(double fallback) {
+    ulong dealTk = Trade.ResultDeal();
+    if(dealTk > 0 && HistoryDealSelect(dealTk))
+        return HistoryDealGetDouble(dealTk, DEAL_PROFIT) +
+               HistoryDealGetDouble(dealTk, DEAL_SWAP) +
+               HistoryDealGetDouble(dealTk, DEAL_COMMISSION);
+    return fallback;
+}
+
 void CheckTrimming() {
-    if(g_TrimMode == TRIM_OFF) return;
-    if(CountAll() < g_TrimTrigger) return;
+    if(g_TrimMode == TRIM_OFF || !g_TrimEnabled) return;
+    if(CountAllForTrim() < g_TrimTrigger) return;
 
     switch(g_TrimMode) {
     case TRIM_PARTIAL_DD: {
@@ -2011,7 +2182,7 @@ void CheckTrimming() {
 
         int closed = 0;
         for(int n = 0; n < g_TrimMaxLoss; n++) {
-            if(CountAll() < g_TrimTrigger) break;
+            if(CountAllForTrim() < g_TrimTrigger) break;
             ulong tk = WorstTicket();
             if(tk == 0) break;
             Trade.PositionClose(tk);
@@ -2040,17 +2211,20 @@ void CheckTrimming() {
         int    totalPos = PositionsTotal();
         ulong  tks[];
         double profits[];
+        long   magics[];
         bool   used[];
         ArrayResize(tks, totalPos);
         ArrayResize(profits, totalPos);
+        ArrayResize(magics, totalPos);
         ArrayResize(used, totalPos);
         int cnt = 0;
         for(int i = totalPos - 1; i >= 0; i--) {
             ulong tk = PositionGetTicket(i);
             if(!PositionSelectByTicket(tk)) continue;
-            if(!IsManaged()) continue;
+            if(!IsManagedForTrim()) continue;
             tks[cnt]     = tk;
             profits[cnt] = PositionGetDouble(POSITION_PROFIT);
+            magics[cnt]  = PositionGetInteger(POSITION_MAGIC);
             used[cnt]    = false;
             cnt++;
         }
@@ -2061,6 +2235,7 @@ void CheckTrimming() {
             ArrayResize(worstIdx, g_TrimMaxLoss);
             int    wn = 0;
             double worstSum = 0;
+            bool   groupHasManual = false;
             for(int n = 0; n < g_TrimMaxLoss; n++) {
                 int wIdx = -1;
                 for(int i = 0; i < cnt; i++) {
@@ -2071,6 +2246,7 @@ void CheckTrimming() {
                 worstIdx[wn] = wIdx;
                 worstSum    += profits[wIdx];
                 used[wIdx]   = true;
+                if(magics[wIdx] == 0) groupHasManual = true;
                 wn++;
             }
             if(wn == 0) break;
@@ -2090,12 +2266,26 @@ void CheckTrimming() {
                 winIdx[wn2] = bIdx;
                 winSum     += profits[bIdx];
                 used[bIdx]  = true;
+                if(magics[bIdx] == 0) groupHasManual = true;
                 wn2++;
             }
 
             if(winSum + worstSum >= g_TrimTarget) {
-                for(int i = 0; i < wn2; i++) Trade.PositionClose(tks[winIdx[i]]);
-                for(int i = 0; i < wn;  i++) Trade.PositionClose(tks[worstIdx[i]]);
+                double realizedGroupPL = 0;
+                for(int i = 0; i < wn2; i++) {
+                    bool okClose = Trade.PositionClose(tks[winIdx[i]]);
+                    double rp = okClose ? RealizedCloseProfit(profits[winIdx[i]]) : profits[winIdx[i]];
+                    realizedGroupPL += rp;
+                }
+                for(int i = 0; i < wn;  i++) {
+                    bool okClose = Trade.PositionClose(tks[worstIdx[i]]);
+                    double rp = okClose ? RealizedCloseProfit(profits[worstIdx[i]]) : profits[worstIdx[i]];
+                    realizedGroupPL += rp;
+                }
+                if(groupHasManual) {
+                    g_ManualSLLossTotal += realizedGroupPL - g_TrimTarget;
+                    GlobalVariableSet("RTB_ManualSLLoss_" + _Symbol + "_" + IntegerToString(InpMagic), g_ManualSLLossTotal);
+                }
                 closedCycles++;
             } else break;
         }
@@ -2109,11 +2299,13 @@ void CheckTrimming() {
         ulong  tks[];
         double profits[];
         double pts[];
+        long   magics[];
         bool   isOrig[];
         bool   used[];
         ArrayResize(tks, totalPos);
         ArrayResize(profits, totalPos);
         ArrayResize(pts, totalPos);
+        ArrayResize(magics, totalPos);
         ArrayResize(isOrig, totalPos);
         ArrayResize(used, totalPos);
         double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
@@ -2123,12 +2315,13 @@ void CheckTrimming() {
         for(int i = totalPos - 1; i >= 0; i--) {
             ulong tk = PositionGetTicket(i);
             if(!PositionSelectByTicket(tk)) continue;
-            if(!IsManaged()) continue;
+            if(!IsManagedForTrim()) continue;
             int    pt  = (int)PositionGetInteger(POSITION_TYPE);
             double opn = PositionGetDouble(POSITION_PRICE_OPEN);
             tks[cnt]     = tk;
             profits[cnt] = PositionGetDouble(POSITION_PROFIT);
             pts[cnt]     = (pt == POSITION_TYPE_BUY) ? (bid - opn) / point : (opn - ask) / point;
+            magics[cnt]  = PositionGetInteger(POSITION_MAGIC);
             isOrig[cnt]  = (PositionGetString(POSITION_COMMENT) == "RTB|0|0");
             used[cnt]    = false;
             cnt++;
@@ -2140,6 +2333,7 @@ void CheckTrimming() {
             ArrayResize(worstIdx, g_TrimMaxLoss);
             int    wn = 0;
             double worstSum = 0;
+            bool   groupHasManual = false;
             for(int n = 0; n < g_TrimMaxLoss; n++) {
                 int wIdx = -1;
                 for(int i = 0; i < cnt; i++) {
@@ -2150,6 +2344,7 @@ void CheckTrimming() {
                 worstIdx[wn] = wIdx;
                 worstSum    += profits[wIdx];
                 used[wIdx]   = true;
+                if(magics[wIdx] == 0) groupHasManual = true;
                 wn++;
             }
             if(wn == 0) break;
@@ -2169,12 +2364,26 @@ void CheckTrimming() {
                 winIdx[wn2] = bIdx;
                 winSum     += profits[bIdx];
                 used[bIdx]  = true;
+                if(magics[bIdx] == 0) groupHasManual = true;
                 wn2++;
             }
 
             if(winSum + worstSum >= g_TrimTarget) {
-                for(int i = 0; i < wn2; i++) Trade.PositionClose(tks[winIdx[i]]);
-                for(int i = 0; i < wn;  i++) Trade.PositionClose(tks[worstIdx[i]]);
+                double realizedGroupPL = 0;
+                for(int i = 0; i < wn2; i++) {
+                    bool okClose = Trade.PositionClose(tks[winIdx[i]]);
+                    double rp = okClose ? RealizedCloseProfit(profits[winIdx[i]]) : profits[winIdx[i]];
+                    realizedGroupPL += rp;
+                }
+                for(int i = 0; i < wn;  i++) {
+                    bool okClose = Trade.PositionClose(tks[worstIdx[i]]);
+                    double rp = okClose ? RealizedCloseProfit(profits[worstIdx[i]]) : profits[worstIdx[i]];
+                    realizedGroupPL += rp;
+                }
+                if(groupHasManual) {
+                    g_ManualSLLossTotal += realizedGroupPL - g_TrimTarget;
+                    GlobalVariableSet("RTB_ManualSLLoss_" + _Symbol + "_" + IntegerToString(InpMagic), g_ManualSLLossTotal);
+                }
                 closedCycles++;
             } else break;
         }
@@ -2224,15 +2433,15 @@ void ApplyTrailToPos(ulong tk, int posType, double newSL) {
 void CheckTrailing() {
     bool hedgeTrail = g_HedgeEnable && (HedgeCutBuy || HedgeCutSell);
     if(!g_TrailEnable && !hedgeTrail) return;
-    if(CountAll() < g_TrailMinOrds) return;
+    if(CountPosForTrail(POSITION_TYPE_BUY) + CountPosForTrail(POSITION_TYPE_SELL) < g_TrailMinOrds) return;
 
     double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
     double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
     double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
 
     if(g_TrailMode == TRAIL_BASKET) {
-        if(CountBuy() > 0) {
-            double avgBuy = AvgOpenPrice(POSITION_TYPE_BUY);
+        if(CountPosForTrail(POSITION_TYPE_BUY) > 0) {
+            double avgBuy = AvgOpenPriceForTrail(POSITION_TYPE_BUY);
             if(bid - avgBuy >= g_TrailActivate * point) {
                 double newSL = bid - g_TrailInit * point;
                 if(TrailBuy == 0 || newSL >= TrailBuy + g_TrailStep * point)
@@ -2242,15 +2451,15 @@ void CheckTrailing() {
                 for(int i = PositionsTotal()-1; i >= 0; i--) {
                     ulong tk = PositionGetTicket(i);
                     if(!PositionSelectByTicket(tk)) continue;
-                    if(!IsManaged()) continue;
+                    if(!IsManagedForTrail()) continue;
                     if((int)PositionGetInteger(POSITION_TYPE) != POSITION_TYPE_BUY) continue;
                     ApplyTrailToPos(tk, POSITION_TYPE_BUY, TrailBuy);
                 }
             }
         } else { TrailBuy = 0; }
 
-        if(CountSell() > 0) {
-            double avgSell = AvgOpenPrice(POSITION_TYPE_SELL);
+        if(CountPosForTrail(POSITION_TYPE_SELL) > 0) {
+            double avgSell = AvgOpenPriceForTrail(POSITION_TYPE_SELL);
             if(avgSell - ask >= g_TrailActivate * point) {
                 double newSL = ask + g_TrailInit * point;
                 if(TrailSell == 0 || newSL <= TrailSell - g_TrailStep * point)
@@ -2260,7 +2469,7 @@ void CheckTrailing() {
                 for(int i = PositionsTotal()-1; i >= 0; i--) {
                     ulong tk = PositionGetTicket(i);
                     if(!PositionSelectByTicket(tk)) continue;
-                    if(!IsManaged()) continue;
+                    if(!IsManagedForTrail()) continue;
                     if((int)PositionGetInteger(POSITION_TYPE) != POSITION_TYPE_SELL) continue;
                     ApplyTrailToPos(tk, POSITION_TYPE_SELL, TrailSell);
                 }
@@ -2278,7 +2487,7 @@ void CheckTrailing() {
         for(int i = PositionsTotal()-1; i >= 0; i--) {
             ulong tk = PositionGetTicket(i);
             if(!PositionSelectByTicket(tk)) continue;
-            if(!IsManaged()) continue;
+            if(!IsManagedForTrail()) continue;
 
             int    pt        = (int)PositionGetInteger(POSITION_TYPE);
             double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
@@ -2304,6 +2513,40 @@ void CheckTrailing() {
     }
 }
 
+void CheckManualAutoSLTP() {
+    if(!g_ManualAutoSLTP) return;
+    if(g_ManualTP_Points <= 0 && g_ManualSL_Points <= 0) return;
+
+    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+    for(int i = PositionsTotal()-1; i >= 0; i--) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+        if(PositionGetInteger(POSITION_MAGIC) != 0) continue;
+        string cmt = PositionGetString(POSITION_COMMENT);
+        if(StringFind(cmt, "RTB|") == 0 || StringFind(cmt, "RTP|") == 0) continue;
+
+        if(PositionGetDouble(POSITION_TP) != 0 || PositionGetDouble(POSITION_SL) != 0) continue;
+
+        int    pt  = (int)PositionGetInteger(POSITION_TYPE);
+        double opn = PositionGetDouble(POSITION_PRICE_OPEN);
+        double tp = 0, sl = 0;
+        if(pt == POSITION_TYPE_BUY) {
+            if(g_ManualTP_Points > 0) tp = NormalizeDouble(opn + g_ManualTP_Points * point, _Digits);
+            if(g_ManualSL_Points > 0) sl = NormalizeDouble(opn - g_ManualSL_Points * point, _Digits);
+        } else {
+            if(g_ManualTP_Points > 0) tp = NormalizeDouble(opn - g_ManualTP_Points * point, _Digits);
+            if(g_ManualSL_Points > 0) sl = NormalizeDouble(opn + g_ManualSL_Points * point, _Digits);
+        }
+        if(tp == 0 && sl == 0) continue;
+
+        if(Trade.PositionModify(tk, sl, tp))
+            Print("RTB: Tự động đặt TP/SL cho lệnh tay ticket=", tk, " tp=", tp, " sl=", sl);
+        else
+            Print("RTB: Đặt TP/SL tự động cho lệnh tay ticket=", tk, " thất bại, err=", GetLastError());
+    }
+}
+
 //+------------------------------------------------------------------+
 //| EXIT LOGIC                                                       |
 //+------------------------------------------------------------------+
@@ -2314,7 +2557,7 @@ void CheckExit() {
         for(int i = PositionsTotal()-1; i >= 0; i--) {
             ulong tk = PositionGetTicket(i);
             if(!PositionSelectByTicket(tk)) continue;
-            if(!IsManaged()) continue;
+            if(!IsManagedForTrail()) continue;
             int pt = (int)PositionGetInteger(POSITION_TYPE);
             if(pt == POSITION_TYPE_BUY  && TrailBuy  > 0 && _bid <= TrailBuy)
                 Trade.PositionClose(tk);
@@ -2371,6 +2614,36 @@ void CheckExit() {
             } else {
                 if(useTP > 0 && ask <= opn - useTP * point) { Trade.PositionClose(tk); continue; }
                 if(useSL > 0 && ask >= opn + useSL * point)   Trade.PositionClose(tk);
+            }
+        }
+    }
+
+    if(g_ManualAutoSLTP && (g_ManualTP_Points > 0 || g_ManualSL_Points > 0)) {
+        double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+        double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+        double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+
+        for(int i = PositionsTotal()-1; i >= 0; i--) {
+            ulong tk = PositionGetTicket(i);
+            if(!PositionSelectByTicket(tk)) continue;
+            if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+            if(PositionGetInteger(POSITION_MAGIC) != 0) continue;
+            string cmt = PositionGetString(POSITION_COMMENT);
+            if(StringFind(cmt, "RTB|") == 0 || StringFind(cmt, "RTP|") == 0) continue;
+
+            int    pt  = (int)PositionGetInteger(POSITION_TYPE);
+            double opn = PositionGetDouble(POSITION_PRICE_OPEN);
+
+            if(pt == POSITION_TYPE_BUY) {
+                if(g_ManualTP_Points > 0 && bid >= opn + g_ManualTP_Points * point)
+                    { Trade.PositionClose(tk); continue; }
+                if(g_ManualSL_Points > 0 && bid <= opn - g_ManualSL_Points * point)
+                    Trade.PositionClose(tk);
+            } else {
+                if(g_ManualTP_Points > 0 && ask <= opn - g_ManualTP_Points * point)
+                    { Trade.PositionClose(tk); continue; }
+                if(g_ManualSL_Points > 0 && ask >= opn + g_ManualSL_Points * point)
+                    Trade.PositionClose(tk);
             }
         }
     }
@@ -3011,6 +3284,84 @@ void UpdateTechnicalsPanel() {
     Lbl("TechFoot", StringFormat("Score %.2f", g_TechRating), px + 10, py + cardH - 16, C'95,108,132', 8);
 }
 
+void RemoveManualOrderPanel() {
+    string names[] = {"ManBg", "ManBar", "ManTitle", "ManAutoL", "ManAutoV", "ManCntL", "ManCntV",
+                       "ManTrimL", "ManTrimV", "ManWorstL", "ManWorstV", "ManResL", "ManResV",
+                       "BtnManualBuy", "BtnManualSell", "BtnCloseManual", "BtnTrimToggle", "BtnResetReserve"};
+    for(int i = 0; i < ArraySize(names); i++) ObjectDelete(0, GUI + names[i]);
+}
+
+void UpdateManualOrderPanel() {
+    if(!g_CalExpanded) { RemoveManualOrderPanel(); return; }
+
+    int px = g_CalRightEdge + 12;
+    int py = InpCalPanelY + 224 + InpCalPanelGap;
+    int cardW = 250, cardH = 204;
+    int rightEdge = px + cardW - 10;
+
+    CreateRect("ManBg",  px, py, cardW, cardH, C'20,28,44');
+    CreateRect("ManBar", px, py, 2,     cardH, C'160,110,220');
+
+    int y = py + 6;
+    Lbl("ManTitle", "QUẢN LÝ LỆNH TAY", px + 10, y, C'95,108,132', 9);
+    ObjectSetString(0, GUI + "ManTitle", OBJPROP_FONT, "Calibri Bold");
+    y += 13 + 8;
+
+    Lbl ("ManAutoL", "Auto TP/SL", px + 10, y, C'127,139,163', 10);
+    LblR("ManAutoV", g_ManualAutoSLTP ? "Bật" : "Tắt", rightEdge, y,
+         g_ManualAutoSLTP ? C'62,207,142' : C'127,139,163', 10);
+    y += 19;
+
+    {
+        int   trimCount = CountAllForTrim();
+        color trimCntClr = (g_TrimMode != TRIM_OFF && g_TrimEnabled && trimCount >= g_TrimTrigger)
+                            ? clrLimeGreen : C'231,236,245';
+        Lbl ("ManCntL", "Số lệnh để tỉa", px + 10, y, C'127,139,163', 10);
+        LblR("ManCntV", StringFormat("%d / %d", trimCount, g_TrimTrigger), rightEdge, y, trimCntClr, 10);
+        y += 19;
+    }
+
+    Lbl ("ManTrimL", "Tham gia tỉa", px + 10, y, C'127,139,163', 10);
+    LblR("ManTrimV", g_TrimIncludeManual ? "Có" : "Không", rightEdge, y,
+         g_TrimIncludeManual ? C'62,207,142' : C'127,139,163', 10);
+    y += 19;
+
+    {
+        double wProfit, wPts;
+        bool   hasWorst = WorstTrimCandidate(wProfit, wPts);
+        string worstTxt = "—";
+        color  worstClr = C'127,139,163';
+        if(hasWorst) {
+            worstTxt = StringFormat("%s$%.2f", wProfit >= 0 ? "+" : "-", MathAbs(wProfit));
+            worstClr = (wProfit < 0) ? clrTomato : clrLimeGreen;
+        }
+        Lbl ("ManWorstL", "Lệnh phải tỉa", px + 10, y, C'127,139,163', 10);
+        LblR("ManWorstV", worstTxt, rightEdge, y, worstClr, 10);
+        y += 19;
+    }
+
+    Lbl ("ManResL", "Vốn dự trữ", px + 10, y, C'127,139,163', 10);
+    color resClr = (g_ManualSLLossTotal > 0) ? clrLimeGreen : (g_ManualSLLossTotal < 0 ? clrTomato : C'231,236,245');
+    LblR("ManResV", StringFormat("%s$%.2f", g_ManualSLLossTotal >= 0 ? "+" : "-", MathAbs(g_ManualSLLossTotal)),
+         rightEdge, y, resClr, 10);
+    y += 19 + 8;
+
+    int mbhw = (cardW - 20 - 6) / 2;
+    int mbx2 = px + 10 + mbhw + 6;
+    CreateBtn("BtnManualBuy",  "▲ BUY",  px + 10, y, mbhw, 18, C'0,60,80',  C'40,150,200');
+    CreateBtn("BtnManualSell", "▼ SELL", mbx2,    y, mbhw, 18, C'80,50,0',  C'200,140,40');
+    y += 18 + 6;
+
+    CreateBtn("BtnCloseManual", "Close Manual Orders", px + 10, y, cardW - 20, 18, C'80,20,20', C'200,60,60');
+    y += 18 + 6;
+
+    string trimBtnTxt = g_TrimEnabled ? "Trim: On" : "Trim: Off";
+    color  trimBtnBg  = g_TrimEnabled ? C'10,70,35'   : C'45,18,18';
+    color  trimBtnBd  = g_TrimEnabled ? C'55,200,110' : C'130,50,50';
+    CreateBtn("BtnTrimToggle",   trimBtnTxt,  px + 10, y, mbhw, 18, trimBtnBg,   trimBtnBd);
+    CreateBtn("BtnResetReserve", "Reset Vốn", mbx2,    y, mbhw, 18, C'45,18,18', C'130,50,50');
+}
+
 void UpdateGUI(bool forceCalRefresh = false) {
     if(!InpShowPanel) { RemoveGUI(); return; }
     int PX = InpPanelX;
@@ -3027,7 +3378,7 @@ void UpdateGUI(bool forceCalRefresh = false) {
     for(int i = PositionsTotal()-1; i >= 0; i--) {
         ulong tk = PositionGetTicket(i);
         if(!PositionSelectByTicket(tk)) continue;
-        if(!IsManaged()) continue;
+        if(!IsManagedForDisplay()) continue;
         double p   = PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
         double lot = PositionGetDouble(POSITION_VOLUME);
         int    pt  = (int)PositionGetInteger(POSITION_TYPE);
@@ -3078,7 +3429,8 @@ void UpdateGUI(bool forceCalRefresh = false) {
                             "P3VC1","P3VC2","P3VC3","P3VC4","P3HR0","P3HR1","P3HR2","P3HR3",
                             "TR0S","TR1S","TR2S","TR3S",
                             "TR0BarTrk","TR1BarTrk","TR2BarTrk","TR3BarTrk",
-                            "TR0BarFill","TR1BarFill","TR2BarFill","TR3BarFill"};
+                            "TR0BarFill","TR1BarFill","TR2BarFill","TR3BarFill",
+                            "BtnPanelToggle"};
     for(int li = 0; li < ArraySize(legacyObjs); li++) ObjectDelete(0, GUI + legacyObjs[li]);
 
     string bgt = GUI + "BGTitle";
@@ -3171,15 +3523,6 @@ void UpdateGUI(bool forceCalRefresh = false) {
     CreateRect("CardAcctBar", contentX, y2, 2,     acctH, C'79,195,217');
     Lbl("AcctH", "TÀI KHOẢN", contentX + 8, y2 + 5, C'95,108,132', 9);
     ObjectSetString(0, GUI + "AcctH", OBJPROP_FONT, "Calibri Bold");
-    {
-        bool expanded = !g_PanelCollapsed;
-        color pcBg = expanded ? C'10,70,35'   : C'45,18,18';
-        color pcBd = expanded ? C'55,200,110' : C'130,50,50';
-        CreateBtn("BtnPanelToggle", g_PanelCollapsed ? " + " : " - ", rightEdge - 18, y2 + 3, 18, 14, pcBg, pcBd);
-        ObjectSetInteger(0, GUI + "BtnPanelToggle", OBJPROP_COLOR,    expanded ? clrWhite : C'160,160,160');
-        ObjectSetString(0,  GUI + "BtnPanelToggle", OBJPROP_FONT,     "Consolas");
-        ObjectSetInteger(0, GUI + "BtnPanelToggle", OBJPROP_FONTSIZE, 8);
-    }
     int ya = y2 + 6 + 13;
     Lbl ("BalL", "Balance", contentX + 8, ya, C'127,139,163', 11);
     LblR("BalV", StringFormat("$%.2f", balance), rightEdge, ya, C'231,236,245', 11); ya += 15;
@@ -3268,21 +3611,8 @@ void UpdateGUI(bool forceCalRefresh = false) {
     ObjectSetInteger(0, bg, OBJPROP_YSIZE, bgH);
 
     if(!g_PanelCollapsed) {
-    string bg2 = GUI + "BG2";
-    if(ObjectFind(0, bg2) < 0) {
-        ObjectCreate(0, bg2, OBJ_RECTANGLE_LABEL, 0, 0, 0);
-        ObjectSetInteger(0, bg2, OBJPROP_CORNER,      CORNER_LEFT_UPPER);
-        ObjectSetInteger(0, bg2, OBJPROP_XSIZE,       PW);
-        ObjectSetInteger(0, bg2, OBJPROP_YSIZE,       110 + botOff);
-        ObjectSetInteger(0, bg2, OBJPROP_BGCOLOR,     C'17,21,32');
-        ObjectSetInteger(0, bg2, OBJPROP_BORDER_TYPE, BORDER_FLAT);
-        ObjectSetInteger(0, bg2, OBJPROP_COLOR,       C'65,90,160');
-        ObjectSetInteger(0, bg2, OBJPROP_WIDTH,       1);
-        ObjectSetInteger(0, bg2, OBJPROP_BACK,        false);
-        ObjectSetInteger(0, bg2, OBJPROP_SELECTABLE,  false);
-    }
-    ObjectSetInteger(0, bg2, OBJPROP_XDISTANCE, PX);
-    ObjectSetInteger(0, bg2, OBJPROP_YDISTANCE, bg2Y);
+    CreateRect("BG2",    PX, bg2Y, PW, 110 + botOff, C'20,28,44');
+    CreateRect("BG2Bar", PX, bg2Y, 2,  110 + botOff, C'80,130,230');
 
     int bg3Y = bg2Y + 110 + botOff + 14;
     string bg3 = GUI + "BG3";
@@ -3302,7 +3632,7 @@ void UpdateGUI(bool forceCalRefresh = false) {
     ObjectSetInteger(0, bg3, OBJPROP_YDISTANCE, bg3Y);
 
     int y = bg2Y + 10;
-    Lbl("P2T", "===  ĐIỀU KHIỂN LỆNH  ===", x, y, C'90,140,230', 9);
+    Lbl("P2T", "ĐIỀU KHIỂN LỆNH", contentX + 8, y, C'95,108,132', 9);
     ObjectSetString(0, GUI + "P2T", OBJPROP_FONT, "Calibri Bold"); y += s + 2;
 
     if(g_IsMaster) {
@@ -3428,7 +3758,7 @@ void UpdateGUI(bool forceCalRefresh = false) {
 
     } else {
         string collapsedObjs[] = {
-            "BG2", "P2T", "BtnBotToggle", "BtnCloseAll", "BtnCloseBuy", "BtnCloseProfit", "BtnCloseSell", "BtnCloseLoss",
+            "BG2", "BG2Bar", "P2T", "BtnBotToggle", "BtnCloseAll", "BtnCloseBuy", "BtnCloseProfit", "BtnCloseSell", "BtnCloseLoss",
             "BG3", "P3T", "BtnCalToggle",
             "TH0", "TH1", "TH2", "TH3", "TH4", "RowStripe0", "RowStripe1", "StatsBar",
             "TR0L","TR0P","TR0$","TR0G","TR0V", "TR1L","TR1P","TR1$","TR1G","TR1V",
@@ -3441,6 +3771,7 @@ void UpdateGUI(bool forceCalRefresh = false) {
 
     UpdateCalendarPanel(forceCalRefresh);
     UpdateTechnicalsPanel();
+    UpdateManualOrderPanel();
 
     ChartRedraw(0);
 }
@@ -3648,8 +3979,12 @@ string BuildConfigPayload(long version) {
 
 void ApplyBotEnabled(bool newVal) {
     if(g_BotEnabled && !newVal) {
+        double closingPL = FloatProfit();
         Print("RTB: Bot bị TẮT (BotEnabled=false) — đóng toàn bộ lệnh.");
         CloseAll();
+        g_ManualSLLossTotal += closingPL;
+        GlobalVariableSet("RTB_ManualSLLoss_" + _Symbol + "_" + IntegerToString(InpMagic), g_ManualSLLossTotal);
+        Print("RTB: Kết quả đóng khi tắt bot cộng vào vốn dự trữ: ", closingPL, " → vốn dự trữ mới=", g_ManualSLLossTotal);
     }
     g_BotEnabled = newVal;
 }
@@ -3856,6 +4191,22 @@ bool PullConfigFromCloud() {
 //+------------------------------------------------------------------+
 //| REBUILD DCA STATE FROM LIVE POSITIONS + PENDING ORDERS           |
 //+------------------------------------------------------------------+
+int ParseSlotTag(string cmt) {
+    string parts[];
+    int np = StringSplit(cmt, '|', parts);
+    for(int i = 0; i < np; i++) {
+        if(StringLen(parts[i]) < 2 || StringGetCharacter(parts[i], 0) != 'S') continue;
+        string digits = StringSubstr(parts[i], 1);
+        bool allDigits = StringLen(digits) > 0;
+        for(int c = 0; c < StringLen(digits) && allDigits; c++) {
+            ushort ch = StringGetCharacter(digits, c);
+            if(ch < '0' || ch > '9') allDigits = false;
+        }
+        if(allDigits) return (int)StringToInteger(digits);
+    }
+    return -1;
+}
+
 void RebuildDCAState(int posType) {
     int cap = (posType == POSITION_TYPE_BUY) ? ArraySize(DCABuyPrices) : ArraySize(DCASellPrices);
 
@@ -3863,10 +4214,12 @@ void RebuildDCAState(int posType) {
     datetime slotTimes[];
     ulong    slotPosTk[];
     ulong    slotOrderTk[];
+    int      slotTag[];
     ArrayResize(slotPrices, cap);
     ArrayResize(slotTimes, cap);
     ArrayResize(slotPosTk, cap);
     ArrayResize(slotOrderTk, cap);
+    ArrayResize(slotTag, cap);
     int      count = 0;
     double   tol = 5.0 * _Point;
 
@@ -3890,6 +4243,7 @@ void RebuildDCAState(int posType) {
         slotTimes[count]   = (datetime)PositionGetInteger(POSITION_TIME);
         slotPosTk[count]   = tk;
         slotOrderTk[count] = 0;
+        slotTag[count]     = ParseSlotTag(cmt);
         count++;
     }
 
@@ -3931,6 +4285,7 @@ void RebuildDCAState(int posType) {
             slotTimes[count]   = (datetime)OrderGetInteger(ORDER_TIME_SETUP);
             slotPosTk[count]   = 0;
             slotOrderTk[count] = tk;
+            slotTag[count]     = ParseSlotTag(cmt);
             count++;
         } else {
             // Lệnh chờ "tầng mới kế tiếp" (chưa từng khớp) — KHÔNG được tính vào peak
@@ -3947,17 +4302,20 @@ void RebuildDCAState(int posType) {
     for(int i = 1; i < count; i++) {
         datetime kt = slotTimes[i]; double kp = slotPrices[i];
         ulong kpTk = slotPosTk[i];  ulong koTk = slotOrderTk[i];
+        int kTag = slotTag[i];
         int j = i - 1;
         bool outOfOrder = (posType == POSITION_TYPE_BUY) ? (j >= 0 && slotPrices[j] < kp)
                                                           : (j >= 0 && slotPrices[j] > kp);
         while(outOfOrder) {
             slotTimes[j+1] = slotTimes[j]; slotPrices[j+1] = slotPrices[j];
             slotPosTk[j+1] = slotPosTk[j]; slotOrderTk[j+1] = slotOrderTk[j];
+            slotTag[j+1] = slotTag[j];
             j--;
             outOfOrder = (posType == POSITION_TYPE_BUY) ? (j >= 0 && slotPrices[j] < kp)
                                                          : (j >= 0 && slotPrices[j] > kp);
         }
         slotTimes[j+1] = kt; slotPrices[j+1] = kp; slotPosTk[j+1] = kpTk; slotOrderTk[j+1] = koTk;
+        slotTag[j+1] = kTag;
     }
 
     int realCount = count;
@@ -3990,18 +4348,23 @@ void RebuildDCAState(int posType) {
     int recoveredGaps = 0;
     for(int slot = 0; slot < finalCount; slot++) {
         double expected = LoadSlotPrice(posType, slot);
-        if(expected <= 0) continue;
         int matchIdx = -1;
         for(int b = 0; b < realCount; b++) {
             if(claimed[b]) continue;
-            if(MathAbs(slotPrices[b] - expected) < tol) { matchIdx = b; break; }
+            if(slotTag[b] == slot) { matchIdx = b; break; }
+        }
+        if(matchIdx < 0 && expected > 0) {
+            for(int b = 0; b < realCount; b++) {
+                if(claimed[b]) continue;
+                if(MathAbs(slotPrices[b] - expected) < tol) { matchIdx = b; break; }
+            }
         }
         if(matchIdx >= 0) {
             finalPrices[slot]  = slotPrices[matchIdx];
             finalPosTk[slot]   = slotPosTk[matchIdx];
             finalOrderTk[slot] = slotOrderTk[matchIdx];
             claimed[matchIdx]  = true;
-        } else {
+        } else if(expected > 0) {
             finalPrices[slot] = expected;
             recoveredGaps++;
         }
@@ -4093,12 +4456,15 @@ int OnInit() {
     g_SignalMode = InpSignalMode; g_Direction = InpDirection; g_UTKeyValue = InpUTKeyValue;
     g_UseTakeProfit = InpUseTakeProfit; g_UseStopLoss = InpUseStopLoss; g_StealthMode = InpStealthMode;
     g_OrderDelay = InpOrderDelay; g_TP_Points = InpTP_Points; g_SL_Points = InpSL_Points;
+    g_ManualAutoSLTP = InpManualAutoSLTP;
+    g_ManualTP_Points = InpManualTP_Points; g_ManualSL_Points = InpManualSL_Points;
     g_DCABuyEnable = InpDCABuyEnable; g_DCASellEnable = InpDCASellEnable;
     g_DCAArithEnable = InpDCAArithEnable; g_DCAArithStep = InpDCAArithStep;
     g_PyraBuyEnable = InpPyraBuyEnable; g_PyraSellEnable = InpPyraSellEnable;
     g_TrimMode = InpTrimMode; g_TrimTrigger = InpTrimTrigger;
     g_TrimTarget = InpTrimTarget; g_TrimMaxLoss = InpTrimMaxLoss; g_TrimMaxWin = InpTrimMaxWin;
     g_TrimMaxCycles = InpTrimMaxCycles;
+    g_TrimIncludeManual = InpTrimIncludeManual;
     g_PartialTrimDD = InpPartialTrimDD;
     g_TrailEnable = InpTrailEnable; g_TrailMode = InpTrailMode; g_TrailMinOrds = InpTrailMinOrds;
     g_TrailActivate = InpTrailActivate; g_TrailStep = InpTrailStep; g_TrailInit = InpTrailInit;
@@ -4153,6 +4519,11 @@ int OnInit() {
         Print("RTB: CẢNH BÁO — một số indicator Technicals tạo lỗi, panel Technicals có thể thiếu dữ liệu.");
 
     WarmupATS(1000);
+
+    {
+        string gvName = "RTB_ManualSLLoss_" + _Symbol + "_" + IntegerToString(InpMagic);
+        g_ManualSLLossTotal = GlobalVariableCheck(gvName) ? GlobalVariableGet(gvName) : 0.0;
+    }
 
     InitBalance    = AccountInfoDouble(ACCOUNT_BALANCE);
     MaxDrawdownPct = 0;
@@ -4253,6 +4624,8 @@ void OnTimer() {
     if(CountBuy()  == 0 && !HasPendingDCA(POSITION_TYPE_BUY))  ResetDCAState(POSITION_TYPE_BUY);
     if(CountSell() == 0 && !HasPendingDCA(POSITION_TYPE_SELL)) ResetDCAState(POSITION_TYPE_SELL);
 
+    CheckManualAutoSLTP();
+
     if(!g_StealthMode) CheckExit();
 
     CheckHedgeCut();
@@ -4284,12 +4657,28 @@ void OnTimer() {
     UpdateGUI();
 }
 
+void TrackManualCloseDebt(ulong dealTk) {
+    if(dealTk == 0 || !HistoryDealSelect(dealTk)) return;
+    if(HistoryDealGetString(dealTk, DEAL_SYMBOL) != _Symbol) return;
+    if(HistoryDealGetInteger(dealTk, DEAL_MAGIC) != 0) return;
+    ENUM_DEAL_ENTRY de = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(dealTk, DEAL_ENTRY);
+    if(de != DEAL_ENTRY_OUT && de != DEAL_ENTRY_OUT_BY) return;
+    if((ENUM_DEAL_REASON)HistoryDealGetInteger(dealTk, DEAL_REASON) == DEAL_REASON_EXPERT) return;
+
+    double dealPL = HistoryDealGetDouble(dealTk, DEAL_PROFIT) +
+                    HistoryDealGetDouble(dealTk, DEAL_SWAP) +
+                    HistoryDealGetDouble(dealTk, DEAL_COMMISSION);
+    g_ManualSLLossTotal += dealPL;
+    GlobalVariableSet("RTB_ManualSLLoss_" + _Symbol + "_" + IntegerToString(InpMagic), g_ManualSLLossTotal);
+}
+
 void OnTradeTransaction(const MqlTradeTransaction& trans,
                         const MqlTradeRequest&     req,
                         const MqlTradeResult&      res) {
     if(trans.type == TRADE_TRANSACTION_DEAL_ADD) {
         UpdateDayProfit();
         CheckDayLimit();
+        TrackManualCloseDebt(trans.deal);
         UpdateGUI(true);
     }
 }
@@ -4325,11 +4714,6 @@ void OnChartEvent(const int id, const long& lparam, const double& dparam, const 
             UpdateGUI();
         }
     }
-    else if(sparam == GUI + "BtnPanelToggle") {
-        g_PanelCollapsed = !g_PanelCollapsed;
-        if(g_PanelCollapsed) g_CalExpanded = false;
-        UpdateGUI();
-    }
     else if(sparam == GUI + "BtnCalToggle") {
         g_CalExpanded = !g_CalExpanded;
         UpdateGUI();
@@ -4342,6 +4726,27 @@ void OnChartEvent(const int id, const long& lparam, const double& dparam, const 
     else if(sparam == GUI + "BtnCalNext") {
         g_CalMonth++;
         if(g_CalMonth > 12) { g_CalMonth = 1; g_CalYear++; }
+        UpdateGUI();
+    }
+    else if(sparam == GUI + "BtnManualBuy") {
+        if(!DayLimitHit && g_BotEnabled) OpenManualOrder(ORDER_TYPE_BUY);
+    }
+    else if(sparam == GUI + "BtnManualSell") {
+        if(!DayLimitHit && g_BotEnabled) OpenManualOrder(ORDER_TYPE_SELL);
+    }
+    else if(sparam == GUI + "BtnCloseManual") {
+        CloseAllManual();
+        UpdateGUI();
+    }
+    else if(sparam == GUI + "BtnResetReserve") {
+        g_ManualSLLossTotal = 0;
+        GlobalVariableSet("RTB_ManualSLLoss_" + _Symbol + "_" + IntegerToString(InpMagic), g_ManualSLLossTotal);
+        Print("RTB: Reset vốn dự trữ về 0.");
+        UpdateGUI();
+    }
+    else if(sparam == GUI + "BtnTrimToggle") {
+        g_TrimEnabled = !g_TrimEnabled;
+        Print("RTB: Tỉa lệnh ", (g_TrimEnabled ? "BẬT" : "TẮT"), " (thủ công qua panel).");
         UpdateGUI();
     }
     else return;

@@ -34,11 +34,12 @@ input  double  InpManualTP_Points = 3000.0;  // TP tự động cho lệnh tay (
 input  double  InpManualSL_Points = 0.0;     // SL tự động cho lệnh tay (points, 0=tắt)
 input  double  InpManualLotSize   = 0.01;    // Lots cho nút Buy/Sell Tay trên panel
 
-input group         "══════ AUTO VÀO LỆNH KHI ÂM SÂU (MARUBOZU + NO SUPPLY/DEMAND) ══════"; //
-input  bool             InpDDAutoTradeEnable = false;         // Bật tự động vào lệnh theo nến khi âm sâu
-input  double           InpDDAutoTradePct    = 10.0;          // Ngưỡng % âm (so Initial Balance) để kích hoạt
+input group         "══════ AUTO HEDGE (MARUBOZU) ══════"; //
+input  bool             InpDDAutoTradeEnable = false;         // Bật tự động vào lệnh theo mẫu nến Marubozu
+input  double           InpDDAutoTradePct    = 10.0;          // Ngưỡng % âm (so Initial Balance) để lệnh Hedge được tham gia tỉa
 input  ENUM_TIMEFRAMES  InpDDPatternTF       = PERIOD_CURRENT;// Khung thời gian đọc mẫu nến
 input  double           InpMarubozuWickPct   = 10.0;          // Marubozu: râu nến tối đa (% biên độ nến)
+input  double           InpMarubozuEngulfPct = 85.0;          // Marubozu: % biên độ nến trước bị nhấn chìm tối thiểu
 
 input group         "══════ AUTO RESET KHI QUÁ TẢI LỆNH ══════"; //
 input  bool    InpMassResetEnable     = false; // Bật tự động reset khi quá tải lệnh
@@ -78,6 +79,14 @@ input  bool          InpTrailShowLine = true;         // Vẽ đường Trail
 input  color         InpTrailBuyColor = clrLimeGreen; // Màu đường Trail Buy
 input  color         InpTrailSellColor= clrTomato;    // Màu đường Trail Sell
 input  int           InpTrailLineWidth= 2;            // Độ dày đường Trail (1-5)
+
+input group         "══════ AUTO HEDGE - TRAILING RIÊNG ══════"; //
+input  bool          InpHedgeTrailEnable   = false;        // Bật Trailing riêng cho lệnh Hedge
+input  ENUM_TRAIL_MODE InpHedgeTrailMode   = TRAIL_BASKET; // Basket hoặc Đơn lẻ
+input  int           InpHedgeTrailMinOrds  = 1;            // Số lệnh Hedge tối thiểu kích hoạt
+input  double        InpHedgeTrailActivate = 500.0;        // Points kích hoạt Trail
+input  double        InpHedgeTrailStep     = 200.0;        // Bước nhảy SL (points)
+input  double        InpHedgeTrailInit     = 300.0;        // SL đầu tiên cách giá (points)
 
 input group         "══════ ĐÓNG LỆNH TỔNG ══════"; //
 input  double  InpCloseProfit  = 0.0;  // Chốt lời khi tổng lãi đạt ($, 0=tắt)
@@ -170,6 +179,12 @@ ENUM_TRAIL_MODE  g_TrailMode;
 int              g_TrailMinOrds;
 double           g_TrailActivate, g_TrailStep, g_TrailInit;
 
+bool             g_HedgeTrailEnable;
+ENUM_TRAIL_MODE  g_HedgeTrailMode;
+int              g_HedgeTrailMinOrds;
+double           g_HedgeTrailActivate, g_HedgeTrailStep, g_HedgeTrailInit;
+double           g_HedgeTrailBuy = 0.0, g_HedgeTrailSell = 0.0;
+
 double g_CloseProfit, g_CloseLoss, g_ClosePerPips, g_DayMaxLoss, g_DayMaxProfit;
 
 double g_ManualSLLossTotal = 0.0;
@@ -179,9 +194,12 @@ bool     g_MassResetEnable;
 
 int    g_HedgeMrbCount = 0, g_HedgeMrbWins = 0;
 double g_HedgeMrbPL    = 0.0;
-int    g_HedgeNsdCount = 0, g_HedgeNsdWins = 0;
-double g_HedgeNsdPL    = 0.0;
 
+
+bool IsHedgeTaggedPosition(ulong tk) {
+    string tagName = "RTB_HedgeTag_" + _Symbol + "_" + IntegerToString(InpMagic) + "_" + IntegerToString((long)tk);
+    return GlobalVariableCheck(tagName);
+}
 
 bool IsManaged() {
     if(PositionGetString(POSITION_SYMBOL) != _Symbol) return false;
@@ -195,7 +213,15 @@ bool IsManagedForTrim() {
     if(PositionGetString(POSITION_SYMBOL) != _Symbol) return false;
     long magic = PositionGetInteger(POSITION_MAGIC);
     if(magic == (long)InpMagic) return true;
-    if((InpBotMode == MODE_SEMI_AUTO || g_TrimIncludeManual) && magic == 0) return true;
+    if((InpBotMode == MODE_SEMI_AUTO || g_TrimIncludeManual) && magic == 0) {
+        ulong tk = (ulong)PositionGetInteger(POSITION_TICKET);
+        if(IsHedgeTaggedPosition(tk)) {
+            double ddPct = (InitBalance > 0) ? -TotalFloatAll() / InitBalance * 100.0 : 0.0;
+            PositionSelectByTicket(tk);
+            if(ddPct < InpDDAutoTradePct) return false;
+        }
+        return true;
+    }
     return false;
 }
 
@@ -208,7 +234,19 @@ bool IsManagedForDisplay() {
 bool IsManagedForTrail() {
     if(PositionGetString(POSITION_SYMBOL) != _Symbol) return false;
     long magic = PositionGetInteger(POSITION_MAGIC);
-    return magic == (long)InpMagic || magic == 0;
+    if(magic == (long)InpMagic) return true;
+    if(magic == 0) {
+        ulong tk = (ulong)PositionGetInteger(POSITION_TICKET);
+        return !IsHedgeTaggedPosition(tk);
+    }
+    return false;
+}
+
+bool IsHedgeManagedForTrail() {
+    if(PositionGetString(POSITION_SYMBOL) != _Symbol) return false;
+    if(PositionGetInteger(POSITION_MAGIC) != 0) return false;
+    ulong tk = (ulong)PositionGetInteger(POSITION_TICKET);
+    return IsHedgeTaggedPosition(tk);
 }
 
 int CountPos(int posType) {
@@ -349,6 +387,32 @@ double AvgOpenPriceForTrail(int posType) {
         ulong tk = PositionGetTicket(i);
         if(!PositionSelectByTicket(tk)) continue;
         if(!IsManagedForTrail()) continue;
+        if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
+        double lot   = PositionGetDouble(POSITION_VOLUME);
+        double price = PositionGetDouble(POSITION_PRICE_OPEN);
+        totalLot  += lot;
+        totalCost += lot * price;
+    }
+    return (totalLot > 0) ? totalCost / totalLot : 0;
+}
+
+int CountHedgeForTrail(int posType) {
+    int n = 0;
+    for(int i = PositionsTotal()-1; i >= 0; i--) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(!IsHedgeManagedForTrail()) continue;
+        if((int)PositionGetInteger(POSITION_TYPE) == posType) n++;
+    }
+    return n;
+}
+
+double AvgOpenPriceHedgeForTrail(int posType) {
+    double totalLot = 0, totalCost = 0;
+    for(int i = PositionsTotal()-1; i >= 0; i--) {
+        ulong tk = PositionGetTicket(i);
+        if(!PositionSelectByTicket(tk)) continue;
+        if(!IsHedgeManagedForTrail()) continue;
         if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
         double lot   = PositionGetDouble(POSITION_VOLUME);
         double price = PositionGetDouble(POSITION_PRICE_OPEN);
@@ -616,30 +680,19 @@ int SignalMarubozu(ENUM_TIMEFRAMES tf, int shift) {
     double range = h - l;
     if(range <= 0) return 0;
     double wick = range * (InpMarubozuWickPct / 100.0);
+
+    double h2 = iHigh(_Symbol, tf, shift + 1), l2 = iLow(_Symbol, tf, shift + 1);
+    double range2 = h2 - l2;
+    if(range2 <= 0) return 0;
+    double overlap = MathMin(h, h2) - MathMax(l, l2);
+    if(overlap < range2 * (InpMarubozuEngulfPct / 100.0)) return 0;
+
     if(c > o && (o - l) <= wick && (h - c) <= wick) return  1;
     if(c < o && (h - o) <= wick && (c - l) <= wick) return -1;
     return 0;
 }
 
-int SignalNoSupplyDemand(ENUM_TIMEFRAMES tf, int shift) {
-    double o1 = iOpen(_Symbol, tf, shift),      h1 = iHigh(_Symbol, tf, shift),
-           l1 = iLow(_Symbol, tf, shift),       c1 = iClose(_Symbol, tf, shift);
-    double o2 = iOpen(_Symbol, tf, shift + 1),  h2 = iHigh(_Symbol, tf, shift + 1),
-           l2 = iLow(_Symbol, tf, shift + 1),   c2 = iClose(_Symbol, tf, shift + 1);
-
-    double range1 = h1 - l1;
-    if(range1 <= 0) return 0;
-    double wick = range1 * (InpMarubozuWickPct / 100.0);
-
-    bool prevUp   = c2 > o2;
-    bool prevDown = c2 < o2;
-
-    if(prevDown && c1 > o1 && (h1 - c1) <= wick && l1 < l2) return  1;
-    if(prevUp   && c1 < o1 && (c1 - l1) <= wick && h1 > h2) return -1;
-    return 0;
-}
-
-void OpenDDPatternOrder(int ordType, int patternTag) {
+void OpenDDPatternOrder(int ordType) {
     double lot = NormLot(InpManualLotSize);
     double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
     double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
@@ -651,10 +704,8 @@ void OpenDDPatternOrder(int ordType, int patternTag) {
     if(ok) {
         ulong posTk = Trade.ResultOrder();
         if(posTk > 0)
-            GlobalVariableSet("RTB_HedgeTag_" + _Symbol + "_" + IntegerToString(InpMagic) + "_" + IntegerToString((long)posTk),
-                               (double)patternTag);
-        Print("RTB: Auto Hedge mở lệnh ", (ordType == ORDER_TYPE_BUY ? "BUY" : "SELL"), " lot=", lot,
-              " pattern=", (patternTag == 1 ? "Marubozu" : "No Supply/Demand"));
+            GlobalVariableSet("RTB_HedgeTag_" + _Symbol + "_" + IntegerToString(InpMagic) + "_" + IntegerToString((long)posTk), 1.0);
+        Print("RTB: Auto Hedge mở lệnh ", (ordType == ORDER_TYPE_BUY ? "BUY" : "SELL"), " lot=", lot, " pattern=Marubozu");
     } else {
         Print("RTB: Auto Hedge mở lệnh thất bại, err=", GetLastError());
     }
@@ -663,10 +714,6 @@ void OpenDDPatternOrder(int ordType, int patternTag) {
 void CheckDDAutoTrade() {
     if(!g_DDAutoTradeEnable) return;
     if(DayLimitHit || !g_BotEnabled) return;
-    if(InitBalance <= 0) return;
-
-    double ddPct = -TotalFloatAll() / InitBalance * 100.0;
-    if(ddPct < InpDDAutoTradePct) return;
 
     datetime curBar = iTime(_Symbol, InpDDPatternTF, 0);
     if(curBar == 0 || curBar == g_LastDDPatternBar) return;
@@ -675,20 +722,15 @@ void CheckDDAutoTrade() {
     int secsLeft   = (int)(curBar + periodSecs - TimeCurrent());
     if(secsLeft > 2) return;
 
-    int mrbSig = SignalMarubozu(InpDDPatternTF, 0);
-    int nsdSig = (mrbSig == 0) ? SignalNoSupplyDemand(InpDDPatternTF, 0) : 0;
-    int sig        = (mrbSig != 0) ? mrbSig : nsdSig;
-    int patternTag = (mrbSig != 0) ? 1 : 2;
+    int sig = SignalMarubozu(InpDDPatternTF, 0);
     if(sig == 0) return;
     if(g_Direction == DIR_ONLY_BUY  && sig < 0) return;
     if(g_Direction == DIR_ONLY_SELL && sig > 0) return;
 
     g_LastDDPatternBar = curBar;
 
-    Print("RTB: Âm sâu ", DoubleToString(ddPct, 2), "% >= ngưỡng ", InpDDAutoTradePct,
-          "% — phát hiện mẫu ", (patternTag == 1 ? "Marubozu" : "No Supply/Demand"),
-          " (còn ", secsLeft, "s đóng nến), tự vào lệnh tay ", (sig > 0 ? "BUY" : "SELL"));
-    OpenDDPatternOrder(sig > 0 ? ORDER_TYPE_BUY : ORDER_TYPE_SELL, patternTag);
+    Print("RTB: Phát hiện mẫu Marubozu (còn ", secsLeft, "s đóng nến), tự vào lệnh tay ", (sig > 0 ? "BUY" : "SELL"));
+    OpenDDPatternOrder(sig > 0 ? ORDER_TYPE_BUY : ORDER_TYPE_SELL);
 }
 
 
@@ -1547,6 +1589,81 @@ void CheckTrailing() {
     }
 }
 
+void CheckHedgeTrailing() {
+    if(!g_HedgeTrailEnable) return;
+    if(CountHedgeForTrail(POSITION_TYPE_BUY) + CountHedgeForTrail(POSITION_TYPE_SELL) < g_HedgeTrailMinOrds) return;
+
+    double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+    double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
+
+    if(g_HedgeTrailMode == TRAIL_BASKET) {
+        if(CountHedgeForTrail(POSITION_TYPE_BUY) > 0) {
+            double avgBuy = AvgOpenPriceHedgeForTrail(POSITION_TYPE_BUY);
+            if(bid - avgBuy >= g_HedgeTrailActivate * point) {
+                double newSL = bid - g_HedgeTrailInit * point;
+                if(g_HedgeTrailBuy == 0 || newSL >= g_HedgeTrailBuy + g_HedgeTrailStep * point)
+                    g_HedgeTrailBuy = newSL;
+            }
+            if(g_HedgeTrailBuy > 0) {
+                for(int i = PositionsTotal()-1; i >= 0; i--) {
+                    ulong tk = PositionGetTicket(i);
+                    if(!PositionSelectByTicket(tk)) continue;
+                    if(!IsHedgeManagedForTrail()) continue;
+                    if((int)PositionGetInteger(POSITION_TYPE) != POSITION_TYPE_BUY) continue;
+                    ApplyTrailToPos(tk, POSITION_TYPE_BUY, g_HedgeTrailBuy);
+                }
+            }
+        } else { g_HedgeTrailBuy = 0; }
+
+        if(CountHedgeForTrail(POSITION_TYPE_SELL) > 0) {
+            double avgSell = AvgOpenPriceHedgeForTrail(POSITION_TYPE_SELL);
+            if(avgSell - ask >= g_HedgeTrailActivate * point) {
+                double newSL = ask + g_HedgeTrailInit * point;
+                if(g_HedgeTrailSell == 0 || newSL <= g_HedgeTrailSell - g_HedgeTrailStep * point)
+                    g_HedgeTrailSell = newSL;
+            }
+            if(g_HedgeTrailSell > 0) {
+                for(int i = PositionsTotal()-1; i >= 0; i--) {
+                    ulong tk = PositionGetTicket(i);
+                    if(!PositionSelectByTicket(tk)) continue;
+                    if(!IsHedgeManagedForTrail()) continue;
+                    if((int)PositionGetInteger(POSITION_TYPE) != POSITION_TYPE_SELL) continue;
+                    ApplyTrailToPos(tk, POSITION_TYPE_SELL, g_HedgeTrailSell);
+                }
+            }
+        } else { g_HedgeTrailSell = 0; }
+
+    } else {
+        for(int i = PositionsTotal()-1; i >= 0; i--) {
+            ulong tk = PositionGetTicket(i);
+            if(!PositionSelectByTicket(tk)) continue;
+            if(!IsHedgeManagedForTrail()) continue;
+
+            int    pt        = (int)PositionGetInteger(POSITION_TYPE);
+            double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+
+            if(pt == POSITION_TYPE_BUY) {
+                double profitPts = (bid - openPrice) / point;
+                if(profitPts >= g_HedgeTrailActivate) {
+                    double newSL = bid - g_HedgeTrailInit * point;
+                    double curSL = PositionGetDouble(POSITION_SL);
+                    if(curSL == 0 || newSL >= curSL + g_HedgeTrailStep * point)
+                        ApplyTrailToPos(tk, POSITION_TYPE_BUY, newSL);
+                }
+            } else {
+                double profitPts = (openPrice - ask) / point;
+                if(profitPts >= g_HedgeTrailActivate) {
+                    double newSL = ask + g_HedgeTrailInit * point;
+                    double curSL = PositionGetDouble(POSITION_SL);
+                    if(curSL == 0 || newSL <= curSL - g_HedgeTrailStep * point)
+                        ApplyTrailToPos(tk, POSITION_TYPE_SELL, newSL);
+                }
+            }
+        }
+    }
+}
+
 void CheckManualAutoSLTP() {
     if(!g_ManualAutoSLTP) return;
     if(g_ManualTP_Points <= 0 && g_ManualSL_Points <= 0) return;
@@ -2115,7 +2232,8 @@ void UpdateTrimSidePanel() {
             "BtnTrimToggle", "BtnResetReserve",
             "DDAutoH", "BtnDDAutoToggle", "DDAutoPctL", "DDAutoPctV", "DDAutoLotL", "DDAutoLotV",
             "HedgeMrbL", "HedgeMrbV", "HedgeMrbPLL", "HedgeMrbPLV",
-            "HedgeNsdL", "HedgeNsdV", "HedgeNsdPLL", "HedgeNsdPLV",
+            "HedgeTrailH", "HedgeTrailStL", "HedgeTrailStV",
+            "HedgeTrailBuyL", "HedgeTrailBuyV", "HedgeTrailSellL", "HedgeTrailSellV",
             "MassRstH", "BtnMassResetToggle", "MassRstCntL", "MassRstCntV"
         };
         for(int i = 0; i < ArraySize(delObjs); i++) ObjectDelete(0, GUI + delObjs[i]);
@@ -2148,11 +2266,11 @@ void UpdateTrimSidePanel() {
     color  massCntClr     = (totalOrdersNow > InpMassResetOrderCount) ? clrTomato : C'231,236,245';
 
     double mrbWinPct = (g_HedgeMrbCount > 0) ? (100.0 * g_HedgeMrbWins / g_HedgeMrbCount) : 0.0;
-    double nsdWinPct = (g_HedgeNsdCount > 0) ? (100.0 * g_HedgeNsdWins / g_HedgeNsdCount) : 0.0;
     color  mrbPLClr  = (g_HedgeMrbPL >= 0) ? clrLimeGreen : clrTomato;
-    color  nsdPLClr  = (g_HedgeNsdPL >= 0) ? clrLimeGreen : clrTomato;
 
-    int cardH = titleH + rowH*4 + (rowH+4) + (18+8) + 13 + (18+4) + rowH*6 + 4 + 8 + 13 + (18+4) + rowH + 10;
+    int cardH = titleH + rowH*4 + (rowH+4) + (18+8) + 13 + (18+4) + rowH*4 + 8
+              + 13 + rowH*3 + 8
+              + 13 + (18+4) + rowH + 10;
 
     string bgc = GUI + "TrimSideBG";
     if(ObjectFind(0, bgc) < 0) {
@@ -2224,13 +2342,19 @@ void UpdateTrimSidePanel() {
     ObjectSetString(0, GUI + "HedgeMrbL", OBJPROP_FONT, "Calibri Bold");
     LblR("HedgeMrbV", StringFormat("%d lệnh · %.0f%%", g_HedgeMrbCount, mrbWinPct), rightEdge, y, C'231,236,245', 10); y += rowH;
     Lbl ("HedgeMrbPLL", "Profit/Loss", sideX + 22, y, C'127,139,163', 10);
-    LblR("HedgeMrbPLV", StringFormat("%s$%.2f", g_HedgeMrbPL >= 0 ? "+" : "-", MathAbs(g_HedgeMrbPL)), rightEdge, y, mrbPLClr, 10); y += rowH + 4;
+    LblR("HedgeMrbPLV", StringFormat("%s$%.2f", g_HedgeMrbPL >= 0 ? "+" : "-", MathAbs(g_HedgeMrbPL)), rightEdge, y, mrbPLClr, 10); y += rowH + 8;
 
-    Lbl ("HedgeNsdL", "No S/D", sideX + 8, y, C'231,236,245', 10);
-    ObjectSetString(0, GUI + "HedgeNsdL", OBJPROP_FONT, "Calibri Bold");
-    LblR("HedgeNsdV", StringFormat("%d lệnh · %.0f%%", g_HedgeNsdCount, nsdWinPct), rightEdge, y, C'231,236,245', 10); y += rowH;
-    Lbl ("HedgeNsdPLL", "Profit/Loss", sideX + 22, y, C'127,139,163', 10);
-    LblR("HedgeNsdPLV", StringFormat("%s$%.2f", g_HedgeNsdPL >= 0 ? "+" : "-", MathAbs(g_HedgeNsdPL)), rightEdge, y, nsdPLClr, 10); y += rowH + 8;
+    Lbl("HedgeTrailH", "TRAILING RIÊNG", sideX + 8, y, C'95,108,132', 9);
+    ObjectSetString(0, GUI + "HedgeTrailH", OBJPROP_FONT, "Calibri Bold"); y += 13;
+
+    Lbl ("HedgeTrailStL", "Trạng thái", sideX + 8, y, C'127,139,163', 10);
+    LblR("HedgeTrailStV", g_HedgeTrailEnable ? "Bật" : "Tắt", rightEdge, y, g_HedgeTrailEnable ? C'62,207,142' : C'127,139,163', 10); y += rowH;
+
+    Lbl ("HedgeTrailBuyL", "Trail Buy", sideX + 8, y, C'127,139,163', 10);
+    LblR("HedgeTrailBuyV", g_HedgeTrailBuy > 0 ? DoubleToString(g_HedgeTrailBuy, _Digits) : "—", rightEdge, y, g_HedgeTrailBuy > 0 ? clrLimeGreen : C'127,139,163', 10); y += rowH;
+
+    Lbl ("HedgeTrailSellL", "Trail Sell", sideX + 8, y, C'127,139,163', 10);
+    LblR("HedgeTrailSellV", g_HedgeTrailSell > 0 ? DoubleToString(g_HedgeTrailSell, _Digits) : "—", rightEdge, y, g_HedgeTrailSell > 0 ? clrTomato : C'127,139,163', 10); y += rowH + 8;
 
     Lbl("MassRstH", "AUTO RESET QUÁ TẢI", sideX + 8, y, C'95,108,132', 9);
     ObjectSetString(0, GUI + "MassRstH", OBJPROP_FONT, "Calibri Bold"); y += 13;
@@ -2822,6 +2946,8 @@ int OnInit() {
     g_TrimIncludeManual = InpTrimIncludeManual;
     g_TrailEnable = InpTrailEnable; g_TrailMode = InpTrailMode; g_TrailMinOrds = InpTrailMinOrds;
     g_TrailActivate = InpTrailActivate; g_TrailStep = InpTrailStep; g_TrailInit = InpTrailInit;
+    g_HedgeTrailEnable = InpHedgeTrailEnable; g_HedgeTrailMode = InpHedgeTrailMode; g_HedgeTrailMinOrds = InpHedgeTrailMinOrds;
+    g_HedgeTrailActivate = InpHedgeTrailActivate; g_HedgeTrailStep = InpHedgeTrailStep; g_HedgeTrailInit = InpHedgeTrailInit;
     g_CloseProfit = InpCloseProfit; g_CloseLoss = InpCloseLoss; g_ClosePerPips = InpClosePerPips;
     g_DayMaxLoss = InpDayMaxLoss; g_DayMaxProfit = InpDayMaxProfit;
     g_DDAutoTradeEnable = InpDDAutoTradeEnable;
@@ -2847,9 +2973,6 @@ int OnInit() {
         k = "RTB_HedgeMrbCount_" + _Symbol + "_" + magicStr; g_HedgeMrbCount = GlobalVariableCheck(k) ? (int)GlobalVariableGet(k) : 0;
         k = "RTB_HedgeMrbWins_"  + _Symbol + "_" + magicStr; g_HedgeMrbWins  = GlobalVariableCheck(k) ? (int)GlobalVariableGet(k) : 0;
         k = "RTB_HedgeMrbPL_"    + _Symbol + "_" + magicStr; g_HedgeMrbPL    = GlobalVariableCheck(k) ? GlobalVariableGet(k) : 0.0;
-        k = "RTB_HedgeNsdCount_" + _Symbol + "_" + magicStr; g_HedgeNsdCount = GlobalVariableCheck(k) ? (int)GlobalVariableGet(k) : 0;
-        k = "RTB_HedgeNsdWins_"  + _Symbol + "_" + magicStr; g_HedgeNsdWins  = GlobalVariableCheck(k) ? (int)GlobalVariableGet(k) : 0;
-        k = "RTB_HedgeNsdPL_"    + _Symbol + "_" + magicStr; g_HedgeNsdPL    = GlobalVariableCheck(k) ? GlobalVariableGet(k) : 0.0;
     }
 
     InitBalance    = AccountInfoDouble(ACCOUNT_BALANCE);
@@ -2900,7 +3023,7 @@ void OnDeinit(const int reason) {
 void OnTick() {
     CheckEntry();
     if(g_StealthMode) CheckExit();
-    if(!DayLimitHit) CheckTrailing();
+    if(!DayLimitHit) { CheckTrailing(); CheckHedgeTrailing(); }
 }
 
 void OnTimer() {
@@ -2953,7 +3076,6 @@ void TrackHedgeClose(ulong dealTk) {
     long   posId   = (long)HistoryDealGetInteger(dealTk, DEAL_POSITION_ID);
     string tagName = "RTB_HedgeTag_" + _Symbol + "_" + IntegerToString(InpMagic) + "_" + IntegerToString(posId);
     if(!GlobalVariableCheck(tagName)) return;
-    int patternTag = (int)GlobalVariableGet(tagName);
     GlobalVariableDel(tagName);
 
     double dealPL = HistoryDealGetDouble(dealTk, DEAL_PROFIT) +
@@ -2961,22 +3083,13 @@ void TrackHedgeClose(ulong dealTk) {
                     HistoryDealGetDouble(dealTk, DEAL_COMMISSION);
 
     string magicStr = IntegerToString(InpMagic);
-    if(patternTag == 1) {
-        g_HedgeMrbCount++;
-        if(dealPL > 0) g_HedgeMrbWins++;
-        g_HedgeMrbPL += dealPL;
-        GlobalVariableSet("RTB_HedgeMrbCount_" + _Symbol + "_" + magicStr, g_HedgeMrbCount);
-        GlobalVariableSet("RTB_HedgeMrbWins_"  + _Symbol + "_" + magicStr, g_HedgeMrbWins);
-        GlobalVariableSet("RTB_HedgeMrbPL_"    + _Symbol + "_" + magicStr, g_HedgeMrbPL);
-    } else if(patternTag == 2) {
-        g_HedgeNsdCount++;
-        if(dealPL > 0) g_HedgeNsdWins++;
-        g_HedgeNsdPL += dealPL;
-        GlobalVariableSet("RTB_HedgeNsdCount_" + _Symbol + "_" + magicStr, g_HedgeNsdCount);
-        GlobalVariableSet("RTB_HedgeNsdWins_"  + _Symbol + "_" + magicStr, g_HedgeNsdWins);
-        GlobalVariableSet("RTB_HedgeNsdPL_"    + _Symbol + "_" + magicStr, g_HedgeNsdPL);
-    }
-    Print("RTB: Auto Hedge đóng lệnh (", (patternTag == 1 ? "Marubozu" : "No Supply/Demand"), ") P/L=", dealPL);
+    g_HedgeMrbCount++;
+    if(dealPL > 0) g_HedgeMrbWins++;
+    g_HedgeMrbPL += dealPL;
+    GlobalVariableSet("RTB_HedgeMrbCount_" + _Symbol + "_" + magicStr, g_HedgeMrbCount);
+    GlobalVariableSet("RTB_HedgeMrbWins_"  + _Symbol + "_" + magicStr, g_HedgeMrbWins);
+    GlobalVariableSet("RTB_HedgeMrbPL_"    + _Symbol + "_" + magicStr, g_HedgeMrbPL);
+    Print("RTB: Auto Hedge đóng lệnh (Marubozu) P/L=", dealPL);
 }
 
 void OnTradeTransaction(const MqlTradeTransaction& trans,
@@ -3019,7 +3132,15 @@ void OnChartEvent(const int id, const long& lparam, const double& dparam, const 
     else if(sparam == GUI + "BtnResetReserve") {
         g_ManualSLLossTotal = 0;
         GlobalVariableSet("RTB_ManualSLLoss_" + _Symbol + "_" + IntegerToString(InpMagic), g_ManualSLLossTotal);
-        Print("RTB: Reset vốn dự trữ về 0.");
+
+        g_HedgeMrbCount = 0; g_HedgeMrbWins = 0; g_HedgeMrbPL = 0.0;
+        {
+            string magicStr = IntegerToString(InpMagic);
+            GlobalVariableSet("RTB_HedgeMrbCount_" + _Symbol + "_" + magicStr, g_HedgeMrbCount);
+            GlobalVariableSet("RTB_HedgeMrbWins_"  + _Symbol + "_" + magicStr, g_HedgeMrbWins);
+            GlobalVariableSet("RTB_HedgeMrbPL_"    + _Symbol + "_" + magicStr, g_HedgeMrbPL);
+        }
+        Print("RTB: Reset vốn dự trữ và thống kê Marubozu về 0.");
         UpdateGUI();
     }
     else if(sparam == GUI + "BtnTrimToggle") {

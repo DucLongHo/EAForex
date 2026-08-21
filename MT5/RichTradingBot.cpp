@@ -19,7 +19,7 @@ CCanvas   g_TechCanvas;
 //+------------------------------------------------------------------+
 //| ENUMS                                                            |
 //+------------------------------------------------------------------+
-enum ENUM_SIGNAL_MODE  { SIG_EMA, SIG_BZ_ZONE, SIG_ICHIMOKU, SIG_BB, SIG_SIMULATED, SIG_UT_BOT };
+enum ENUM_SIGNAL_MODE  { SIG_EMA, SIG_BZ_ZONE, SIG_ICHIMOKU, SIG_BB, SIG_SIMULATED, SIG_UT_BOT, SIG_CANDLE };
 enum ENUM_DIRECTION    { DIR_BOTH, DIR_ONLY_BUY, DIR_ONLY_SELL };
 enum ENUM_DCA_MODE     { DCA_STOP, DCA_STEP, DCA_STEP_TF };
 enum ENUM_TRAIL_MODE   { TRAIL_BASKET, TRAIL_SINGLE };
@@ -105,6 +105,7 @@ input  bool          InpDCABuyEnable  = true;   // DCA: Bật DCA chiều Buy
 input  bool          InpDCASellEnable = true;   // DCA: Bật DCA chiều Sell
 input  bool          InpDCAArithEnable = false; // DCA: Bật Vol Cấp Số Cộng (bỏ qua Hệ số Lot từng tầng)
 input  double        InpDCAArithStep   = 0.01;  // DCA: Cộng thêm Vol mỗi lệnh DCA sau (lots)
+input  int           InpMaxPendingDCA  = 20;    // DCA: Trần lệnh chờ sống cùng lúc mỗi chiều (0=không giới hạn)
 
 input group         "══════ DCA - TẦNG 1 ══════"; //
 input  double  InpDCA1Mult = 1.5;    // DCA T1: Hệ số Lot
@@ -1076,6 +1077,16 @@ int SignalUTBot() {
     return g_ats_ut_signal;
 }
 
+int SignalCandle() {
+    MqlRates r[];
+    ArraySetAsSeries(r, true);
+    if(CopyRates(_Symbol, InpSignalTF, 1, 1, r) < 1) return 0;
+
+    if(r[0].close > r[0].open) return  1;
+    if(r[0].close < r[0].open) return -1;
+    return 0;
+}
+
 int SignalSimulated() {
     if(g_Direction == DIR_ONLY_BUY)  return  1;
     if(g_Direction == DIR_ONLY_SELL) return -1;
@@ -1091,6 +1102,7 @@ int GetSignal() {
         case SIG_BB:        sig = SignalBB();        break;
         case SIG_SIMULATED: sig = SignalSimulated(); break;
         case SIG_UT_BOT:    sig = SignalUTBot();    break;
+        case SIG_CANDLE:    sig = SignalCandle();    break;
     }
     if(g_SignalMode != SIG_SIMULATED) {
         if(g_Direction == DIR_ONLY_BUY  && sig < 0) return 0;
@@ -1729,7 +1741,96 @@ bool IsSlotOpen(int posType, int slot) {
 }
 
 
+// Đếm số lệnh chờ DCA đang sống thật trên sàn theo chiều posType — đọc trực tiếp OrdersTotal(), không dựa
+// vào mảng ticket nội bộ (an toàn kể cả khi ticket bị lệch do EA restart/desync).
+int CountLivePendingDCA(int posType) {
+    int cnt = 0;
+    ENUM_ORDER_TYPE t1 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_STOP  : ORDER_TYPE_SELL_STOP;
+    ENUM_ORDER_TYPE t2 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_LIMIT : ORDER_TYPE_SELL_LIMIT;
+    for(int i = OrdersTotal() - 1; i >= 0; i--) {
+        ulong tk = OrderGetTicket(i);
+        if(tk == 0 || !OrderSelect(tk)) continue;
+        if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
+        if((long)OrderGetInteger(ORDER_MAGIC) != (long)InpMagic) continue;
+        ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+        if(ot != t1 && ot != t2) continue;
+        cnt++;
+    }
+    return cnt;
+}
+
+// Tìm lệnh chờ DCA cách xa giá hiện tại nhất theo chiều posType — dùng để nhường chỗ cho lệnh chờ gần
+// giá hơn khi đã chạm trần InpMaxPendingDCA.
+bool FarthestPendingDCA(int posType, ulong &farTk, double &farDist) {
+    double refPrice = (posType == POSITION_TYPE_BUY) ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    ENUM_ORDER_TYPE t1 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_STOP  : ORDER_TYPE_SELL_STOP;
+    ENUM_ORDER_TYPE t2 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_LIMIT : ORDER_TYPE_SELL_LIMIT;
+    farTk = 0; farDist = -1;
+    for(int i = OrdersTotal() - 1; i >= 0; i--) {
+        ulong tk = OrderGetTicket(i);
+        if(tk == 0 || !OrderSelect(tk)) continue;
+        if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
+        if((long)OrderGetInteger(ORDER_MAGIC) != (long)InpMagic) continue;
+        ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+        if(ot != t1 && ot != t2) continue;
+        double dist = MathAbs(OrderGetDouble(ORDER_PRICE_OPEN) - refPrice);
+        if(dist > farDist) { farDist = dist; farTk = tk; }
+    }
+    return farTk > 0;
+}
+
+// Giữ trần InpMaxPendingDCA lệnh chờ DCA sống cùng lúc mỗi chiều (một số sàn giới hạn tổng số lệnh chờ,
+// vượt trần sẽ bị từ chối) — ưu tiên giữ các lệnh GẦN giá hiện tại nhất. Gọi ngay trước khi đặt 1 lệnh
+// chờ DCA mới tại newPrice: nếu chưa đầy trần, cho đặt luôn; nếu đầy trần mà newPrice gần giá hơn lệnh
+// chờ xa nhất đang có, huỷ lệnh xa nhất để nhường chỗ; nếu newPrice xa hơn mọi lệnh đang có thì bỏ qua,
+// CheckDCA() sẽ tự thử lại các lượt sau (khi giá đổi hoặc lệnh chờ khác biến mất).
+bool MakeRoomForPendingDCA(int posType, double newPrice) {
+    if(InpMaxPendingDCA <= 0) return true; // 0 = không giới hạn
+    if(CountLivePendingDCA(posType) < InpMaxPendingDCA) return true;
+
+    double refPrice = (posType == POSITION_TYPE_BUY) ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    double newDist  = MathAbs(newPrice - refPrice);
+
+    ulong  farTk; double farDist;
+    if(!FarthestPendingDCA(posType, farTk, farDist)) return true;
+
+    if(newDist >= farDist) return false;
+
+    if(Trade.OrderDelete(farTk)) {
+        Print("RTB: Trần lệnh chờ DCA (", InpMaxPendingDCA, ") đầy phía ", (posType == POSITION_TYPE_BUY ? "BUY" : "SELL"),
+              " — huỷ lệnh chờ xa nhất (ticket=", farTk, ", cách ", DoubleToString(farDist, _Digits),
+              ") để nhường chỗ cho lệnh gần giá hơn.");
+        return true;
+    }
+    Print("RTB: Huỷ lệnh chờ xa nhất (ticket=", farTk, ") để nhường trần lệnh chờ DCA thất bại, err=", GetLastError());
+    return false;
+}
+
+// Cưỡng chế trần InpMaxPendingDCA — khác MakeRoomForPendingDCA() (chỉ nhường chỗ khi có 1 lệnh MỚI sắp
+// đặt), hàm này chủ động huỷ bớt lệnh chờ XA giá nhất cho tới khi về đúng trần, chạy mỗi tick bất kể có
+// đặt lệnh mới hay không. Cần thiết cho trường hợp số lệnh chờ đã vượt trần từ trước (tích luỹ từ bản EA
+// cũ chưa có giới hạn, hoặc InpMaxPendingDCA vừa bị hạ thấp hơn số đang có) — nếu không có hàm này, trần
+// chỉ ngăn được lệnh MỚI vượt thêm chứ không tự rút gọn số dư thừa đã có sẵn về đúng trần.
+void EnforcePendingDCACap(int posType) {
+    if(InpMaxPendingDCA <= 0) return;
+    int guard = 0;
+    while(CountLivePendingDCA(posType) > InpMaxPendingDCA && guard < 200) {
+        guard++;
+        ulong farTk; double farDist;
+        if(!FarthestPendingDCA(posType, farTk, farDist)) break;
+        if(Trade.OrderDelete(farTk)) {
+            Print("RTB: Vượt trần lệnh chờ DCA (", InpMaxPendingDCA, ") phía ", (posType == POSITION_TYPE_BUY ? "BUY" : "SELL"),
+                  " — huỷ bớt lệnh chờ xa nhất (ticket=", farTk, ", cách ", DoubleToString(farDist, _Digits), ").");
+        } else {
+            Print("RTB: Huỷ lệnh chờ xa nhất (ticket=", farTk, ") để ép trần lệnh chờ DCA thất bại, err=", GetLastError());
+            break;
+        }
+    }
+}
+
 void CheckDCA(int posType) {
+    EnforcePendingDCACap(posType);
+
     if(g_HedgeEnable) return;
     if(posType == POSITION_TYPE_BUY  && !g_DCABuyEnable)  return;
     if(posType == POSITION_TYPE_SELL && !g_DCASellEnable) return;
@@ -1778,6 +1879,12 @@ void CheckDCA(int posType) {
     }
 
     int peak = (posType == POSITION_TYPE_BUY) ? PeakDCABuy : PeakDCASell;
+
+    // Ứng viên refill GẦN giá hiện tại nhất trong toàn bộ các slot đang cần đặt lại lệnh chờ — chỉ ghi
+    // nhận trong vòng lặp bên dưới, đặt lệnh thật SAU vòng lặp (xem lý do ở comment gần chỗ dùng).
+    int    bestSlot    = -1;
+    int    bestSlotLvl = -1;
+    double bestDist    = -1;
 
     for(int slot = 0; slot < peak; slot++) {
         double slotPrice   = (posType == POSITION_TYPE_BUY) ? DCABuyPrices[slot]   : DCASellPrices[slot];
@@ -1828,7 +1935,6 @@ void CheckDCA(int posType) {
             }
 
             if(count < maxOrds) {
-                if(TimeCurrent() - LastOrderTime < g_OrderDelay) continue;
                 if(slotLvl < 0 || DCA_Mode[slotLvl] == DCA_STOP) continue;
 
                 if(DCA_Mode[slotLvl] == DCA_STEP_TF) {
@@ -1837,69 +1943,85 @@ void CheckDCA(int posType) {
                     if(posType == POSITION_TYPE_SELL && sig != -1) continue;
                 }
 
-                double tolDup = 0.5 * point;
-                bool duplicateExists = false;
-                for(int pi = PositionsTotal()-1; pi >= 0 && !duplicateExists; pi--) {
-                    ulong ptk = PositionGetTicket(pi);
-                    if(!PositionSelectByTicket(ptk)) continue;
-                    if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-                    if((long)PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
-                    if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
-                    if(MathAbs(PositionGetDouble(POSITION_PRICE_OPEN) - slotPrice) < tolDup) duplicateExists = true;
-                }
-                if(!duplicateExists) {
-                    ENUM_ORDER_TYPE dupType1 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_STOP  : ORDER_TYPE_SELL_STOP;
-                    ENUM_ORDER_TYPE dupType2 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_LIMIT : ORDER_TYPE_SELL_LIMIT;
-                    for(int oi = OrdersTotal()-1; oi >= 0 && !duplicateExists; oi--) {
-                        ulong otk = OrderGetTicket(oi);
-                        if(otk == 0 || !OrderSelect(otk)) continue;
-                        if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
-                        if((long)OrderGetInteger(ORDER_MAGIC) != (long)InpMagic) continue;
-                        ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
-                        if(ot != dupType1 && ot != dupType2) continue;
-                        if(MathAbs(OrderGetDouble(ORDER_PRICE_OPEN) - slotPrice) < tolDup) duplicateExists = true;
-                    }
-                }
-                if(duplicateExists) {
-                    Print("RTB: Slot ", slot, " (", (posType == POSITION_TYPE_BUY ? "BUY" : "SELL"),
-                          ") đã có vị thế/lệnh chờ thật ở giá ", slotPrice, " — bỏ qua đặt trùng.");
-                    continue;
-                }
-
-                double lot = DCAOrderLot(InpLotSize, slot + 1, slotLvl);
-                string cmt = ((DCA_TP[slotLvl] == 0 && DCA_SL[slotLvl] == 0)
-                    ? "RTB|0|0|D"
-                    : "RTB|" + IntegerToString((int)DCA_TP[slotLvl]) + "|" + IntegerToString((int)DCA_SL[slotLvl]))
-                    + "|S" + IntegerToString(slot) + "|RF";
-                bool ok = false;
-                if(posType == POSITION_TYPE_BUY) {
-                    double tp_p = DCA_TP[slotLvl] > 0 ? NormalizeDouble(slotPrice + DCA_TP[slotLvl] * point, _Digits) : 0;
-                    double sl_p = DCA_SL[slotLvl] > 0 ? NormalizeDouble(slotPrice - DCA_SL[slotLvl] * point, _Digits) : 0;
-                    if(ask > slotPrice)
-                        ok = Trade.BuyLimit(lot, slotPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, cmt);
-                    else if(ask < slotPrice)
-                        ok = Trade.BuyStop(lot, slotPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, cmt);
-                } else {
-                    double tp_p = DCA_TP[slotLvl] > 0 ? NormalizeDouble(slotPrice - DCA_TP[slotLvl] * point, _Digits) : 0;
-                    double sl_p = DCA_SL[slotLvl] > 0 ? NormalizeDouble(slotPrice + DCA_SL[slotLvl] * point, _Digits) : 0;
-                    if(bid < slotPrice)
-                        ok = Trade.SellLimit(lot, slotPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, cmt);
-                    else if(bid > slotPrice)
-                        ok = Trade.SellStop(lot, slotPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, cmt);
-                }
-                if(ok) {
-                    ulong lmtTk = Trade.ResultOrder();
-                    if(lmtTk > 0) {
-                        Print("RTB: Placed re-fill slot ", slot, " (level ", slotLvl+1, ") at ", slotPrice);
-                        if(posType == POSITION_TYPE_BUY) DCABuyLimitTk[slot]  = lmtTk;
-                        else                              DCASellLimitTk[slot] = lmtTk;
-                        LastOrderTime = TimeCurrent();
-                    }
-                }
+                // KHÔNG đặt lệnh ngay khi gặp slot đầu tiên cần refill theo thứ tự index tăng dần — với 1
+                // chuỗi DCA giá chạy liên tục 1 hướng, index tăng dần lại là thứ tự XA→GẦN giá hiện tại, nên
+                // vòng lặp sẽ ưu tiên nhồi các slot xa trước; đến lượt slot gần hơn, trần InpMaxPendingDCA
+                // đã đầy nên MakeRoomForPendingDCA() lại huỷ đúng slot xa vừa đặt ở lượt trước để nhường chỗ
+                // — tự dẫm chân lên nhau, đặt-rồi-huỷ liên tục ("kéo lệnh xuống dần" từng slot một, quan sát
+                // thực tế qua log) thay vì hội tụ thẳng về đúng số slot gần giá nhất trong trần. Sửa bằng
+                // cách chỉ GHI NHẬN slot này là ứng viên ở đây, rồi chọn đúng 1 ứng viên GẦN GIÁ NHẤT trong
+                // toàn bộ slot đang cần refill để đặt lệnh thật, sau khi vòng lặp quét hết (khối code sau vòng lặp).
+                double distNow = MathAbs(slotPrice - ((posType == POSITION_TYPE_BUY) ? ask : bid));
+                if(bestSlot < 0 || distNow < bestDist) { bestSlot = slot; bestSlotLvl = slotLvl; bestDist = distNow; }
             }
         } else {
             if(posType == POSITION_TYPE_BUY) { DCABuyBounced[slot] = false; DCABuyLimitTk[slot]  = 0; }
             else                              { DCASellBounced[slot] = false; DCASellLimitTk[slot] = 0; }
+        }
+    }
+
+    if(bestSlot >= 0 && TimeCurrent() - LastOrderTime >= g_OrderDelay) {
+        int    slot      = bestSlot;
+        int    slotLvl   = bestSlotLvl;
+        double slotPrice = (posType == POSITION_TYPE_BUY) ? DCABuyPrices[slot] : DCASellPrices[slot];
+
+        double tolDup = 0.5 * point;
+        bool duplicateExists = false;
+        for(int pi = PositionsTotal()-1; pi >= 0 && !duplicateExists; pi--) {
+            ulong ptk = PositionGetTicket(pi);
+            if(!PositionSelectByTicket(ptk)) continue;
+            if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+            if((long)PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
+            if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
+            if(MathAbs(PositionGetDouble(POSITION_PRICE_OPEN) - slotPrice) < tolDup) duplicateExists = true;
+        }
+        if(!duplicateExists) {
+            ENUM_ORDER_TYPE dupType1 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_STOP  : ORDER_TYPE_SELL_STOP;
+            ENUM_ORDER_TYPE dupType2 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_LIMIT : ORDER_TYPE_SELL_LIMIT;
+            for(int oi = OrdersTotal()-1; oi >= 0 && !duplicateExists; oi--) {
+                ulong otk = OrderGetTicket(oi);
+                if(otk == 0 || !OrderSelect(otk)) continue;
+                if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
+                if((long)OrderGetInteger(ORDER_MAGIC) != (long)InpMagic) continue;
+                ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+                if(ot != dupType1 && ot != dupType2) continue;
+                if(MathAbs(OrderGetDouble(ORDER_PRICE_OPEN) - slotPrice) < tolDup) duplicateExists = true;
+            }
+        }
+        if(duplicateExists) {
+            Print("RTB: Slot ", slot, " (", (posType == POSITION_TYPE_BUY ? "BUY" : "SELL"),
+                  ") đã có vị thế/lệnh chờ thật ở giá ", slotPrice, " — bỏ qua đặt trùng.");
+        } else if(MakeRoomForPendingDCA(posType, slotPrice)) {
+            double lot = DCAOrderLot(InpLotSize, slot + 1, slotLvl);
+            string cmt = ((DCA_TP[slotLvl] == 0 && DCA_SL[slotLvl] == 0)
+                ? "RTB|0|0|D"
+                : "RTB|" + IntegerToString((int)DCA_TP[slotLvl]) + "|" + IntegerToString((int)DCA_SL[slotLvl]))
+                + "|S" + IntegerToString(slot) + "|RF";
+            bool ok = false;
+            if(posType == POSITION_TYPE_BUY) {
+                double tp_p = DCA_TP[slotLvl] > 0 ? NormalizeDouble(slotPrice + DCA_TP[slotLvl] * point, _Digits) : 0;
+                double sl_p = DCA_SL[slotLvl] > 0 ? NormalizeDouble(slotPrice - DCA_SL[slotLvl] * point, _Digits) : 0;
+                if(ask > slotPrice)
+                    ok = Trade.BuyLimit(lot, slotPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, cmt);
+                else if(ask < slotPrice)
+                    ok = Trade.BuyStop(lot, slotPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, cmt);
+            } else {
+                double tp_p = DCA_TP[slotLvl] > 0 ? NormalizeDouble(slotPrice - DCA_TP[slotLvl] * point, _Digits) : 0;
+                double sl_p = DCA_SL[slotLvl] > 0 ? NormalizeDouble(slotPrice + DCA_SL[slotLvl] * point, _Digits) : 0;
+                if(bid < slotPrice)
+                    ok = Trade.SellLimit(lot, slotPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, cmt);
+                else if(bid > slotPrice)
+                    ok = Trade.SellStop(lot, slotPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, cmt);
+            }
+            if(ok) {
+                ulong lmtTk = Trade.ResultOrder();
+                if(lmtTk > 0) {
+                    Print("RTB: Placed re-fill slot ", slot, " (level ", slotLvl+1, ") at ", slotPrice);
+                    if(posType == POSITION_TYPE_BUY) DCABuyLimitTk[slot]  = lmtTk;
+                    else                              DCASellLimitTk[slot] = lmtTk;
+                    LastOrderTime = TimeCurrent();
+                }
+            }
         }
     }
 
@@ -2011,6 +2133,8 @@ void CheckDCA(int posType) {
             return;
         }
     }
+
+    if(!MakeRoomForPendingDCA(posType, target)) return;
 
     string cmt = ((DCA_TP[lvl] == 0 && DCA_SL[lvl] == 0)
         ? "RTB|0|0|D"
@@ -3398,6 +3522,7 @@ void UpdateGUI(bool forceCalRefresh = false) {
         case SIG_BB:        sigName = "Bollinger Band"; break;
         case SIG_SIMULATED: sigName = "Simulated";      break;
         case SIG_UT_BOT:    sigName = "UT Bot";         break;
+        case SIG_CANDLE:    sigName = "Candle";         break;
     }
 
     string dirName = "";

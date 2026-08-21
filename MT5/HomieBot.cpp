@@ -30,6 +30,7 @@ input  double  InpDDPauseThreshold = -50.0; // Ngưỡng DD ($, số âm cố đ
 input group         "══════ DCA - CÀI ĐẶT CHUNG ══════"; //
 input  bool          InpDCAArithEnable = false; // DCA: Bật Vol Cấp Số Cộng (bỏ qua Hệ số Lot)
 input  double        InpDCAArithStep   = 0.01;  // DCA: Cộng thêm Vol mỗi lệnh DCA sau (lots)
+input  int           InpMaxPendingDCA  = 20;    // DCA: Trần lệnh chờ sống cùng lúc mỗi chiều (0=không giới hạn)
 
 input group         "══════ DCA ══════"; //
 input  double  InpDCA1Mult = 1.5;    // DCA: Hệ số Lot
@@ -60,6 +61,10 @@ input  double        InpManualTrailActivate = 500.0;        // Points kích ho�
 input  double        InpManualTrailStep     = 200.0;        // Bước nhảy SL (points)
 input  double        InpManualTrailInit     = 300.0;        // SL đầu tiên cách giá (points)
 
+input group         "══════ LỆNH TAY - ĐÓNG THEO LÃI ══════"; //
+input  bool    InpManualCloseProfitEnable = false; // Bật đóng hết lệnh tay khi lãi đạt ngưỡng
+input  double  InpManualCloseProfit       = 50.0;  // Ngưỡng lãi đóng hết lệnh tay ($)
+
 input group         "══════ ĐÓNG LỆNH TỔNG ══════"; //
 input  double  InpCloseProfit  = 0.0;  // Chốt lời khi tổng lãi đạt ($, 0=tắt)
 input  double  InpCloseLoss    = 0.0;  // Cắt lỗ khi tổng lỗ đạt ($, 0=tắt)
@@ -74,6 +79,10 @@ input  int     InpPanelY     = 18;    // Panel: tọa độ Y
 input  int     InpPanelWidth = 252;   // Panel: chiều rộng
 input  int     InpCalPanelGap = 12;   // Lịch: khoảng cách với panel chính
 input  int     InpCalPanelY  = 18;    // Lịch: tọa độ Y
+
+input group         "══════ QUẢN LÝ LỊCH ══════"; //
+input  bool    InpCalShowProfitDays = true;  // Hiện ngày có lãi
+input  bool    InpCalShowLossDays  = true;   // Hiện ngày lỗ
 
 double        DCA_Mult;
 int           DCA_MaxOrd;
@@ -133,12 +142,14 @@ bool   g_ManualAutoSLEnable = true;   // bật/tắt Auto SL (EMA) cho lệnh ta
 int    hManualSLEMA = INVALID_HANDLE;
 ulong  g_ManualSLSeen[];   // ticket lệnh tay đã được gán SL (EMA) 1 lần lúc mới mở, không xét lại (nhường quyền cho Trailing)
 
+bool   g_ManualCloseProfitEnable;   // bật/tắt đóng hết lệnh tay khi đạt ngưỡng lãi
+double g_ManualCloseProfit;         // ngưỡng lãi ($) đóng hết lệnh tay
+bool   g_ManualCPEditing = false;   // đang mở ô sửa Mục tiêu trên panel hay không
+
 int    g_OrderDelay;
 
 bool   g_DCAArithEnable;
 double g_DCAArithStep;
-bool   g_DCABuyEnable  = true;
-bool   g_DCASellEnable = true;
 
 int    g_TrimTrigger, g_TrimMaxLoss, g_TrimMaxWin, g_TrimMaxCycles;
 double g_TrimTarget;
@@ -772,9 +783,95 @@ bool IsSlotOpen(int posType, int slot) {
 }
 
 
+// Đếm số lệnh chờ DCA đang sống thật trên sàn theo chiều posType (đọc trực tiếp OrdersTotal(), không dựa
+// vào mảng ticket nội bộ — an toàn kể cả khi ticket bị lệch do EA restart/desync).
+int CountLivePendingDCA(int posType) {
+    int cnt = 0;
+    ENUM_ORDER_TYPE t1 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_STOP  : ORDER_TYPE_SELL_STOP;
+    ENUM_ORDER_TYPE t2 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_LIMIT : ORDER_TYPE_SELL_LIMIT;
+    for(int i = OrdersTotal() - 1; i >= 0; i--) {
+        ulong tk = OrderGetTicket(i);
+        if(tk == 0 || !OrderSelect(tk)) continue;
+        if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
+        if((long)OrderGetInteger(ORDER_MAGIC) != (long)InpMagic) continue;
+        ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+        if(ot != t1 && ot != t2) continue;
+        cnt++;
+    }
+    return cnt;
+}
+
+// Tìm lệnh chờ DCA cách xa giá hiện tại nhất theo chiều posType — dùng để nhường chỗ cho lệnh chờ gần
+// giá hơn khi đã chạm trần InpMaxPendingDCA.
+bool FarthestPendingDCA(int posType, ulong &farTk, double &farDist) {
+    double refPrice = (posType == POSITION_TYPE_BUY) ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    ENUM_ORDER_TYPE t1 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_STOP  : ORDER_TYPE_SELL_STOP;
+    ENUM_ORDER_TYPE t2 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_LIMIT : ORDER_TYPE_SELL_LIMIT;
+    farTk = 0; farDist = -1;
+    for(int i = OrdersTotal() - 1; i >= 0; i--) {
+        ulong tk = OrderGetTicket(i);
+        if(tk == 0 || !OrderSelect(tk)) continue;
+        if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
+        if((long)OrderGetInteger(ORDER_MAGIC) != (long)InpMagic) continue;
+        ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+        if(ot != t1 && ot != t2) continue;
+        double dist = MathAbs(OrderGetDouble(ORDER_PRICE_OPEN) - refPrice);
+        if(dist > farDist) { farDist = dist; farTk = tk; }
+    }
+    return farTk > 0;
+}
+
+// Giữ trần InpMaxPendingDCA lệnh chờ DCA sống cùng lúc mỗi chiều (một số sàn giới hạn tổng số lệnh chờ,
+// vượt trần sẽ bị từ chối) — ưu tiên giữ các lệnh GẦN giá hiện tại nhất. Gọi ngay trước khi đặt 1 lệnh
+// chờ DCA mới tại newPrice: nếu chưa đầy trần, cho đặt luôn; nếu đầy trần mà newPrice gần giá hơn lệnh
+// chờ xa nhất đang có, huỷ lệnh xa nhất để nhường chỗ; nếu newPrice xa hơn mọi lệnh đang có thì bỏ qua,
+// CheckDCA() sẽ tự thử lại các lượt sau (khi giá đổi hoặc lệnh chờ khác biến mất).
+bool MakeRoomForPendingDCA(int posType, double newPrice) {
+    if(InpMaxPendingDCA <= 0) return true; // 0 = không giới hạn
+    if(CountLivePendingDCA(posType) < InpMaxPendingDCA) return true;
+
+    double refPrice = (posType == POSITION_TYPE_BUY) ? SymbolInfoDouble(_Symbol, SYMBOL_ASK) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
+    double newDist  = MathAbs(newPrice - refPrice);
+
+    ulong  farTk; double farDist;
+    if(!FarthestPendingDCA(posType, farTk, farDist)) return true;
+
+    if(newDist >= farDist) return false;
+
+    if(Trade.OrderDelete(farTk)) {
+        Print("RTB: Trần lệnh chờ DCA (", InpMaxPendingDCA, ") đầy phía ", (posType == POSITION_TYPE_BUY ? "BUY" : "SELL"),
+              " — huỷ lệnh chờ xa nhất (ticket=", farTk, ", cách ", DoubleToString(farDist, _Digits),
+              ") để nhường chỗ cho lệnh gần giá hơn.");
+        return true;
+    }
+    Print("RTB: Huỷ lệnh chờ xa nhất (ticket=", farTk, ") để nhường trần lệnh chờ DCA thất bại, err=", GetLastError());
+    return false;
+}
+
+// Cưỡng chế trần InpMaxPendingDCA — khác MakeRoomForPendingDCA() (chỉ nhường chỗ khi có 1 lệnh MỚI sắp
+// đặt), hàm này chủ động huỷ bớt lệnh chờ XA giá nhất cho tới khi về đúng trần, chạy mỗi tick bất kể có
+// đặt lệnh mới hay không. Cần thiết cho trường hợp số lệnh chờ đã vượt trần từ trước (tích luỹ từ bản EA
+// cũ chưa có giới hạn, hoặc InpMaxPendingDCA vừa bị hạ thấp hơn số đang có) — nếu không có hàm này, trần
+// chỉ ngăn được lệnh MỚI vượt thêm chứ không tự rút gọn số dư thừa đã có sẵn về đúng trần.
+void EnforcePendingDCACap(int posType) {
+    if(InpMaxPendingDCA <= 0) return;
+    int guard = 0;
+    while(CountLivePendingDCA(posType) > InpMaxPendingDCA && guard < 200) {
+        guard++;
+        ulong farTk; double farDist;
+        if(!FarthestPendingDCA(posType, farTk, farDist)) break;
+        if(Trade.OrderDelete(farTk)) {
+            Print("RTB: Vượt trần lệnh chờ DCA (", InpMaxPendingDCA, ") phía ", (posType == POSITION_TYPE_BUY ? "BUY" : "SELL"),
+                  " — huỷ bớt lệnh chờ xa nhất (ticket=", farTk, ", cách ", DoubleToString(farDist, _Digits), ").");
+        } else {
+            Print("RTB: Huỷ lệnh chờ xa nhất (ticket=", farTk, ") để ép trần lệnh chờ DCA thất bại, err=", GetLastError());
+            break;
+        }
+    }
+}
+
 void CheckDCA(int posType) {
-    if(posType == POSITION_TYPE_BUY  && !g_DCABuyEnable)  return;
-    if(posType == POSITION_TYPE_SELL && !g_DCASellEnable) return;
+    EnforcePendingDCACap(posType);
 
     int count = CountPos(posType);
     if(count == 0) return;
@@ -785,6 +882,11 @@ void CheckDCA(int posType) {
     int maxOrds  = DCA_MaxOrd + 1;
 
     int peak = (posType == POSITION_TYPE_BUY) ? PeakDCABuy : PeakDCASell;
+
+    // Ứng viên refill GẦN giá hiện tại nhất trong toàn bộ các slot đang cần đặt lại lệnh chờ — chỉ ghi
+    // nhận trong vòng lặp bên dưới, đặt lệnh thật SAU vòng lặp (xem lý do ở comment gần chỗ dùng).
+    int    bestSlot = -1;
+    double bestDist = -1;
 
     for(int slot = 0; slot < peak; slot++) {
         double slotPrice   = (posType == POSITION_TYPE_BUY) ? DCABuyPrices[slot]   : DCASellPrices[slot];
@@ -827,71 +929,84 @@ void CheckDCA(int posType) {
             }
 
             if(count < maxOrds) {
-                if(TimeCurrent() - LastOrderTime < g_OrderDelay) continue;
-
-                double tolDup = 50.0 * point;
-                bool duplicateExists = false;
-                for(int pi = PositionsTotal()-1; pi >= 0 && !duplicateExists; pi--) {
-                    ulong ptk = PositionGetTicket(pi);
-                    if(!PositionSelectByTicket(ptk)) continue;
-                    if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-                    if((long)PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
-                    if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
-                    if(MathAbs(PositionGetDouble(POSITION_PRICE_OPEN) - slotPrice) < tolDup) duplicateExists = true;
-                }
-                if(!duplicateExists) {
-                    ENUM_ORDER_TYPE dupType1 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_STOP  : ORDER_TYPE_SELL_STOP;
-                    ENUM_ORDER_TYPE dupType2 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_LIMIT : ORDER_TYPE_SELL_LIMIT;
-                    for(int oi = OrdersTotal()-1; oi >= 0 && !duplicateExists; oi--) {
-                        ulong otk = OrderGetTicket(oi);
-                        if(otk == 0 || !OrderSelect(otk)) continue;
-                        if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
-                        if((long)OrderGetInteger(ORDER_MAGIC) != (long)InpMagic) continue;
-                        ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
-                        if(ot != dupType1 && ot != dupType2) continue;
-                        if(MathAbs(OrderGetDouble(ORDER_PRICE_OPEN) - slotPrice) < tolDup) duplicateExists = true;
-                    }
-                }
-                if(duplicateExists) {
-                    Print("RTB: Slot ", slot, " (", (posType == POSITION_TYPE_BUY ? "BUY" : "SELL"),
-                          ") đã có vị thế/lệnh chờ thật ở giá ", slotPrice, " — bỏ qua đặt trùng.");
-                    continue;
-                }
-
-                double lot = DCAOrderLot(InpLotSize, slot + 1);
-                string cmt = ((DCA_TP == 0 && DCA_SL == 0)
-                    ? "RTB|0|0"
-                    : "RTB|" + IntegerToString((int)DCA_TP) + "|" + IntegerToString((int)DCA_SL))
-                    + "|S" + IntegerToString(slot) + "|RF";
-                bool ok = false;
-                if(posType == POSITION_TYPE_BUY) {
-                    double tp_p = DCA_TP > 0 ? NormalizeDouble(slotPrice + DCA_TP * point, _Digits) : 0;
-                    double sl_p = DCA_SL > 0 ? NormalizeDouble(slotPrice - DCA_SL * point, _Digits) : 0;
-                    if(ask > slotPrice)
-                        ok = Trade.BuyLimit(lot, slotPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, cmt);
-                    else if(ask < slotPrice)
-                        ok = Trade.BuyStop(lot, slotPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, cmt);
-                } else {
-                    double tp_p = DCA_TP > 0 ? NormalizeDouble(slotPrice - DCA_TP * point, _Digits) : 0;
-                    double sl_p = DCA_SL > 0 ? NormalizeDouble(slotPrice + DCA_SL * point, _Digits) : 0;
-                    if(bid < slotPrice)
-                        ok = Trade.SellLimit(lot, slotPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, cmt);
-                    else if(bid > slotPrice)
-                        ok = Trade.SellStop(lot, slotPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, cmt);
-                }
-                if(ok) {
-                    ulong lmtTk = Trade.ResultOrder();
-                    if(lmtTk > 0) {
-                        Print("RTB: Placed re-fill slot ", slot, " at ", slotPrice);
-                        if(posType == POSITION_TYPE_BUY) DCABuyLimitTk[slot]  = lmtTk;
-                        else                              DCASellLimitTk[slot] = lmtTk;
-                        LastOrderTime = TimeCurrent();
-                    }
-                }
+                // KHÔNG đặt lệnh ngay khi gặp slot đầu tiên cần refill theo thứ tự index tăng dần — với 1
+                // chuỗi DCA giá chạy liên tục 1 hướng, index tăng dần lại là thứ tự XA→GẦN giá hiện tại, nên
+                // vòng lặp sẽ ưu tiên nhồi các slot xa trước; đến lượt slot gần hơn, trần InpMaxPendingDCA
+                // đã đầy nên MakeRoomForPendingDCA() lại huỷ đúng slot xa vừa đặt ở lượt trước để nhường chỗ
+                // — tự dẫm chân lên nhau, đặt-rồi-huỷ liên tục ("kéo lệnh xuống dần" từng slot một, quan sát
+                // thực tế qua log) thay vì hội tụ thẳng về đúng 20 slot gần giá nhất. Sửa bằng cách chỉ GHI
+                // NHẬN slot này là ứng viên ở đây, rồi chọn đúng 1 ứng viên GẦN GIÁ NHẤT trong toàn bộ slot
+                // đang cần refill để đặt lệnh thật, sau khi vòng lặp quét hết (xem khối code ngay sau vòng lặp).
+                double distNow = MathAbs(slotPrice - ((posType == POSITION_TYPE_BUY) ? ask : bid));
+                if(bestSlot < 0 || distNow < bestDist) { bestSlot = slot; bestDist = distNow; }
             }
         } else {
             if(posType == POSITION_TYPE_BUY) { DCABuyBounced[slot] = false; DCABuyLimitTk[slot]  = 0; }
             else                              { DCASellBounced[slot] = false; DCASellLimitTk[slot] = 0; }
+        }
+    }
+
+    if(bestSlot >= 0 && TimeCurrent() - LastOrderTime >= g_OrderDelay) {
+        int    slot      = bestSlot;
+        double slotPrice = (posType == POSITION_TYPE_BUY) ? DCABuyPrices[slot] : DCASellPrices[slot];
+
+        double tolDup = 50.0 * point;
+        bool duplicateExists = false;
+        for(int pi = PositionsTotal()-1; pi >= 0 && !duplicateExists; pi--) {
+            ulong ptk = PositionGetTicket(pi);
+            if(!PositionSelectByTicket(ptk)) continue;
+            if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
+            if((long)PositionGetInteger(POSITION_MAGIC) != (long)InpMagic) continue;
+            if((int)PositionGetInteger(POSITION_TYPE) != posType) continue;
+            if(MathAbs(PositionGetDouble(POSITION_PRICE_OPEN) - slotPrice) < tolDup) duplicateExists = true;
+        }
+        if(!duplicateExists) {
+            ENUM_ORDER_TYPE dupType1 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_STOP  : ORDER_TYPE_SELL_STOP;
+            ENUM_ORDER_TYPE dupType2 = (posType == POSITION_TYPE_BUY) ? ORDER_TYPE_BUY_LIMIT : ORDER_TYPE_SELL_LIMIT;
+            for(int oi = OrdersTotal()-1; oi >= 0 && !duplicateExists; oi--) {
+                ulong otk = OrderGetTicket(oi);
+                if(otk == 0 || !OrderSelect(otk)) continue;
+                if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
+                if((long)OrderGetInteger(ORDER_MAGIC) != (long)InpMagic) continue;
+                ENUM_ORDER_TYPE ot = (ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE);
+                if(ot != dupType1 && ot != dupType2) continue;
+                if(MathAbs(OrderGetDouble(ORDER_PRICE_OPEN) - slotPrice) < tolDup) duplicateExists = true;
+            }
+        }
+        if(duplicateExists) {
+            Print("RTB: Slot ", slot, " (", (posType == POSITION_TYPE_BUY ? "BUY" : "SELL"),
+                  ") đã có vị thế/lệnh chờ thật ở giá ", slotPrice, " — bỏ qua đặt trùng.");
+        } else if(MakeRoomForPendingDCA(posType, slotPrice)) {
+            double lot = DCAOrderLot(InpLotSize, slot + 1);
+            string cmt = ((DCA_TP == 0 && DCA_SL == 0)
+                ? "RTB|0|0"
+                : "RTB|" + IntegerToString((int)DCA_TP) + "|" + IntegerToString((int)DCA_SL))
+                + "|S" + IntegerToString(slot) + "|RF";
+            bool ok = false;
+            if(posType == POSITION_TYPE_BUY) {
+                double tp_p = DCA_TP > 0 ? NormalizeDouble(slotPrice + DCA_TP * point, _Digits) : 0;
+                double sl_p = DCA_SL > 0 ? NormalizeDouble(slotPrice - DCA_SL * point, _Digits) : 0;
+                if(ask > slotPrice)
+                    ok = Trade.BuyLimit(lot, slotPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, cmt);
+                else if(ask < slotPrice)
+                    ok = Trade.BuyStop(lot, slotPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, cmt);
+            } else {
+                double tp_p = DCA_TP > 0 ? NormalizeDouble(slotPrice - DCA_TP * point, _Digits) : 0;
+                double sl_p = DCA_SL > 0 ? NormalizeDouble(slotPrice + DCA_SL * point, _Digits) : 0;
+                if(bid < slotPrice)
+                    ok = Trade.SellLimit(lot, slotPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, cmt);
+                else if(bid > slotPrice)
+                    ok = Trade.SellStop(lot, slotPrice, _Symbol, sl_p, tp_p, ORDER_TIME_GTC, 0, cmt);
+            }
+            if(ok) {
+                ulong lmtTk = Trade.ResultOrder();
+                if(lmtTk > 0) {
+                    Print("RTB: Placed re-fill slot ", slot, " at ", slotPrice);
+                    if(posType == POSITION_TYPE_BUY) DCABuyLimitTk[slot]  = lmtTk;
+                    else                              DCASellLimitTk[slot] = lmtTk;
+                    LastOrderTime = TimeCurrent();
+                }
+            }
         }
     }
 
@@ -991,6 +1106,8 @@ void CheckDCA(int posType) {
             return;
         }
     }
+
+    if(!MakeRoomForPendingDCA(posType, target)) return;
 
     string cmt = ((DCA_TP == 0 && DCA_SL == 0)
         ? "RTB|0|0"
@@ -1332,6 +1449,41 @@ void CheckManualAutoSL() {
     }
 }
 
+// Đọc giá trị đang gõ trong ô EditManualCP, lưu vào g_ManualCloseProfit và thoát chế độ sửa.
+// Dùng chung cho cả nút "Lưu" và sự kiện ENDEDIT (nhấn Enter / click ra ngoài ô).
+//
+// Guard g_ManualCPEditing ở đầu hàm: ENDEDIT của OBJ_EDIT bắn ra khi nhấn Enter LẪN khi ô mất focus
+// (theo tài liệu MQL5) — bấm nút "Lưu" vừa khiến ô mất focus (bắn ENDEDIT) vừa là 1 click riêng (bắn
+// CLICK cho BtnManualCPSave), nên hàm này có thể bị gọi 2 lần cho cùng 1 lần bấm. Lần gọi đầu đọc đúng
+// giá trị mới, lưu xong rồi UpdateGUI() xoá luôn ô EditManualCP; lần gọi thứ 2 (nếu có) sẽ đọc trên ô
+// đã bị xoá → ObjectGetString trả về rỗng → StringToDouble("")=0 → ghi đè mất giá trị vừa lưu đúng.
+// Chặn bằng cách chỉ cho phép commit thật sự 1 lần: nếu đã thoát chế độ sửa (g_ManualCPEditing=false)
+// rồi thì coi như đã xử lý xong, bỏ qua ngay.
+void CommitManualCPEdit() {
+    if(!g_ManualCPEditing) return;
+    string raw = ObjectGetString(0, GUI + "EditManualCP", OBJPROP_TEXT);
+    double val = StringToDouble(raw);
+    if(val < 0) val = 0;
+    g_ManualCloseProfit = val;
+    g_ManualCPEditing   = false;
+    // Lưu ra GlobalVariable ngay khi commit — nếu không, giá trị chỉ sống trong RAM và sẽ bị OnInit() nạp
+    // đè về InpManualCloseProfit ngay khi đổi timeframe/symbol (MT5 tự chạy lại OnInit khi đó).
+    GlobalVariableSet("RTB_ManualCP_" + _Symbol + "_" + IntegerToString(InpMagic), val);
+    Print("RTB: Mục tiêu đóng lệnh tay theo lãi đổi thành $", DoubleToString(val, 2),
+          " (đọc từ ô = \"", raw, "\", sửa qua panel, đã lưu GlobalVariable).");
+}
+
+void CheckManualCloseProfit() {
+    if(!g_ManualCloseProfitEnable) return;
+    if(g_ManualCloseProfit <= 0) return;
+
+    double mp = ManualFloatProfit();
+    if(mp < g_ManualCloseProfit) return;
+
+    Print("RTB: Lệnh tay đạt lãi $", DoubleToString(mp, 2), " >= ngưỡng $", DoubleToString(g_ManualCloseProfit, 2), " — đóng hết lệnh tay.");
+    CloseAllManual();
+}
+
 void CheckExit() {
     if(g_ClosePerPips > 0) {
         double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
@@ -1483,6 +1635,34 @@ void CreateBtn(string name, string text, int x, int y, int w, int h, color bgClr
     ObjectSetInteger(0, obj, OBJPROP_BGCOLOR,      bgClr);
     ObjectSetInteger(0, obj, OBJPROP_BORDER_COLOR, borderClr);
     ObjectSetInteger(0, obj, OBJPROP_STATE,        false);
+}
+
+// Ô nhập liệu (OBJ_EDIT) — CHỈ gán OBJPROP_TEXT lúc mới tạo object (khác Lbl/CreateBtn luôn ghi đè text
+// mỗi lần gọi). UpdateGUI() chạy lại mỗi giây qua OnTimer(); nếu ghi đè text mỗi lần vẽ, chữ người dùng
+// đang gõ dở sẽ bị xoá mất trước khi họ kịp nhấn Enter để xác nhận.
+void CreateEdit(string name, string initText, int x, int y, int w, int h) {
+    string obj = GUI + name;
+    if(ObjectFind(0, obj) < 0) {
+        ObjectCreate(0, obj, OBJ_EDIT, 0, 0, 0);
+        ObjectSetInteger(0, obj, OBJPROP_CORNER,       CORNER_LEFT_UPPER);
+        ObjectSetString(0,  obj, OBJPROP_FONT,         "Consolas");
+        ObjectSetInteger(0, obj, OBJPROP_FONTSIZE,     10);
+        ObjectSetInteger(0, obj, OBJPROP_ALIGN,        ALIGN_RIGHT);
+        ObjectSetInteger(0, obj, OBJPROP_COLOR,        clrWhite);
+        ObjectSetInteger(0, obj, OBJPROP_BGCOLOR,      C'30,38,58');
+        ObjectSetInteger(0, obj, OBJPROP_BORDER_COLOR, C'90,160,255');
+        ObjectSetInteger(0, obj, OBJPROP_BACK,         false);
+        // SELECTABLE=false, khớp với mọi object tương tác khác trong file (xem CreateBtn) — với OBJ_EDIT,
+        // SELECTABLE=true khiến click vào ô bị MT5 hiểu là "chọn object" (chế độ kéo/di chuyển) thay vì
+        // đặt con trỏ gõ chữ, nên trước đó bấm "Sửa" xong không gõ được số vào ô.
+        ObjectSetInteger(0, obj, OBJPROP_SELECTABLE,   false);
+        ObjectSetInteger(0, obj, OBJPROP_READONLY,     false);
+        ObjectSetString(0,  obj, OBJPROP_TEXT,         initText);
+    }
+    ObjectSetInteger(0, obj, OBJPROP_XDISTANCE, x);
+    ObjectSetInteger(0, obj, OBJPROP_YDISTANCE, y);
+    ObjectSetInteger(0, obj, OBJPROP_XSIZE,     w);
+    ObjectSetInteger(0, obj, OBJPROP_YSIZE,     h);
 }
 
 void DrawHLine(string name, double price, color clr, int width = 1) {
@@ -1752,7 +1932,10 @@ void UpdateCalendarPanel(bool forceRecalc = false) {
         Lbl("CalD" + si, StringFormat("%02d/%02d", day, g_CalMonth), cellCenterX, dateY, clrSilver, 8);
         ObjectSetInteger(0, GUI + "CalD" + si, OBJPROP_ANCHOR, ANCHOR_UPPER);
 
-        if(g_CalCacheLot[slot] <= 0) {
+        bool isProfitDay = g_CalCacheProfit[slot] >= 0;
+        bool dayVisible  = (g_CalCacheLot[slot] > 0) && (isProfitDay ? InpCalShowProfitDays : InpCalShowLossDays);
+
+        if(!dayVisible) {
             ObjectSetInteger(0, cellObj, OBJPROP_COLOR, C'40,48,68');
             ObjectDelete(0, GUI + "CalPL" + si);
             ObjectDelete(0, GUI + "CalP" + si);
@@ -1761,9 +1944,9 @@ void UpdateCalendarPanel(bool forceRecalc = false) {
             continue;
         }
 
-        color pc = (g_CalCacheProfit[slot] >= 0) ? clrLimeGreen : clrTomato;
+        color pc = isProfitDay ? clrLimeGreen : clrTomato;
 
-        ObjectSetInteger(0, cellObj, OBJPROP_COLOR, g_CalCacheProfit[slot] >= 0 ? clrLimeGreen : C'40,48,68');
+        ObjectSetInteger(0, cellObj, OBJPROP_COLOR, pc);
 
         int lineH       = 16;
         int contentTop  = dateY + 16;
@@ -1777,6 +1960,27 @@ void UpdateCalendarPanel(bool forceRecalc = false) {
         Lbl("CalL" + si, StringFormat("%.2f Lot", g_CalCacheLot[slot]), cellCenterX, volY, clrWhite, 11);
         ObjectSetInteger(0, GUI + "CalL" + si, OBJPROP_ANCHOR, ANCHOR_UPPER);
     }
+}
+
+// Chiều cao "tự nhiên" (chưa co giãn) của panel Trim/DCA/Manual bên phải — hằng số thuần (không phụ
+// thuộc dữ liệu runtime), dùng chung bởi UpdateGUI() (để so khớp chiều cao 2 panel) và UpdateTrimSidePanel()
+// (để vẽ từng card) — tránh 2 nơi tính công thức trùng lặp rồi lệch nhau khi sửa sau này.
+int SidePanelCardH(int &trimStatsCardH, int &ddPauseCardH, int &dcaDirCardH, int &manualCardH) {
+    int rowH   = 15;
+    int titleH = 24;
+    int hdrGap = 6;
+    int subH   = 14;
+
+    trimStatsCardH = 6 + rowH*3 + 4 + 18 + 6;
+    ddPauseCardH   = 6 + 13 + hdrGap + (18+4) + rowH*2 + 6;
+    dcaDirCardH    = 6 + 13 + hdrGap + rowH + 6;
+    manualCardH    = 6 + 13 + hdrGap
+                    + subH + rowH*2 + 18 + 4
+                    + subH + rowH*2 + 4
+                    + subH + 5 + 18 + 4
+                    + subH + rowH + 5 + 18
+                    + 6;
+    return titleH + trimStatsCardH + 8 + ddPauseCardH + 8 + dcaDirCardH + 8 + manualCardH + 8;
 }
 
 void UpdateTrimSidePanel() {
@@ -1794,7 +1998,9 @@ void UpdateTrimSidePanel() {
             "ManualLotL", "ManualLotV", "ManualSLL", "ManualSLV", "ManualEMAL", "ManualEMAV",
             "BtnManualSLToggle",
             "ManualSubStats", "ManualBuyCntL", "ManualSellCntL", "ManualFloatL", "ManualFloatV",
-            "ManualSubTrail", "BtnManTrailToggle"
+            "ManualSubTrail", "BtnManTrailToggle",
+            "ManualSubCloseProfit", "ManualCPTargetL", "ManualCPTargetV", "BtnManualCloseProfitToggle",
+            "EditManualCP", "BtnManualCPEdit", "BtnManualCPCancel", "BtnManualCPSave"
         };
         for(int i = 0; i < ArraySize(delObjs); i++) ObjectDelete(0, GUI + delObjs[i]);
         return;
@@ -1827,19 +2033,8 @@ void UpdateTrimSidePanel() {
 
     int subH = 14;
 
-    int trimStatsCardH = 6 + rowH*3 + 4 + 18 + 6;
-    int ddPauseCardH   = 6 + 13 + hdrGap + (18+4) + rowH*2 + 6;
-    int dcaDirCardH    = 6 + 13 + hdrGap + (18+4) + rowH + 6;
-    int manualCardH    = 6 + 13 + hdrGap
-                        + subH + rowH*3 + 18 + 4
-                        + subH + rowH*2 + 4
-                        + subH + 5 + 18
-                        + 6;
-    int cardH = titleH
-              + trimStatsCardH + 8
-              + ddPauseCardH   + 8
-              + dcaDirCardH    + 8
-              + manualCardH    + 8;
+    int trimStatsCardH, ddPauseCardH, dcaDirCardH, manualCardH;
+    int cardH = SidePanelCardH(trimStatsCardH, ddPauseCardH, dcaDirCardH, manualCardH);
 
     int extraH = MathMax(0, (g_LastPanelBottom - sideY) - cardH);
     manualCardH += extraH;
@@ -1925,20 +2120,10 @@ void UpdateTrimSidePanel() {
     ObjectSetString(0, GUI + "DcaDirH", OBJPROP_FONT, "Calibri Bold");
     {
         int yD = y + 6 + 13 + hdrGap;
-        int    dcaBtnW  = (sideW - 16 - 6) / 2;
-        string dcaBuyTxt  = g_DCABuyEnable  ? "DCA Buy: On"  : "DCA Buy: Off";
-        color  dcaBuyBg   = g_DCABuyEnable  ? C'10,70,35'   : C'45,18,18';
-        color  dcaBuyBd   = g_DCABuyEnable  ? C'55,200,110' : C'130,50,50';
-        CreateBtn("BtnDCABuyToggle", dcaBuyTxt, sideX + 8, yD, dcaBtnW, 18, dcaBuyBg, dcaBuyBd);
-
-        string dcaSellTxt = g_DCASellEnable ? "DCA Sell: On" : "DCA Sell: Off";
-        color  dcaSellBg  = g_DCASellEnable ? C'10,70,35'   : C'45,18,18';
-        color  dcaSellBd  = g_DCASellEnable ? C'55,200,110' : C'130,50,50';
-        CreateBtn("BtnDCASellToggle", dcaSellTxt, sideX + 8 + dcaBtnW + 6, yD, dcaBtnW, 18, dcaSellBg, dcaSellBd);
-        yD += 18 + 4;
+        int    dcaHalfW = (sideW - 16 - 6) / 2;
 
         Lbl("DcaLvlBuyL",  StringFormat("Tầng Buy: %d/%d",  PeakDCABuy,  DCA_MaxOrd), sideX + 8, yD, PeakDCABuy  > 0 ? clrLimeGreen : C'127,139,163', 10);
-        Lbl("DcaLvlSellL", StringFormat("Tầng Sell: %d/%d", PeakDCASell, DCA_MaxOrd), sideX + 8 + dcaBtnW + 6, yD, PeakDCASell > 0 ? clrTomato : C'127,139,163', 10);
+        Lbl("DcaLvlSellL", StringFormat("Tầng Sell: %d/%d", PeakDCASell, DCA_MaxOrd), sideX + 8 + dcaHalfW + 6, yD, PeakDCASell > 0 ? clrTomato : C'127,139,163', 10);
     }
     y += dcaDirCardH + 8;
 
@@ -1949,7 +2134,7 @@ void UpdateTrimSidePanel() {
     {
         int yT = y + 6 + 13 + hdrGap;
 
-        Lbl("ManualSubSLTP", "THÔNG SỐ & SL (EMA)", sideX + 8, yT, C'90,102,127', 9);
+        Lbl("ManualSubSLTP", StringFormat("THÔNG SỐ & SL (EMA %d)", InpManualSLEMAPeriod), sideX + 8, yT, C'90,102,127', 9);
         yT += subH;
 
         Lbl ("ManualLotL", "Lot lệnh tay", sideX + 8, yT, C'127,139,163', 10);
@@ -1959,10 +2144,6 @@ void UpdateTrimSidePanel() {
 
         Lbl ("ManualSLL", "SL", sideX + 8, yT, slAvailable ? clrTomato : C'127,139,163', 10);
         LblR("ManualSLV", slAvailable ? StringFormat("%.0f pts", g_ManualSL_Points) : "Tắt", rightEdge, yT, slAvailable ? clrTomato : C'127,139,163', 10);
-        yT += rowH;
-
-        Lbl ("ManualEMAL", "Period", sideX + 8, yT, C'127,139,163', 10);
-        LblR("ManualEMAV", IntegerToString(InpManualSLEMAPeriod), rightEdge, yT, C'90,160,255', 10);
         yT += rowH;
 
         string manSLBtnTxt = g_ManualAutoSLEnable ? "Auto SL: On" : "Auto SL: Off";
@@ -1996,6 +2177,40 @@ void UpdateTrimSidePanel() {
         color  manTrailBtnBg  = g_ManualTrailEnable ? C'10,70,35'   : C'45,18,18';
         color  manTrailBtnBd  = g_ManualTrailEnable ? C'55,200,110' : C'130,50,50';
         CreateBtn("BtnManTrailToggle", manTrailBtnTxt, sideX + 8, yT, sideW - 16, 18, manTrailBtnBg, manTrailBtnBd);
+        yT += 18 + 4;
+
+        Lbl("ManualSubCloseProfit", "ĐÓNG THEO LÃI", sideX + 8, yT, C'90,102,127', 9);
+        yT += subH;
+
+        Lbl ("ManualCPTargetL", "Mục tiêu", sideX + 8, yT, C'127,139,163', 10);
+
+        int cpBtnW = 32, cpEditH = 15;
+        if(g_ManualCPEditing) {
+            int cpSaveX   = rightEdge - cpBtnW;
+            int cpCancelX = cpSaveX - 4 - cpBtnW;
+            int cpEditW   = 70;
+            int cpEditX   = cpCancelX - 4 - cpEditW;
+
+            CreateEdit("EditManualCP", DoubleToString(g_ManualCloseProfit, 2), cpEditX, yT, cpEditW, cpEditH);
+            ObjectDelete(0, GUI + "ManualCPTargetV");
+            ObjectDelete(0, GUI + "BtnManualCPEdit");
+
+            CreateBtn("BtnManualCPCancel", "Huỷ", cpCancelX, yT, cpBtnW, cpEditH, C'45,18,18',  C'130,50,50');
+            CreateBtn("BtnManualCPSave",   "Lưu", cpSaveX,   yT, cpBtnW, cpEditH, C'10,70,35',  C'55,200,110');
+        } else {
+            LblR("ManualCPTargetV", StringFormat("$%.2f", g_ManualCloseProfit), rightEdge - cpBtnW - 4, yT, C'231,236,245', 10);
+            ObjectDelete(0, GUI + "EditManualCP");
+            ObjectDelete(0, GUI + "BtnManualCPCancel");
+            ObjectDelete(0, GUI + "BtnManualCPSave");
+
+            CreateBtn("BtnManualCPEdit", "Sửa", rightEdge - cpBtnW, yT, cpBtnW, cpEditH, C'30,40,60', C'80,110,160');
+        }
+        yT += rowH + 5;
+
+        string manCPBtnTxt = g_ManualCloseProfitEnable ? "Đóng khi lãi: On" : "Đóng khi lãi: Off";
+        color  manCPBtnBg  = g_ManualCloseProfitEnable ? C'10,70,35'   : C'45,18,18';
+        color  manCPBtnBd  = g_ManualCloseProfitEnable ? C'55,200,110' : C'130,50,50';
+        CreateBtn("BtnManualCloseProfitToggle", manCPBtnTxt, sideX + 8, yT, sideW - 16, 18, manCPBtnBg, manCPBtnBd);
     }
     y += manualCardH + 8;
 }
@@ -2063,6 +2278,7 @@ void UpdateGUI(bool forceCalRefresh = false) {
                             "TrimModeL","TrimMode","TrimManL","TrimManV",
                             "ManTrailBuyL","ManTrailBuyV","ManTrailSellL","ManTrailSellV",
                             "ManualTPV","ManTrailModeL","ManTrailModeV",
+                            "ManualEMAL","ManualEMAV",
                             "ChipMode","ChipModeBg",
                             "DcaLvlBuyV","DcaLvlSellV",
                             "DcaPanelBG","DcaPanelH",
@@ -2256,6 +2472,15 @@ void UpdateGUI(bool forceCalRefresh = false) {
     ObjectDelete(0, GUI + "BtnOpenBuy");
     ObjectDelete(0, GUI + "BtnOpenSell");
     g_LastPanelBottom = bg3Y + bg3H;
+
+    // So khớp chiều cao với panel Trim/DCA/Manual bên phải — lấy đáy thấp hơn trong 2 panel rồi kéo lên
+    // bằng đáy thấp hơn kia, để cả 2 luôn cùng chiều cao (panel phải tự kéo giãn card cuối qua extraH
+    // trong UpdateTrimSidePanel(), dựa trên g_LastPanelBottom này).
+    {
+        int t1, t2, t3, t4;
+        int sideNaturalBottom = (InpCalPanelY + RTB_TITLEBAR_H) + SidePanelCardH(t1, t2, t3, t4);
+        if(sideNaturalBottom > g_LastPanelBottom) g_LastPanelBottom = sideNaturalBottom;
+    }
 
     } else {
         string collapsedObjs[] = {
@@ -2575,6 +2800,7 @@ int OnInit() {
     }
 
     g_ManualSL_Points = InpManualSL_Points;
+    g_ManualCloseProfitEnable = InpManualCloseProfitEnable;
     g_OrderDelay = InpOrderDelay;
     g_DCAArithEnable = InpDCAArithEnable; g_DCAArithStep = InpDCAArithStep;
     g_TrimTrigger = InpTrimTrigger;
@@ -2605,6 +2831,15 @@ int OnInit() {
     {
         string gvName = "RTB_ManualSLLoss_" + _Symbol + "_" + IntegerToString(InpMagic);
         g_ManualSLLossTotal = GlobalVariableCheck(gvName) ? GlobalVariableGet(gvName) : 0.0;
+    }
+
+    {
+        // Mục tiêu đóng lệnh tay theo lãi: nạp lại giá trị đã Sửa+Lưu qua panel (nếu có) thay vì luôn lấy
+        // từ input — MT5 tự chạy lại OnInit() mỗi khi đổi timeframe/symbol/input/gắn lại EA, nếu gán thẳng
+        // từ InpManualCloseProfit thì giá trị vừa sửa qua panel sẽ bị mất, quay về input gốc. Cùng pattern
+        // GlobalVariable với g_ManualSLLossTotal ở trên.
+        string gvNameCP = "RTB_ManualCP_" + _Symbol + "_" + IntegerToString(InpMagic);
+        g_ManualCloseProfit = GlobalVariableCheck(gvNameCP) ? GlobalVariableGet(gvNameCP) : InpManualCloseProfit;
     }
 
     InitBalance    = AccountInfoDouble(ACCOUNT_BALANCE);
@@ -2668,6 +2903,7 @@ void OnTimer() {
     if(CountSell() == 0 && !HasPendingDCA(POSITION_TYPE_SELL)) ResetDCAState(POSITION_TYPE_SELL);
 
     CheckManualAutoSL();
+    CheckManualCloseProfit();
 
     CheckExit();
 
@@ -2685,7 +2921,10 @@ void OnTimer() {
         }
     }
 
-    UpdateGUI();
+    // Bỏ qua vẽ lại panel định kỳ khi đang mở ô sửa Mục tiêu — UpdateGUI() tái tạo/ghi đè hàng trăm
+    // object mỗi lần gọi, MT5 cướp mất focus bàn phím của OBJ_EDIT mỗi lần đó xảy ra khiến người dùng
+    // gõ không vào được (thấy như "không nhập được số"). Logic giao dịch phía trên vẫn chạy bình thường.
+    if(!g_ManualCPEditing) UpdateGUI();
 }
 
 void TrackManualCloseDebt(ulong dealTk) {
@@ -2711,11 +2950,18 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
         CheckDayLimit();
         TrackManualCloseDebt(trans.deal);
         CheckManualAutoSL();
-        UpdateGUI(true);
+        if(!g_ManualCPEditing) UpdateGUI(true);
     }
 }
 
 void OnChartEvent(const int id, const long& lparam, const double& dparam, const string& sparam) {
+    if(id == CHARTEVENT_OBJECT_ENDEDIT) {
+        if(sparam == GUI + "EditManualCP") {
+            CommitManualCPEdit();
+            UpdateGUI();
+        }
+        return;
+    }
     if(id != CHARTEVENT_OBJECT_CLICK) return;
     if(sparam == GUI + "BtnBotToggle") {
         if(TimeCurrent() - g_LastBotToggleClick < 2) {
@@ -2757,14 +3003,21 @@ void OnChartEvent(const int id, const long& lparam, const double& dparam, const 
         Print("RTB: Pause EA ", (g_PauseEA ? "BẬT" : "TẮT"), " (thủ công qua panel).");
         UpdateGUI();
     }
-    else if(sparam == GUI + "BtnDCABuyToggle") {
-        g_DCABuyEnable = !g_DCABuyEnable;
-        Print("RTB: DCA chiều Buy ", (g_DCABuyEnable ? "BẬT" : "TẮT"), " (thủ công qua panel).");
+    else if(sparam == GUI + "BtnManualCloseProfitToggle") {
+        g_ManualCloseProfitEnable = !g_ManualCloseProfitEnable;
+        Print("RTB: Đóng lệnh tay theo lãi ", (g_ManualCloseProfitEnable ? "BẬT" : "TẮT"), " (thủ công qua panel).");
         UpdateGUI();
     }
-    else if(sparam == GUI + "BtnDCASellToggle") {
-        g_DCASellEnable = !g_DCASellEnable;
-        Print("RTB: DCA chiều Sell ", (g_DCASellEnable ? "BẬT" : "TẮT"), " (thủ công qua panel).");
+    else if(sparam == GUI + "BtnManualCPEdit") {
+        g_ManualCPEditing = true;
+        UpdateGUI();
+    }
+    else if(sparam == GUI + "BtnManualCPCancel") {
+        g_ManualCPEditing = false;
+        UpdateGUI();
+    }
+    else if(sparam == GUI + "BtnManualCPSave") {
+        CommitManualCPEdit();
         UpdateGUI();
     }
     else if(sparam == GUI + "BtnManualBuy") {

@@ -50,9 +50,10 @@ Không chờ tín hiệu kỹ thuật. Dùng để test nhanh hoặc vào lệnh
 | `Both` / `Either` | Mở **cả BUY lẫn SELL** đồng thời, mỗi hướng quản lý DCA/Trail/Trim độc lập |
 
 ### 6. Candle (`SIG_CANDLE`) — Theo Màu Nến Khung Hiện Tại
-- **BUY:** Nến **đã đóng** (bar 1) trên `InpSignalTF` là nến tăng (`close > open`).
-- **SELL:** Nến **đã đóng** (bar 1) trên `InpSignalTF` là nến giảm (`close < open`).
-- Mỗi nến đóng đều phát tín hiệu (không cần cross/pullback như EMA, không cần 3 nến liên tiếp như BZ Zone).
+- **BUY:** Nến **đang chạy dở** (bar 0, chưa đóng) trên `InpSignalTF` hiện đang tăng (`close > open`).
+- **SELL:** Nến **đang chạy dở** (bar 0, chưa đóng) trên `InpSignalTF` hiện đang giảm (`close < open`).
+- **Repaint có chủ đích:** khác mọi signal khác trong file (luôn đọc bar đã đóng để tránh repaint), `SignalCandle()` cố ý đọc bar 0 — tín hiệu đổi liên tục theo màu nến sống cho tới khi nến đóng hẳn.
+- Mỗi tick đều có thể phát tín hiệu (không cần cross/pullback như EMA, không cần 3 nến liên tiếp như BZ Zone).
 - Không có xử lý riêng: nếu chưa có lệnh gốc theo chiều đó, `CheckEntry()` mở **lệnh đầu tiên** cùng chiều màu nến qua `TryOpenBuy()`/`TryOpenSell()` (chỉ mở khi `CountBuy()==0`/`CountSell()==0`, như mọi mode khác). Sau khi có lệnh, DCA (`CheckDCA()`, chiều lỗ — "âm") và Pyramiding (`CheckPyramiding()`, chiều lãi — "dương") quản lý tiếp theo cơ chế chuẩn ở [rtb-dca.md](rtb-dca.md) / [rtb-pyramiding.md](rtb-pyramiding.md), tính từ giá lệnh gốc này.
 
 ## Luồng `CheckEntry()`

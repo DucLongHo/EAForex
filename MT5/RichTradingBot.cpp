@@ -1078,9 +1078,12 @@ int SignalUTBot() {
 }
 
 int SignalCandle() {
+    // Cố ý đọc bar 0 (nến đang chạy dở, chưa đóng) thay vì bar 1 (nến đã đóng) — khác quy ước
+    // chống repaint của các signal khác trong file. Tín hiệu sẽ đổi liên tục theo màu nến hiện
+    // tại cho tới khi nến đóng, chấp nhận repaint vì đây là yêu cầu chủ đích.
     MqlRates r[];
     ArraySetAsSeries(r, true);
-    if(CopyRates(_Symbol, InpSignalTF, 1, 1, r) < 1) return 0;
+    if(CopyRates(_Symbol, InpSignalTF, 0, 1, r) < 1) return 0;
 
     if(r[0].close > r[0].open) return  1;
     if(r[0].close < r[0].open) return -1;
@@ -1504,7 +1507,12 @@ void CheckEntry() {
     if(DayLimitHit) return;
     if(!g_BotEnabled) return;
     if(InpBotMode == MODE_SEMI_AUTO) return;
-    if(TimeCurrent() - LastEntryTime < g_OrderDelay) return;
+
+    // SIG_CANDLE khi sạch lệnh (CountAll()==0): bỏ qua InpOrderDelay để vào lệnh gốc mới
+    // NGAY khi nến cho tín hiệu, không chờ hết độ trễ còn lại từ lệnh trước đó. Delay vẫn
+    // áp dụng bình thường cho mọi trường hợp khác (đang có lệnh, hoặc signal mode khác).
+    bool skipDelay = (g_SignalMode == SIG_CANDLE && CountAll() == 0);
+    if(!skipDelay && TimeCurrent() - LastEntryTime < g_OrderDelay) return;
 
     int sig = GetSignal();
     if(sig == 0) return;
@@ -1514,6 +1522,12 @@ void CheckEntry() {
         TryOpenSell();
         return;
     }
+
+    // SIG_CANDLE phát tín hiệu mới mỗi khi có 1 nến đóng — nếu không chặn, nến lật màu
+    // trong lúc 1 chiều đang chạy DCA sẽ mở thêm lệnh gốc hedge ở chiều đối diện dù
+    // InpDirection=Both. Chỉ cho phép lệnh gốc ĐẦU TIÊN (cả 2 chiều đang trống) — sau đó
+    // DCA (âm)/Pyramiding (dương) quản lý tiếp đúng 1 chuỗi theo chiều đã chọn.
+    if(g_SignalMode == SIG_CANDLE && CountAll() > 0) return;
 
     if(sig > 0) TryOpenBuy();
     if(sig < 0) TryOpenSell();

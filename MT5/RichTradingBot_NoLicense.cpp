@@ -86,6 +86,14 @@ input group          "══════ BỘ LỌC CHUNG ══════"; /
 input  int     InpMaxBuy   = 10;   // Số lệnh Buy tối đa
 input  int     InpMaxSell  = 10;   // Số lệnh Sell tối đa
 
+input group         "══════ TIN TỨC (AUTO MT5 CALENDAR) ══════"; //
+input  bool    InpNewsPauseEnabled = false;                    // Bật tự động dừng vào lệnh mới khi có tin
+input  int     InpNewsPauseBefore  = 30;                       // Dừng trước tin (phút)
+input  int     InpNewsResumeAfter  = 30;                       // Mở lại sau tin (phút)
+input  string  InpNewsCurrencies   = "USD,EUR,GBP,JPY,XAU";    // Tiền tệ cần lọc (cách nhau bởi dấu ,)
+input  int     InpNewsScanHours    = 24;                       // Quét lịch tin trước X giờ
+input  int     InpNewsUpdateSec    = 60;                       // Cập nhật lịch mỗi X giây
+
 //+------------------------------------------------------------------+
 //| INPUT: LỆNH TAY - AUTO TP/SL                                     |
 //+------------------------------------------------------------------+
@@ -465,6 +473,13 @@ double g_CloseProfit, g_CloseLoss, g_ClosePerPips, g_DayMaxLoss, g_DayMaxProfit;
 
 bool   g_HedgeEnable;
 double g_HedgeCutPts;
+
+// Cache lịch tin tức High Importance từ MT5 Economic Calendar (tham khảo từ Test.cpp cùng repo) — chỉ
+// dừng CheckEntry() (không mở lệnh gốc mới) trong vùng tin, không đụng tới DCA/Trailing/Trimming/lưới
+// lệnh chờ đang chạy vì bot này dùng lưới DCA nhiều lệnh, không phải setup 1-lệnh như Test.cpp.
+struct NewsItem { datetime time; string currency; };
+NewsItem g_newsCache[];
+datetime g_lastNewsUpdate = 0;
 
 //+------------------------------------------------------------------+
 //| UTILITY FUNCTIONS                                                |
@@ -1483,6 +1498,57 @@ void TryOpenSell() {
         OrigSellPrice = (tk > 0 && PositionSelectByTicket(tk))
             ? PositionGetDouble(POSITION_PRICE_OPEN) : SymbolInfoDouble(_Symbol, SYMBOL_BID);
     }
+}
+
+// Nạp lại cache lịch tin High Importance trong khung [now - InpNewsPauseBefore phút, now + InpNewsScanHours
+// giờ], lọc theo danh sách tiền tệ InpNewsCurrencies — throttle bằng InpNewsUpdateSec để không gọi
+// CalendarValueHistory() mỗi tick (tốn CPU không cần thiết).
+void UpdateNewsCache() {
+    if(TimeCurrent() - g_lastNewsUpdate < InpNewsUpdateSec) return;
+    g_lastNewsUpdate = TimeCurrent();
+    ArrayResize(g_newsCache, 0);
+
+    datetime from = TimeCurrent() - (datetime)(InpNewsPauseBefore * 60);
+    datetime to   = TimeCurrent() + (datetime)(InpNewsScanHours   * 3600);
+
+    MqlCalendarValue values[];
+    int total = CalendarValueHistory(values, from, to, NULL, NULL);
+    if(total <= 0) return;
+
+    string currencies[];
+    int n = StringSplit(InpNewsCurrencies, StringGetCharacter(",", 0), currencies);
+    for(int i = 0; i < n; i++) { StringTrimLeft(currencies[i]); StringTrimRight(currencies[i]); }
+
+    for(int i = 0; i < total; i++) {
+        MqlCalendarEvent  event;
+        MqlCalendarCountry country;
+        if(!CalendarEventById(values[i].event_id, event))   continue;
+        if(event.importance != CALENDAR_IMPORTANCE_HIGH)    continue;
+        if(!CalendarCountryById(event.country_id, country)) continue;
+
+        bool found = false;
+        for(int j = 0; j < n; j++)
+            if(currencies[j] == country.currency) { found = true; break; }
+        if(!found) continue;
+
+        int idx = ArraySize(g_newsCache);
+        ArrayResize(g_newsCache, idx + 1);
+        g_newsCache[idx].time     = values[i].time;
+        g_newsCache[idx].currency = country.currency;
+    }
+}
+
+// true nếu hiện đang trong khung [tin - InpNewsPauseBefore phút, tin + InpNewsResumeAfter phút] của bất kỳ
+// tin nào trong cache.
+bool IsInNewsZone() {
+    datetime now    = TimeCurrent();
+    datetime before = (datetime)(InpNewsPauseBefore * 60);
+    datetime after  = (datetime)(InpNewsResumeAfter  * 60);
+    for(int i = 0; i < ArraySize(g_newsCache); i++) {
+        datetime t = g_newsCache[i].time;
+        if(now >= t - before && now <= t + after) return true;
+    }
+    return false;
 }
 
 void CheckEntry() {
@@ -4411,7 +4477,13 @@ void OnDeinit(const int reason) {
 }
 
 void OnTick() {
-    CheckEntry();
+    bool newsBlock = false;
+    if(InpNewsPauseEnabled) {
+        UpdateNewsCache();
+        newsBlock = IsInNewsZone();
+    }
+
+    if(!newsBlock) CheckEntry();
     if(g_StealthMode) CheckExit();
     if(!DayLimitHit) CheckTrailing();
 }

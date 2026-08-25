@@ -19,15 +19,6 @@ input group         "══════ TÍN HIỆU VÀO LỆNH ═════�
 input  ENUM_DIRECTION   InpDirection  = DIR_BOTH;     // Hướng giao dịch
 input  ENUM_TIMEFRAMES  InpSignalTF   = PERIOD_H1;    // Khung thời gian đọc màu nến tín hiệu
 
-input group         "══════ LỆNH TAY - AUTO SL (EMA) ══════"; //
-input  int     InpManualSLEMAPeriod = 25;    // EMA lọc: giá dưới/trên EMA (period)
-input  double  InpManualSL_Points   = 0.0;   // SL tự động cho lệnh tay (points, 0=tắt)
-input  double  InpManualLotSize     = 0.01;  // Lots cho nút Buy/Sell Tay trên panel
-
-input group         "══════ HEDGE & PAUSE ══════"; //
-input  bool    InpDDPauseEnable    = false; // Bật Hedge & Pause khi DD đạt ngưỡng
-input  double  InpDDPauseThreshold = -50.0; // Ngưỡng DD ($, số âm cố định) để cân lệnh + tạm dừng EA
-
 input group         "══════ DCA - CÀI ĐẶT CHUNG ══════"; //
 input  bool          InpDCAArithEnable = false; // DCA: Bật Vol Cấp Số Cộng (bỏ qua Hệ số Lot)
 input  double        InpDCAArithStep   = 0.01;  // DCA: Cộng thêm Vol mỗi lệnh DCA sau (lots)
@@ -39,20 +30,6 @@ input  int     InpDCA1Max  = 2;      // DCA: Max lệnh DCA tối đa
 input  double  InpDCA1Dist = 1000.0; // DCA: Khoảng cách (points)
 input  double  InpDCA1TP   = 500.0;  // DCA: TP (points)
 input  double  InpDCA1SL   = 0.0;    // DCA: SL (points, 0=tắt)
-
-input group         "══════ TRAILING STOP ══════"; //
-input  bool          InpTrailEnable   = false;        // Bật Trailing
-input  int           InpTrailMinOrds  = 1;            // Số lệnh tối thiểu kích hoạt
-input  double        InpTrailActivate = 500.0;        // Points kích hoạt Trail
-input  double        InpTrailStep     = 200.0;        // Bước nhảy SL (points)
-input  double        InpTrailInit     = 300.0;        // SL đầu tiên cách giá (points)
-
-input group         "══════ LỆNH TAY - TRAILING RIÊNG ══════"; //
-input  bool          InpManualTrailEnable   = false;        // Bật Trailing riêng cho lệnh tay
-input  int           InpManualTrailMinOrds  = 1;            // Số lệnh tay tối thiểu kích hoạt
-input  double        InpManualTrailActivate = 500.0;        // Points kích hoạt Trail
-input  double        InpManualTrailStep     = 200.0;        // Bước nhảy SL (points)
-input  double        InpManualTrailInit     = 300.0;        // SL đầu tiên cách giá (points)
 
 input group         "══════ ĐÓNG LỆNH TỔNG ══════"; //
 input  double  InpCloseProfit  = 0.0;  // Chốt lời khi tổng lãi đạt ($, 0=tắt)
@@ -117,38 +94,18 @@ datetime g_CalLastTodayCalc = 0;
 #define RTB_TITLEBAR_H 36
 
 const string GUI = "RTB_";
-const string HEDGE_ALL_CMT = "HEDGE ALL";
 
 bool     g_BotEnabled           = true;
 datetime g_LastBotToggleClick   = 0;
 
 ENUM_DIRECTION   g_Direction;
 
-double g_ManualSL_Points;
-bool   g_ManualAutoSLEnable = true;   // bật/tắt Auto SL (EMA) cho lệnh tay qua nút panel
-int    hManualSLEMA = INVALID_HANDLE;
-ulong  g_ManualSLSeen[];   // ticket lệnh tay đã được gán SL (EMA) 1 lần lúc mới mở, không xét lại (nhường quyền cho Trailing)
-
-bool   g_CloseIncludeManual = false; // bật/tắt tính lệnh tay vào Float khi xét Đóng Lệnh Tổng (InpCloseProfit/InpCloseLoss)
-
 int    g_OrderDelay;
 
 bool   g_DCAArithEnable;
 double g_DCAArithStep;
 
-bool             g_TrailEnable;
-int              g_TrailMinOrds;
-double           g_TrailActivate, g_TrailStep, g_TrailInit;
-
-bool             g_ManualTrailEnable;
-int              g_ManualTrailMinOrds;
-double           g_ManualTrailActivate, g_ManualTrailStep, g_ManualTrailInit;
-
 double g_CloseProfit, g_CloseLoss, g_ClosePerPips, g_DayMaxLoss, g_DayMaxProfit;
-
-bool   g_DDPauseEnable;
-double g_DDPauseThreshold;
-bool   g_PauseEA = false;
 
 
 bool IsManaged() {
@@ -161,18 +118,6 @@ bool IsManagedForDisplay() {
     if(PositionGetString(POSITION_SYMBOL) != _Symbol) return false;
     long magic = PositionGetInteger(POSITION_MAGIC);
     return magic == (long)InpMagic || magic == 0;
-}
-
-bool IsManagedForTrail() {
-    if(PositionGetString(POSITION_SYMBOL) != _Symbol) return false;
-    return PositionGetInteger(POSITION_MAGIC) == (long)InpMagic;
-}
-
-bool IsManualManagedForTrail() {
-    if(PositionGetString(POSITION_SYMBOL) != _Symbol) return false;
-    if(PositionGetInteger(POSITION_MAGIC) != 0) return false;
-    if(PositionGetString(POSITION_COMMENT) == HEDGE_ALL_CMT) return false;
-    return true;
 }
 
 int CountPos(int posType) {
@@ -242,40 +187,6 @@ double AvgOpenPrice(int posType) {
         totalCost += lot * price;
     }
     return (totalLot > 0) ? totalCost / totalLot : 0;
-}
-
-int CountPosForTrail(int posType) {
-    int n = 0;
-    for(int i = PositionsTotal()-1; i >= 0; i--) {
-        ulong tk = PositionGetTicket(i);
-        if(!PositionSelectByTicket(tk)) continue;
-        if(!IsManagedForTrail()) continue;
-        if((int)PositionGetInteger(POSITION_TYPE) == posType) n++;
-    }
-    return n;
-}
-
-int CountManualForTrail(int posType) {
-    int n = 0;
-    for(int i = PositionsTotal()-1; i >= 0; i--) {
-        ulong tk = PositionGetTicket(i);
-        if(!PositionSelectByTicket(tk)) continue;
-        if(!IsManualManagedForTrail()) continue;
-        if((int)PositionGetInteger(POSITION_TYPE) == posType) n++;
-    }
-    return n;
-}
-
-double ManualFloatProfit(int posType = -1) {
-    double p = 0;
-    for(int i = PositionsTotal()-1; i >= 0; i--) {
-        ulong tk = PositionGetTicket(i);
-        if(!PositionSelectByTicket(tk)) continue;
-        if(!IsManualManagedForTrail()) continue;
-        if(posType >= 0 && (int)PositionGetInteger(POSITION_TYPE) != posType) continue;
-        p += PositionGetDouble(POSITION_PROFIT) + PositionGetDouble(POSITION_SWAP);
-    }
-    return p;
 }
 
 ulong BestTicket() {
@@ -358,102 +269,6 @@ void CloseAll(int posType = -1) {
     }
 }
 
-void CloseAllManual() {
-    ulong tickets[];
-    int   count = 0;
-    ArrayResize(tickets, PositionsTotal());
-    for(int i = PositionsTotal()-1; i >= 0; i--) {
-        ulong tk = PositionGetTicket(i);
-        if(!PositionSelectByTicket(tk)) continue;
-        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-        if(PositionGetInteger(POSITION_MAGIC) != 0) continue;
-        tickets[count++] = tk;
-    }
-    if(count > 0) {
-        Trade.SetAsyncMode(true);
-        for(int i = 0; i < count; i++)
-            Trade.PositionClose(tickets[i]);
-        Trade.SetAsyncMode(false);
-
-        Print("RTB: Đóng toàn bộ lệnh tay (", count, " lệnh).");
-    }
-
-    for(int i = OrdersTotal()-1; i >= 0; i--) {
-        ulong otk = OrderGetTicket(i);
-        if(otk == 0 || !OrderSelect(otk)) continue;
-        if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
-        if(OrderGetInteger(ORDER_MAGIC) != 0) continue;
-        Trade.OrderDelete(otk);
-    }
-}
-
-void BalanceHedgeAccount() {
-    double buyLot = 0, sellLot = 0;
-    for(int i = PositionsTotal()-1; i >= 0; i--) {
-        ulong tk = PositionGetTicket(i);
-        if(!PositionSelectByTicket(tk)) continue;
-        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-        double lot = PositionGetDouble(POSITION_VOLUME);
-        if((int)PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY) buyLot += lot;
-        else sellLot += lot;
-    }
-
-    double netLot = buyLot - sellLot;
-    double minLot = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
-    if(MathAbs(netLot) < minLot) {
-        Print("RTB: Cân lệnh — tài khoản đã cân bằng (buy=", buyLot, " sell=", sellLot, "), không cần hedge.");
-        return;
-    }
-
-    double hedgeLot = NormLot(MathAbs(netLot));
-    Trade.SetExpertMagicNumber(0);
-    bool ok;
-    if(netLot > 0)
-        ok = Trade.Sell(hedgeLot, _Symbol, SymbolInfoDouble(_Symbol, SYMBOL_BID), 0, 0, HEDGE_ALL_CMT);
-    else
-        ok = Trade.Buy(hedgeLot, _Symbol, SymbolInfoDouble(_Symbol, SYMBOL_ASK), 0, 0, HEDGE_ALL_CMT);
-    Trade.SetExpertMagicNumber(InpMagic);
-
-    if(ok)
-        Print("RTB: Cân lệnh — mở lệnh Hedge ", (netLot > 0 ? "SELL" : "BUY"), " lot=", hedgeLot,
-              " để cân bằng toàn tài khoản (buy=", buyLot, " sell=", sellLot, ")");
-    else
-        Print("RTB: Cân lệnh thất bại, err=", GetLastError());
-}
-
-void CancelAllPendingOrders() {
-    int cancelled = 0, failed = 0;
-    for(int i = OrdersTotal() - 1; i >= 0; i--) {
-        ulong tk = OrderGetTicket(i);
-        if(tk == 0 || !OrderSelect(tk)) continue;
-        if(OrderGetString(ORDER_SYMBOL) != _Symbol) continue;
-        if((long)OrderGetInteger(ORDER_MAGIC) != (long)InpMagic) continue;
-        if(Trade.OrderDelete(tk)) {
-            cancelled++;
-        } else {
-            failed++;
-            Print("RTB: Pause — huỷ lệnh chờ ticket=", tk, " thất bại, err=", GetLastError());
-        }
-    }
-    if(cancelled > 0 || failed > 0)
-        Print("RTB: Pause — đã huỷ ", cancelled, " lệnh chờ", (failed > 0 ? (" (" + IntegerToString(failed) + " thất bại — vẫn còn sống trên sàn)") : "."));
-}
-
-void CheckDDPause() {
-    if(!g_DDPauseEnable) return;
-
-    double botFloat = FloatProfit();
-
-    if(botFloat > g_DDPauseThreshold) return;
-
-    Print("RTB: DD $", DoubleToString(botFloat, 2), " <= ngưỡng $", DoubleToString(g_DDPauseThreshold, 2), " — cân lệnh & pause EA.");
-    BalanceHedgeAccount();
-    CancelAllPendingOrders();
-    g_PauseEA       = true;
-    g_DDPauseEnable = false;
-    Print("RTB: Đã cân lệnh xong — tự động tắt Cân Lệnh (bật lại thủ công nếu muốn theo dõi DD tiếp). EA vẫn đang Pause — tắt tay ở nút Pause EA khi sẵn sàng giao dịch lại.");
-}
-
 double NormLot(double lot) {
     double minL  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
     double maxL  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
@@ -514,21 +329,6 @@ bool OpenOrder(int ordType, double lot, double tp_pts = 0, double sl_pts = 0, bo
         Print("RTB: OpenOrder FAILED type=", ordType, " err=", GetLastError());
     }
     return ok;
-}
-
-void OpenManualOrder(int ordType) {
-    double lot = NormLot(InpManualLotSize);
-    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-    Trade.SetExpertMagicNumber(0);
-    bool ok = (ordType == ORDER_TYPE_BUY)
-        ? Trade.Buy(lot, _Symbol, ask, 0, 0, "")
-        : Trade.Sell(lot, _Symbol, bid, 0, 0, "");
-    Trade.SetExpertMagicNumber(InpMagic);
-    if(ok)
-        Print("RTB: Mở lệnh tay ", (ordType == ORDER_TYPE_BUY ? "BUY" : "SELL"), " lot=", lot);
-    else
-        Print("RTB: Mở lệnh tay thất bại, err=", GetLastError());
 }
 
 int SignalCandle() {
@@ -972,173 +772,6 @@ void CheckOrigRestart(int posType) {
     }
 }
 
-void ApplyTrailToPos(ulong tk, int posType, double newSL) {
-    if(!PositionSelectByTicket(tk)) return;
-    double curSL   = PositionGetDouble(POSITION_SL);
-    double curTP   = PositionGetDouble(POSITION_TP);
-    double bid     = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-    double ask     = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-    double point   = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-    double minDist = (double)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL) * point;
-    double normSL  = NormalizeDouble(newSL, _Digits);
-    if(posType == POSITION_TYPE_BUY  && bid - newSL < minDist) return;
-    if(posType == POSITION_TYPE_SELL && newSL - ask < minDist) return;
-    if(curSL != normSL)
-        Trade.PositionModify(tk, normSL, curTP);
-}
-
-void CheckTrailing() {
-    if(!g_TrailEnable) return;
-    if(CountPosForTrail(POSITION_TYPE_BUY) + CountPosForTrail(POSITION_TYPE_SELL) < g_TrailMinOrds) return;
-
-    double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-    double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-
-    for(int i = PositionsTotal()-1; i >= 0; i--) {
-        ulong tk = PositionGetTicket(i);
-        if(!PositionSelectByTicket(tk)) continue;
-        if(!IsManagedForTrail()) continue;
-
-        int    pt        = (int)PositionGetInteger(POSITION_TYPE);
-        double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-
-        if(pt == POSITION_TYPE_BUY) {
-            double profitPts = (bid - openPrice) / point;
-            if(profitPts >= g_TrailActivate) {
-                double newSL = bid - g_TrailInit * point;
-                double curSL = PositionGetDouble(POSITION_SL);
-                if(curSL == 0 || newSL >= curSL + g_TrailStep * point)
-                    ApplyTrailToPos(tk, POSITION_TYPE_BUY, newSL);
-            }
-        } else {
-            double profitPts = (openPrice - ask) / point;
-            if(profitPts >= g_TrailActivate) {
-                double newSL = ask + g_TrailInit * point;
-                double curSL = PositionGetDouble(POSITION_SL);
-                if(curSL == 0 || newSL <= curSL - g_TrailStep * point)
-                    ApplyTrailToPos(tk, POSITION_TYPE_SELL, newSL);
-            }
-        }
-    }
-}
-
-void CheckManualTrailing() {
-    if(!g_ManualTrailEnable) return;
-    if(CountManualForTrail(POSITION_TYPE_BUY) + CountManualForTrail(POSITION_TYPE_SELL) < g_ManualTrailMinOrds) return;
-
-    double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-    double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-
-    for(int i = PositionsTotal()-1; i >= 0; i--) {
-        ulong tk = PositionGetTicket(i);
-        if(!PositionSelectByTicket(tk)) continue;
-        if(!IsManualManagedForTrail()) continue;
-
-        int    pt        = (int)PositionGetInteger(POSITION_TYPE);
-        double openPrice = PositionGetDouble(POSITION_PRICE_OPEN);
-
-        if(pt == POSITION_TYPE_BUY) {
-            double profitPts = (bid - openPrice) / point;
-            if(profitPts >= g_ManualTrailActivate) {
-                double newSL = bid - g_ManualTrailInit * point;
-                double curSL = PositionGetDouble(POSITION_SL);
-                if(curSL == 0 || newSL >= curSL + g_ManualTrailStep * point)
-                    ApplyTrailToPos(tk, POSITION_TYPE_BUY, newSL);
-            }
-        } else {
-            double profitPts = (openPrice - ask) / point;
-            if(profitPts >= g_ManualTrailActivate) {
-                double newSL = ask + g_ManualTrailInit * point;
-                double curSL = PositionGetDouble(POSITION_SL);
-                if(curSL == 0 || newSL <= curSL - g_ManualTrailStep * point)
-                    ApplyTrailToPos(tk, POSITION_TYPE_SELL, newSL);
-            }
-        }
-    }
-}
-
-double GetManualSLEMA() {
-    if(hManualSLEMA == INVALID_HANDLE) return 0;
-    double buf[1];
-    if(CopyBuffer(hManualSLEMA, 0, 0, 1, buf) <= 0) return 0;
-    return buf[0];
-}
-
-bool ManualSLAlreadySeen(ulong tk) {
-    int n = ArraySize(g_ManualSLSeen);
-    for(int i = 0; i < n; i++)
-        if(g_ManualSLSeen[i] == tk) return true;
-    return false;
-}
-
-void MarkManualSLSeen(ulong tk) {
-    int n = ArraySize(g_ManualSLSeen);
-    ArrayResize(g_ManualSLSeen, n + 1);
-    g_ManualSLSeen[n] = tk;
-}
-
-void PruneManualSLSeen() {
-    int n = ArraySize(g_ManualSLSeen);
-    int k = 0;
-    for(int i = 0; i < n; i++) {
-        if(PositionSelectByTicket(g_ManualSLSeen[i]))
-            g_ManualSLSeen[k++] = g_ManualSLSeen[i];
-    }
-    ArrayResize(g_ManualSLSeen, k);
-}
-
-void CheckManualAutoSL() {
-    if(!g_ManualAutoSLEnable) return;
-    if(g_ManualSL_Points <= 0) return;
-
-    PruneManualSLSeen();
-
-    double emaVal = GetManualSLEMA();
-    if(emaVal <= 0) return;
-
-    double point = SymbolInfoDouble(_Symbol, SYMBOL_POINT);
-    double bid   = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-    double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-
-    for(int i = PositionsTotal()-1; i >= 0; i--) {
-        ulong tk = PositionGetTicket(i);
-        if(!PositionSelectByTicket(tk)) continue;
-        if(PositionGetString(POSITION_SYMBOL) != _Symbol) continue;
-        if(PositionGetInteger(POSITION_MAGIC) != 0) continue;
-        string cmt = PositionGetString(POSITION_COMMENT);
-        if(StringFind(cmt, "RTB|") == 0) continue;
-        if(cmt == HEDGE_ALL_CMT) continue;
-
-        if(ManualSLAlreadySeen(tk)) continue;
-
-        double curSL = PositionGetDouble(POSITION_SL);
-        if(curSL != 0) { MarkManualSLSeen(tk); continue; } // đã có SL (Trailing/người dùng đặt) — không đụng vào
-
-        int    pt    = (int)PositionGetInteger(POSITION_TYPE);
-        double opn   = PositionGetDouble(POSITION_PRICE_OPEN);
-        double curTP = PositionGetDouble(POSITION_TP);
-
-        // Gán 1 lần duy nhất lúc mới phát hiện lệnh, sau đó nhường quyền cho Trailing lệnh tay (tránh 2 cơ chế
-        // cùng ghi đè SL liên tục gây xung đột). BUY: giá trên EMA -> cùng chiều -> SL xa gấp đôi; giá dưới EMA
-        // -> ngược chiều -> SL gần (1x). SELL: ngược lại.
-        bool   sameDir = (pt == POSITION_TYPE_BUY) ? (bid > emaVal) : (ask < emaVal);
-        double slPts   = sameDir ? g_ManualSL_Points * 2.0 : g_ManualSL_Points;
-
-        double sl = (pt == POSITION_TYPE_BUY) ? NormalizeDouble(opn - slPts * point, _Digits)
-                                               : NormalizeDouble(opn + slPts * point, _Digits);
-
-        if(Trade.PositionModify(tk, sl, curTP))
-            Print("RTB: EMA lọc — gán SL 1 lần lúc vào lệnh (", (sameDir ? "cùng chiều x2" : "ngược chiều x1"),
-                  ") cho lệnh tay ticket=", tk, " sl=", sl);
-        else
-            Print("RTB: EMA lọc — gán SL lệnh tay ticket=", tk, " thất bại, err=", GetLastError());
-
-        MarkManualSLSeen(tk);
-    }
-}
-
 void CheckExit() {
     if(g_ClosePerPips > 0) {
         double ask   = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
@@ -1190,16 +823,12 @@ void CheckExit() {
         }
     }
 
-    // g_CloseIncludeManual (nút "Tính lệnh tay" trên panel Manual Trade): khi bật, lệnh tay (Magic=0)
-    // cũng được cộng vào Float để xét ngưỡng InpCloseProfit/InpCloseLoss, và khi ngưỡng chạm thì lệnh
-    // tay cũng bị đóng theo cùng lúc với lệnh bot (CloseAllManual()) — vì đã tính chung vào quyết định.
-    double basketFloat = FloatProfit() + (g_CloseIncludeManual ? ManualFloatProfit() : 0.0);
+    double basketFloat = FloatProfit();
 
     if(g_CloseProfit > 0) {
         if(basketFloat >= g_CloseProfit) {
             Print("RTB: CloseProfit target reached. Closing all.");
             CloseAll();
-            if(g_CloseIncludeManual) CloseAllManual();
             return;
         }
     }
@@ -1208,7 +837,6 @@ void CheckExit() {
         if(basketFloat <= -g_CloseLoss) {
             Print("RTB: CloseLoss limit hit. Closing all.");
             CloseAll();
-            if(g_CloseIncludeManual) CloseAllManual();
             return;
         }
     }
@@ -1597,12 +1225,12 @@ void UpdateGUI(bool forceCalRefresh = false) {
     int x = PX + 7, s = 18;
     int bh  = 22;
     int bfw = PW - 18;
-    int bhw = (PW - 24) / 2;
-    int bx2 = PX + 7 + bhw + 4;
 
     string legacyObjs[] = {"L0","Tim","Sig","Mod","Dir","Sync","L1","Bal","Ini","DayP","FP",
                             "IniL","IniV","DayL","DayV","TotL","TotV","TotAllL","TotAllV",
                             "L2","DD","MDD","L3","BuyP","BuyC","SelP","SelC","Tot","TClock","BtnCloseManual",
+                            "DDPauseCard","DDPauseCardBar","DDPauseH","BtnDDPauseToggle","BtnPauseEAToggle",
+                            "DDPauseDDL","DDPauseDDV","DDPauseStL","DDPauseStV",
                             "CardRisk","CardRiskBar","RiskH","DDL","DDV","DDGTrk","DDGFill",
                             "MDDL","MDDV","MDDGTrk","MDDGFill","HdgS",
                             "CardBuy","CardBuyBar","BuyL","BuyV","BuyLot",
@@ -1623,6 +1251,11 @@ void UpdateGUI(bool forceCalRefresh = false) {
                             "ManualTPV","ManTrailModeL","ManTrailModeV",
                             "ManualEMAL","ManualEMAV",
                             "ManualSubStats","ManualBuyCntL","ManualSellCntL","ManualFloatL","ManualFloatV",
+                            "ManualCard","ManualCardBar","ManualH","ManualSubSLTP",
+                            "ManualLotL","ManualLotV","ManualSLL","ManualSLV","BtnManualSLToggle",
+                            "ManualSubTrail","BtnManTrailToggle",
+                            "ManualSubCloseAll","BtnCloseIncludeManual",
+                            "BtnManualBuy","BtnManualSell",
                             "ChipMode","ChipModeBg",
                             "ChipSig","ChipSigBg","ChipDir","ChipDirBg",
                             "DcaDirCard","DcaDirCardBar","DcaDirH","DcaLvlBuyL","DcaLvlSellL",
@@ -1717,114 +1350,11 @@ void UpdateGUI(bool forceCalRefresh = false) {
     LblR("FloV", StringFormat("%s$%.2f (%.2f%%)", totalProfit >= 0 ? "+" : "-", MathAbs(totalProfit), pnlPct), rightEdge, ya, cProfit, 11);
     y2 += acctH + 8;
 
-    if(!g_PanelCollapsed) {
-    int rowH   = 15;
-    int hdrGap = 6;
-    int subH   = 14;
-    color cardAccent = C'90,160,255';
-
-    double ddPauseBotFloat = FloatProfit();
-    color  ddPauseNowClr   = (ddPauseBotFloat <= g_DDPauseThreshold) ? clrTomato : C'231,236,245';
-    string ddPauseStTxt    = g_PauseEA ? "ĐANG PAUSE" : "Bình thường";
-    color  ddPauseStClr    = g_PauseEA ? clrTomato : clrLimeGreen;
-
-    int ddPauseCardH = 6 + 13 + hdrGap + (18+4) + rowH*2 + 6;
-    CreateRect("DDPauseCard",    contentX, y2, cardW, ddPauseCardH, C'20,28,44');
-    CreateRect("DDPauseCardBar", contentX, y2, 2,     ddPauseCardH, cardAccent);
-    Lbl("DDPauseH", "HEDGE & PAUSE", contentX + 8, y2 + 5, clrWhite, 9);
-    ObjectSetString(0, GUI + "DDPauseH", OBJPROP_FONT, "Calibri Bold");
-    {
-        int yDP = y2 + 6 + 13 + hdrGap;
-        int    ddpBtnW  = (cardW - 16 - 6) / 2;
-        string cbBtnTxt = g_DDPauseEnable ? "Cân Lệnh: On" : "Cân Lệnh: Off";
-        color  cbBtnBg  = g_DDPauseEnable ? C'10,70,35'   : C'45,18,18';
-        color  cbBtnBd  = g_DDPauseEnable ? C'55,200,110' : C'130,50,50';
-        CreateBtn("BtnDDPauseToggle", cbBtnTxt, contentX + 8, yDP, ddpBtnW, 18, cbBtnBg, cbBtnBd);
-
-        string peBtnTxt = g_PauseEA ? "Pause EA: On" : "Pause EA: Off";
-        color  peBtnBg  = g_PauseEA ? C'10,70,35'   : C'45,18,18';
-        color  peBtnBd  = g_PauseEA ? C'55,200,110' : C'130,50,50';
-        CreateBtn("BtnPauseEAToggle", peBtnTxt, contentX + 8 + ddpBtnW + 6, yDP, ddpBtnW, 18, peBtnBg, peBtnBd);
-        yDP += 18 + 4;
-
-        Lbl ("DDPauseDDL", "DD hiện tại", contentX + 8, yDP, C'127,139,163', 10);
-        LblR("DDPauseDDV", StringFormat("%s$%.2f / %s$%.2f",
-                 ddPauseBotFloat    >= 0 ? "+" : "-", MathAbs(ddPauseBotFloat),
-                 g_DDPauseThreshold >= 0 ? "+" : "-", MathAbs(g_DDPauseThreshold)),
-             rightEdge, yDP, ddPauseNowClr, 10);
-        yDP += rowH;
-
-        Lbl ("DDPauseStL", "Trạng thái", contentX + 8, yDP, C'127,139,163', 10);
-        LblR("DDPauseStV", ddPauseStTxt, rightEdge, yDP, ddPauseStClr, 10);
-    }
-    y2 += ddPauseCardH + 8;
-
-    int manualCardH = 6 + 13 + hdrGap
-                    + subH + rowH*2 + 18 + 4
-                    + subH + 5 + 18 + 4
-                    + subH + 5 + 18
-                    + 6;
-    CreateRect("ManualCard",    contentX, y2, cardW, manualCardH, C'20,28,44');
-    CreateRect("ManualCardBar", contentX, y2, 2,     manualCardH, cardAccent);
-    Lbl("ManualH", "MANUAL TRADE", contentX + 8, y2 + 5, clrWhite, 9);
-    ObjectSetString(0, GUI + "ManualH", OBJPROP_FONT, "Calibri Bold");
-    {
-        int yT = y2 + 6 + 13 + hdrGap;
-
-        Lbl("ManualSubSLTP", StringFormat("THÔNG SỐ & SL (EMA %d)", InpManualSLEMAPeriod), contentX + 8, yT, C'90,102,127', 9);
-        yT += subH;
-
-        Lbl ("ManualLotL", "Lot lệnh tay", contentX + 8, yT, C'127,139,163', 10);
-        LblR("ManualLotV", DoubleToString(InpManualLotSize, 2), rightEdge, yT, C'231,236,245', 10); yT += rowH;
-
-        bool   slAvailable = g_ManualSL_Points > 0 && g_ManualAutoSLEnable;
-
-        Lbl ("ManualSLL", "SL", contentX + 8, yT, slAvailable ? clrTomato : C'127,139,163', 10);
-        LblR("ManualSLV", slAvailable ? StringFormat("%.0f pts", g_ManualSL_Points) : "Tắt", rightEdge, yT, slAvailable ? clrTomato : C'127,139,163', 10);
-        yT += rowH;
-
-        string manSLBtnTxt = g_ManualAutoSLEnable ? "Auto SL: On" : "Auto SL: Off";
-        color  manSLBtnBg  = g_ManualAutoSLEnable ? C'10,70,35'   : C'45,18,18';
-        color  manSLBtnBd  = g_ManualAutoSLEnable ? C'55,200,110' : C'130,50,50';
-        CreateBtn("BtnManualSLToggle", manSLBtnTxt, contentX + 8, yT, cardW - 16, 18, manSLBtnBg, manSLBtnBd);
-        yT += 18 + 4;
-
-        Lbl("ManualSubTrail", "TRAILING STOP", contentX + 8, yT, C'90,102,127', 9);
-        yT += subH + 5;
-
-        string manTrailBtnTxt = g_ManualTrailEnable ? "Trailing: On" : "Trailing: Off";
-        color  manTrailBtnBg  = g_ManualTrailEnable ? C'10,70,35'   : C'45,18,18';
-        color  manTrailBtnBd  = g_ManualTrailEnable ? C'55,200,110' : C'130,50,50';
-        CreateBtn("BtnManTrailToggle", manTrailBtnTxt, contentX + 8, yT, cardW - 16, 18, manTrailBtnBg, manTrailBtnBd);
-        yT += 18 + 4;
-
-        Lbl("ManualSubCloseAll", "TÍNH VÀO ĐÓNG TỔNG", contentX + 8, yT, C'90,102,127', 9);
-        yT += subH + 5;
-
-        string manCIMBtnTxt = g_CloseIncludeManual ? "Tính lệnh tay: On" : "Tính lệnh tay: Off";
-        color  manCIMBtnBg  = g_CloseIncludeManual ? C'10,70,35'   : C'45,18,18';
-        color  manCIMBtnBd  = g_CloseIncludeManual ? C'55,200,110' : C'130,50,50';
-        CreateBtn("BtnCloseIncludeManual", manCIMBtnTxt, contentX + 8, yT, cardW - 16, 18, manCIMBtnBg, manCIMBtnBd);
-    }
-    y2 += manualCardH + 8;
-    } else {
-        string acctCollapsedObjs[] = {
-            "DDPauseCard", "DDPauseCardBar", "DDPauseH", "BtnDDPauseToggle", "BtnPauseEAToggle",
-            "DDPauseDDL", "DDPauseDDV", "DDPauseStL", "DDPauseStV",
-            "ManualCard", "ManualCardBar", "ManualH", "ManualSubSLTP",
-            "ManualLotL", "ManualLotV", "ManualSLL", "ManualSLV",
-            "BtnManualSLToggle",
-            "ManualSubTrail", "BtnManTrailToggle",
-            "ManualSubCloseAll", "BtnCloseIncludeManual"
-        };
-        for(int aci = 0; aci < ArraySize(acctCollapsedObjs); aci++) ObjectDelete(0, GUI + acctCollapsedObjs[aci]);
-    }
-
     int contentBottom = y2 + 3;
     int bg2Y = contentBottom + 4;
 
     if(!g_PanelCollapsed) {
-    int bg3Y = bg2Y + 92 + 2;
+    int bg3Y = bg2Y + 66 + 2;
 
     int y = bg2Y + 5;
     Lbl("P2T", "ĐIỀU KHIỂN LỆNH", x + 8, y, clrWhite, 9);
@@ -1835,10 +1365,6 @@ void UpdateGUI(bool forceCalRefresh = false) {
         color  botBg  = g_BotEnabled ? C'0,90,30'   : C'120,20,20';
         color  botBd  = g_BotEnabled ? C'40,190,90' : C'220,60,60';
         CreateBtn("BtnBotToggle", botTxt, PX+7, y, bfw, bh, botBg, botBd);
-        y += bh + 4;
-
-        CreateBtn("BtnManualBuy",  "▲ BUY",  PX+7, y, bhw, bh, C'0,60,80',  C'40,150,200');
-        CreateBtn("BtnManualSell", "▼ SELL", bx2,  y, bhw, bh, C'80,50,0',  C'200,140,40');
         y += bh + 4;
     }
 
@@ -1906,7 +1432,6 @@ void ApplyBotEnabled(bool newVal) {
     if(g_BotEnabled && !newVal) {
         Print("RTB: Bot bị TẮT (BotEnabled=false) — đóng toàn bộ lệnh.");
         CloseAll();
-        CloseAllManual();
     }
     g_BotEnabled = newVal;
 }
@@ -2160,25 +1685,10 @@ void RebuildDCAState(int posType) {
 int OnInit() {
     g_Direction = InpDirection;
 
-    hManualSLEMA = iMA(_Symbol, PERIOD_CURRENT, InpManualSLEMAPeriod, 0, MODE_EMA, PRICE_CLOSE);
-    if(hManualSLEMA == INVALID_HANDLE) {
-        Print("RTB: Không tạo được handle EMA lọc Auto SL lệnh tay (period=", InpManualSLEMAPeriod, ").");
-        return INIT_FAILED;
-    }
-
-    g_ManualSL_Points = InpManualSL_Points;
     g_OrderDelay = InpOrderDelay;
     g_DCAArithEnable = InpDCAArithEnable; g_DCAArithStep = InpDCAArithStep;
-    g_TrailEnable = InpTrailEnable; g_TrailMinOrds = InpTrailMinOrds;
-    g_TrailActivate = InpTrailActivate; g_TrailStep = InpTrailStep; g_TrailInit = InpTrailInit;
-    g_ManualTrailEnable = InpManualTrailEnable; g_ManualTrailMinOrds = InpManualTrailMinOrds;
-    g_ManualTrailActivate = InpManualTrailActivate; g_ManualTrailStep = InpManualTrailStep; g_ManualTrailInit = InpManualTrailInit;
     g_CloseProfit = InpCloseProfit; g_CloseLoss = InpCloseLoss; g_ClosePerPips = InpClosePerPips;
     g_DayMaxLoss = InpDayMaxLoss; g_DayMaxProfit = InpDayMaxProfit;
-
-    g_DDPauseEnable    = InpDDPauseEnable;
-    g_DDPauseThreshold = InpDDPauseThreshold;
-    g_PauseEA          = false;
 
     g_BotEnabled = InpBotEnabled;
 
@@ -2230,39 +1740,27 @@ int OnInit() {
 void OnDeinit(const int reason) {
     EventKillTimer();
     RemoveGUI();
-    if(hManualSLEMA != INVALID_HANDLE) IndicatorRelease(hManualSLEMA);
 }
 
 void OnTick() {
-    if(!g_PauseEA) CheckEntry();
-    if(!DayLimitHit) {
-        if(!g_PauseEA) CheckTrailing();
-        CheckManualTrailing();
-    }
+    CheckEntry();
 }
 
 void OnTimer() {
     UpdateDayProfit();
     CheckDayLimit();
-    CheckDDPause();
 
     if(CountBuy()  == 0 && !HasPendingDCA(POSITION_TYPE_BUY))  ResetDCAState(POSITION_TYPE_BUY);
     if(CountSell() == 0 && !HasPendingDCA(POSITION_TYPE_SELL)) ResetDCAState(POSITION_TYPE_SELL);
 
-    CheckManualAutoSL();
-
     CheckExit();
 
     if(!DayLimitHit && g_BotEnabled) {
-        if(!g_PauseEA) {
-            CheckOrigRestart(POSITION_TYPE_BUY);
-            CheckOrigRestart(POSITION_TYPE_SELL);
-        }
+        CheckOrigRestart(POSITION_TYPE_BUY);
+        CheckOrigRestart(POSITION_TYPE_SELL);
 
-        if(!g_PauseEA) {
-            if(CountBuy()  > 0) CheckDCA(POSITION_TYPE_BUY);
-            if(CountSell() > 0) CheckDCA(POSITION_TYPE_SELL);
-        }
+        if(CountBuy()  > 0) CheckDCA(POSITION_TYPE_BUY);
+        if(CountSell() > 0) CheckDCA(POSITION_TYPE_SELL);
     }
 
     UpdateGUI();
@@ -2274,7 +1772,6 @@ void OnTradeTransaction(const MqlTradeTransaction& trans,
     if(trans.type == TRADE_TRANSACTION_DEAL_ADD) {
         UpdateDayProfit();
         CheckDayLimit();
-        CheckManualAutoSL();
         UpdateGUI(true);
     }
 }
@@ -2289,37 +1786,6 @@ void OnChartEvent(const int id, const long& lparam, const double& dparam, const 
             ApplyBotEnabled(!g_BotEnabled);
             UpdateGUI();
         }
-    }
-    else if(sparam == GUI + "BtnManTrailToggle") {
-        g_ManualTrailEnable = !g_ManualTrailEnable;
-        Print("RTB: Trailing lệnh tay ", (g_ManualTrailEnable ? "BẬT" : "TẮT"), " (thủ công qua panel).");
-        UpdateGUI();
-    }
-    else if(sparam == GUI + "BtnManualSLToggle") {
-        g_ManualAutoSLEnable = !g_ManualAutoSLEnable;
-        Print("RTB: Auto SL (EMA) lệnh tay ", (g_ManualAutoSLEnable ? "BẬT" : "TẮT"), " (thủ công qua panel).");
-        UpdateGUI();
-    }
-    else if(sparam == GUI + "BtnDDPauseToggle") {
-        g_DDPauseEnable = !g_DDPauseEnable;
-        Print("RTB: Cân Lệnh theo DD ", (g_DDPauseEnable ? "BẬT" : "TẮT"), " (thủ công qua panel).");
-        UpdateGUI();
-    }
-    else if(sparam == GUI + "BtnPauseEAToggle") {
-        g_PauseEA = !g_PauseEA;
-        Print("RTB: Pause EA ", (g_PauseEA ? "BẬT" : "TẮT"), " (thủ công qua panel).");
-        UpdateGUI();
-    }
-    else if(sparam == GUI + "BtnCloseIncludeManual") {
-        g_CloseIncludeManual = !g_CloseIncludeManual;
-        Print("RTB: Tính lệnh tay vào Float Đóng Lệnh Tổng ", (g_CloseIncludeManual ? "BẬT" : "TẮT"), " (thủ công qua panel).");
-        UpdateGUI();
-    }
-    else if(sparam == GUI + "BtnManualBuy") {
-        if(!DayLimitHit && g_BotEnabled) OpenManualOrder(ORDER_TYPE_BUY);
-    }
-    else if(sparam == GUI + "BtnManualSell") {
-        if(!DayLimitHit && g_BotEnabled) OpenManualOrder(ORDER_TYPE_SELL);
     }
     else if(sparam == GUI + "BtnPanelToggle") {
         g_PanelCollapsed = !g_PanelCollapsed;
